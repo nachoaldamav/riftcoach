@@ -41,7 +41,7 @@ export class AthenaQueryClient {
       outputLocation:
         options.outputLocation ||
         `s3://${process.env.S3_BUCKET}/athena-results/`,
-      maxRetries: options.maxRetries || 3,
+      maxRetries: options.maxRetries || 6,
       retryDelayMs: options.retryDelayMs || 1000,
     };
   }
