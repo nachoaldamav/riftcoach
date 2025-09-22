@@ -1,0 +1,22 @@
+{
+    "name": "@riftcoach/apps.api",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "",
+    "main": "src/index.ts",
+    "types": "src/index.ts",
+    "scripts": {
+        "compile": "tsc",
+        "export": "tsx src/index.ts"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "@types/node": "^24.5.2"
+    },
+    "dependencies": {
+        "@aws-sdk/client-athena": "^3.893.0",
+        "hono": "^4.9.8"
+    }
+}

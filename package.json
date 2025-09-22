@@ -4,10 +4,21 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "compile": "pnpm run -r compile",
+    "export:mongodb": "pnpm run -r export --filter @riftcoach/apps.mongodb-exporter",
+    "start:api": "sst dev --stage dev",
+    "deploy:api": "sst deploy --stage prod"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.14.0"
+  "packageManager": "pnpm@10.14.0",
+  "dependencies": {
+    "@aws-sdk/client-athena": "*",
+    "@riftcoach/apps.api": "workspace:*",
+    "sst": "3.17.13"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.152"
+  }
 }
