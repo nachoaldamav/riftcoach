@@ -78,6 +78,46 @@ importers:
         specifier: ^5.9.2
         version: 5.9.2
 
+  apps/pro-exporter:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: 3.893.0
+        version: 3.893.0
+      '@fightmegg/riot-api':
+        specifier: 0.0.21
+        version: 0.0.21
+      '@riftcoach/shared.constants':
+        specifier: workspace:*
+        version: link:../../packages/shared/constants
+      '@riftcoach/shared.lol-types':
+        specifier: workspace:*
+        version: link:../../packages/shared/lol-types
+      chalk:
+        specifier: 5.6.2
+        version: 5.6.2
+      consola:
+        specifier: 3.4.2
+        version: 3.4.2
+      dotenv:
+        specifier: 17.2.2
+        version: 17.2.2
+      p-limit:
+        specifier: 7.1.1
+        version: 7.1.1
+      p-queue:
+        specifier: 8.1.1
+        version: 8.1.1
+    devDependencies:
+      '@types/node':
+        specifier: ^24.5.2
+        version: 24.5.2
+      tsx:
+        specifier: ^4.20.5
+        version: 4.20.5
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+
   packages/shared/constants:
     devDependencies:
       typescript:

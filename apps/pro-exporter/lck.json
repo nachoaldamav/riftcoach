@@ -1,0 +1,246 @@
+[
+    {
+        "player": "Doran",
+        "team": "T1",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "어리고싶다",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "TOPTOPTOP",
+                "tagLine": "1234",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "HLE TOP",
+                "tagLine": "1234",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Oner",
+        "team": "T1",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "오 너",
+                "tagLine": "111",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "hi hello",
+                "tagLine": "12341",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "BONG BONG U",
+                "tagLine": "123",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Faker",
+        "team": "T1",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Hide on bush",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Hide on bush",
+                "tagLine": "canad",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Hide on bush",
+                "tagLine": "61151",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Gumayusi",
+        "team": "T1",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "T1 Gumayusi",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "구르시",
+                "tagLine": "녹서스",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Beaver Tails",
+                "tagLine": "4444",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "taco genius",
+                "tagLine": "8848",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Keria",
+        "team": "T1",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "역천괴",
+                "tagLine": "ker3",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "durcjsrhl",
+                "tagLine": "1014",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "triplestar",
+                "tagLine": "star",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Kiin",
+        "team": "Gen.G",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "kiin",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "addddsas",
+                "tagLine": "1234",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "asdfzxcv",
+                "tagLine": "3347",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "kiin",
+                "tagLine": "구독좋아요",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Canyon",
+        "team": "Gen.G",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "JUGKlNG",
+                "tagLine": "kr",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "밴쿠버",
+                "tagLine": "123",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "asfdwrqe",
+                "tagLine": "123",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Chovy",
+        "team": "Gen.G",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "허거덩",
+                "tagLine": "0303",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "KKintube",
+                "tagLine": "낀낀이형",
+                "platform": "na1"
+            }
+        ]
+    },
+    {
+        "player": "Ruler",
+        "team": "Gen.G",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "귀찮게하지마",
+                "tagLine": "KR3",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Ruler",
+                "tagLine": "145",
+                "platform": "na1"
+            }
+        ]
+    },
+    {
+        "player": "Duro",
+        "team": "Gen.G",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Duro",
+                "tagLine": "Gen",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "안녕 캐나다",
+                "tagLine": "캐나다",
+                "platform": "na1"
+            }
+        ]
+    }
+]

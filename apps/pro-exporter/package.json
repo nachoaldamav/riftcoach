@@ -1,0 +1,31 @@
+{
+    "name": "@riftcoach/apps.pro-exporter",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Exports pro player PUUIDs from LCK/LEC data to S3 with proper partitioning",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "compile": "tsc",
+        "export": "tsx src/index.ts"
+    },
+    "keywords": ["lol", "pro-players", "s3", "export"],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "@types/node": "^24.5.2",
+        "tsx": "^4.20.5",
+        "typescript": "^5.9.2"
+    },
+    "dependencies": {
+        "@aws-sdk/client-s3": "3.893.0",
+        "@fightmegg/riot-api": "0.0.21",
+        "@riftcoach/shared.constants": "workspace:*",
+        "@riftcoach/shared.lol-types": "workspace:*",
+        "chalk": "5.6.2",
+        "consola": "3.4.2",
+        "dotenv": "17.2.2",
+        "p-limit": "7.1.1",
+        "p-queue": "8.1.1"
+    }
+}

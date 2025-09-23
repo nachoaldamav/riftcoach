@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "compile": "pnpm run -r compile",
-    "export:mongodb": "pnpm run -r export --filter @riftcoach/apps.mongodb-exporter",
+    "export:mongodb": "pnpm run -r --filter @riftcoach/apps.mongodb-exporter export",
+    "export:pro": "pnpm run -r --filter @riftcoach/apps.pro-exporter export",
     "start:api": "sst dev --stage dev",
     "deploy:api": "sst deploy --stage prod"
   },

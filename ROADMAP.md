@@ -4,7 +4,7 @@ Here’s a crisp hand-off you can paste into the new chat. It’s split into ✅
 
 ## Data lake & ingestion
 
-- S3 bucket `riftcoach` (eu-central-1) with Bronze layout:
+- S3 bucket `riftcoach` (eu-west-1) with Bronze layout:
 
   - `raw/matches/season=YYYY/patch=X.Y/queue=QQQ/matchId=…jsonl.gz`
   - `raw/timelines/season=YYYY/patch=X.Y/queue=QQQ/matchId=…jsonl.gz`

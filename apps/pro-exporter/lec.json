@@ -1,0 +1,979 @@
+[
+    {
+        "player": "Myrwn",
+        "team": "MKOI",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Terra Branford",
+                "tagLine": "FFVI",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Bb trickz",
+                "tagLine": "Tipz",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "A VOLAAAAR",
+                "tagLine": "FRAN",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Mualani C6",
+                "tagLine": "Myrwn",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Elyoya",
+        "team": "MKOI",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "komanche uchiha",
+                "tagLine": "elite",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Dani Flow",
+                "tagLine": "myrwn",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Andrew Laedis",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Ratón calvo",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "domyos",
+                "tagLine": "mchla",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Ashton Klutcher",
+                "tagLine": "NA1",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3255261550233312",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Jojopyun",
+        "team": "MKOI",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "KOIIIIIIIII",
+                "tagLine": "1234",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "VJBYYTF0AO",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "ég jojopyun",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "2960769804248160",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "2960771781657632",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "C9C9C9C9C9",
+                "tagLine": "NA1",
+                "platform": "na1"
+            }
+        ]
+    },
+    {
+        "player": "Supa",
+        "team": "MKOI",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "tukaan",
+                "tagLine": "tukan",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Tukaan",
+                "tagLine": "tuknn",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Perro de Elyoya",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "K1374n0",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "4tukano4",
+                "tagLine": "TUKAN",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Alvaro",
+        "team": "MKOI",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "s7R 074",
+                "tagLine": "000",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Articuno",
+                "tagLine": "sup",
+                "platform": "na1"
+            }
+        ]
+    },
+    {
+        "player": "BrokenBlade",
+        "team": "G2",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "G2 BrokenBlade",
+                "tagLine": "1918",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "G2 BrokenBlade",
+                "tagLine": "1918",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "str8 beefy mode",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "SkewMond",
+        "team": "G2",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "G2 SkewMond",
+                "tagLine": "3327",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "G2 Hydreigon",
+                "tagLine": "9452",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Miyamoto Musashi",
+                "tagLine": "2783",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Caps",
+        "team": "G2",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "G2 Caps",
+                "tagLine": "1323",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "wEDKca0Gxe",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "TheShackledCaps",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Hans Sama",
+        "team": "G2",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "G2 Hans Sama",
+                "tagLine": "12838",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Hans AYAYA",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3080307703154176",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Labrov",
+        "team": "G2",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "G2 Labrov",
+                "tagLine": "8085",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "school phobia",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3255262030373984",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Canna",
+        "team": "Karmine Corp",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "칸 나",
+                "tagLine": "0211",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Savage love",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "EJRKLJ0",
+                "tagLine": "0000",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Yike",
+        "team": "Karmine Corp",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "KC Yiken",
+                "tagLine": "1111",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "YIK",
+                "tagLine": "YIK",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Yikos",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3255262144873952",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Vladi",
+        "team": "Karmine Corp",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "dmsdklb",
+                "tagLine": "vivi",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "J1HUIV",
+                "tagLine": "000",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Jjimdak",
+                "tagLine": "000",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "KC Vladi",
+                "tagLine": "000",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Caliste",
+        "team": "Karmine Corp",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "KC NEXT ADKING",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "KC Caliste",
+                "tagLine": "0001",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "MOMO KOZUKI",
+                "tagLine": "soloq",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Targamas",
+        "team": "Karmine Corp",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Targamas",
+                "tagLine": "5555",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Grizzly Hills",
+                "tagLine": "123",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Targamas",
+                "tagLine": "34184",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "2960771459171456",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "EVOLVE5555",
+                "tagLine": "NA1",
+                "platform": "na1"
+            }
+        ]
+    },
+    {
+        "player": "Oscarinin",
+        "team": "Fnatic",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Byron Love",
+                "tagLine": "1v9",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3255262315128640",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Razork",
+        "team": "Fnatic",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Razørk Activoo",
+                "tagLine": "razzz",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Cachorro Alpha",
+                "tagLine": "razzz",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Foquita Activaa",
+                "tagLine": "NA1",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3255262344742400",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Poby",
+        "team": "Fnatic",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "XPoby",
+                "tagLine": "0207",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "피오비와이",
+                "tagLine": "0207",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Upset",
+        "team": "Fnatic",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "FNC Upset22",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "FΝC Upset",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "THINKPOSITIVE03",
+                "tagLine": "NA1",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "afsdfasgagaga",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Mikyx",
+        "team": "Fnatic",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "FNC Mikyx",
+                "tagLine": "1998",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Riza Hawkeyé",
+                "tagLine": "76934",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "MSF Kacchan",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "2891408603137856",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Lot",
+        "team": "GIANTX",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "chenzelot",
+                "tagLine": "LOT",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "choilot",
+                "tagLine": "LOT",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "lot1",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "IW Lot",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "ISMA",
+        "team": "GIANTX",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "ismααα",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "ismaaa1",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "786786786",
+                "tagLine": "LEC1",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "isma",
+                "tagLine": "soloq",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Jackies",
+        "team": "GIANTX",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "King Julien XIII",
+                "tagLine": "MGDSK",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "hahahahah",
+                "tagLine": "2218",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Noah",
+        "team": "GIANTX",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Better Life",
+                "tagLine": "Noah",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "원딜붕이",
+                "tagLine": "KR2",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "숨바꼭질",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Noah7",
+                "tagLine": "Euw2",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Jun",
+        "team": "GIANTX",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "독기품기",
+                "tagLine": "ABC",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "qrds",
+                "tagLine": "211",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "europe",
+                "tagLine": "a12",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Cold",
+                "tagLine": "asd4",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Haven",
+                "tagLine": "AU0",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Carlsen",
+        "team": "Team Heretics",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "skygge kriger",
+                "tagLine": "EUV",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Sheo",
+        "team": "Team Heretics",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "worthless pride",
+                "tagLine": "fear",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3255261945251008",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Kamiloo",
+        "team": "Team Heretics",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Limitless limits",
+                "tagLine": "FIRE",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "David",
+                "tagLine": "BOBO",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Flakked",
+        "team": "Team Heretics",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "David Lirola",
+                "tagLine": "goatツ",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "el tetoncito",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "6419",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "100x100 MERENGUE",
+                "tagLine": "03669",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "2960771427034304",
+                "tagLine": "KR1",
+                "platform": "kr"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "UmaJan69",
+                "tagLine": "NA1",
+                "platform": "na1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "webito",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Stend",
+        "team": "Team Heretics",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "TH Stend",
+                "tagLine": "000",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "TH Stend",
+                "tagLine": "lrd",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Naak Nako",
+        "team": "Team Vitality",
+        "role": "TOP",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Naak Pado",
+                "tagLine": "VIT",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Dele Alli",
+                "tagLine": "VIT",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "E Q D E Q A R",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Lyncas",
+        "team": "Team Vitality",
+        "role": "JUNGLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "v lyncas1",
+                "tagLine": "lync1",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "ddh",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Czajek",
+        "team": "Team Vitality",
+        "role": "MIDDLE",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Daglas fangirl",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Czajek",
+                "tagLine": "sosis",
+                "platform": "euw1"
+            }
+        ]
+    },
+    {
+        "player": "Carzzy",
+        "team": "Team Vitality",
+        "role": "BOTTOM",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "lego ninjago",
+                "tagLine": "vape",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "hello bro",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "DWG BOOM",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "RNG CRYIN1",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "mommys milk yum",
+                "tagLine": "EUW",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "3255261607430112",
+                "tagLine": "KR1",
+                "platform": "kr"
+            }
+        ]
+    },
+    {
+        "player": "Fleshy",
+        "team": "Team Vitality",
+        "role": "SUPPORT",
+        "accounts": [
+            {
+                "kind": "riotId",
+                "gameName": "Fleshy",
+                "tagLine": "EU1",
+                "platform": "euw1"
+            },
+            {
+                "kind": "riotId",
+                "gameName": "Hmmm",
+                "tagLine": "hmhm",
+                "platform": "euw1"
+            }
+        ]
+    }
+]
