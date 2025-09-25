@@ -31,6 +31,8 @@ COPY apps/api/src/ ./apps/api/src/
 COPY apps/api/tsconfig.json ./apps/api/
 COPY apps/api/rolldown.config.ts ./apps/api/
 
+RUN pnpm compile
+
 # Build the application
 RUN cd apps/api && pnpm run build
 
