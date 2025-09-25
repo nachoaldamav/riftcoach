@@ -10,9 +10,21 @@ declare module "sst" {
       "type": "sst.aws.Function"
       "url": string
     }
-    "riftcoach": {
+    "ProExporter": {
       "name": string
-      "type": "sst.aws.Bucket"
+      "type": "sst.aws.Function"
+    }
+    "ProMatchesSeen": {
+      "name": string
+      "type": "sst.aws.Dynamo"
+    }
+    "ProSync": {
+      "name": string
+      "type": "sst.aws.Dynamo"
+    }
+    "RiotApiKey": {
+      "type": "sst.sst.Secret"
+      "value": string
     }
   }
 }

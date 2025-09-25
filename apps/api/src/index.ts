@@ -1,107 +1,260 @@
+import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { handle } from "hono/aws-lambda";
-import { athenaClient } from "./athena-client.js";
+import { redis } from "./clients/redis.js";
+import { riotAPI } from "./clients/riot.js";
+import { s3Client } from "./clients/s3.js";
+import { PlatformId, regionToCluster, RiotAPITypes } from "@fightmegg/riot-api";
+import z from "zod";
+import { makeRewindJobId, rewindQ, encodeJobId } from "./queues/rewind.js";
+import type { Queue } from "bullmq";
+import { consola } from "consola";
+import chalk from "chalk";
+import { fetchQ, listQ } from "./queues/scan.js";
+
+const JOB_SCOPE = process.env.JOB_SCOPE ?? "Y2025";
 
 const app = new Hono();
 
-app.get("/", async (c) => {
+app.get("/", (c) => {
+  return c.text("Hello Hono!");
+});
+
+/**
+ * Health check endpoint
+ * Showcase the health of the server and the clients
+ */
+app.get("/health", (c) => {
+  console.log(riotAPI.riotRateLimiter);
+
   return c.json({
-    message: "Hello World",
+    status: "ok",
+    redis: redis.status,
+    riotAPI: !!riotAPI.token ? "ready" : "failed",
+    s3: !!s3Client.config ? "ready" : "failed",
   });
 });
 
-app.get("/athena/champ-avg/:season/:patch/:champion/:role", async (c) => {
-  try {
-    const { season, patch, champion, role } = c.req.param();
-
-    // Input validation and sanitization
-    const sanitizedSeason = parseInt(season);
-    if (
-      isNaN(sanitizedSeason) ||
-      sanitizedSeason < 2014 ||
-      sanitizedSeason > 2026
-    ) {
-      return c.json({ error: "Invalid season parameter" }, 400);
-    }
-
-    const sanitizedChampion = parseInt(champion);
-    if (
-      isNaN(sanitizedChampion) ||
-      sanitizedChampion < 1 ||
-      sanitizedChampion > 1000
-    ) {
-      return c.json({ error: "Invalid champion parameter" }, 400);
-    }
-
-    // Validate patch format (should be numeric like "15", "14", etc.)
-    const sanitizedPatch = parseInt(patch);
-    if (isNaN(sanitizedPatch) || sanitizedPatch < 1 || sanitizedPatch > 50) {
-      return c.json({ error: "Invalid patch parameter" }, 400);
-    }
-
-    // Validate role (whitelist approach)
-    const validRoles = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
-    if (!validRoles.includes(role.toUpperCase())) {
-      return c.json({ error: "Invalid role parameter" }, 400);
-    }
-    const sanitizedRole = role.toUpperCase();
-
-    // Use parameterized query approach with validated inputs
-    const query = `
-    SELECT
-      role,
-      season,
-      SUM(players) AS total_players,
-      SUM(games) AS total_games,
-      -- Weighted Averages
-      SUM(kp_p95 * games) / SUM(games) AS season_avg_kp,
-      SUM(vis_per_min_p95 * games) / SUM(games) AS season_avg_vis_per_min,
-      SUM(wclear_per_min_p95 * games) / SUM(games) AS season_avg_wclear_per_min,
-      SUM(dpg_p95 * games) / SUM(games) AS season_avg_dpg,
-      SUM(cs10_p95 * games) / SUM(games) AS season_avg_cs10,
-      SUM(csfull_p95 * games) / SUM(games) AS season_avg_csfull,
-      SUM(drake_participation_mean * games) / SUM(games) AS season_avg_drake_participation,
-      SUM(herald_participation_mean * games) / SUM(games) AS season_avg_herald_participation,
-      SUM(baron_participation_mean * games) / SUM(games) AS season_avg_baron_participation,
-      SUM(obj_participation_mean * games) / SUM(games) AS season_avg_obj_participation
-    FROM
-      lol.cohorts_role_champ_snap
-    WHERE
-      season = ${sanitizedSeason}
-      AND patch LIKE '${sanitizedPatch}.%'
-      AND queue IN (400, 420, 440)
-      AND championid = ${sanitizedChampion}
-      AND role = '${sanitizedRole}'
-      AND cs10_mean > 0
-    GROUP BY
-      role,
-      season;
-  `;
-
-    const start = Date.now();
-    const results = await athenaClient.query<{
-      role: string;
-      season: string;
-      total_players: number;
-      total_games: number;
-      season_avg_kp: number;
-      season_avg_vis_per_min: number;
-      season_avg_wclear_per_min: number;
-      season_avg_dpg: number;
-      season_avg_cs10: number;
-      season_avg_csfull: number;
-      season_avg_drake_participation: number;
-      season_avg_herald_participation: number;
-      season_avg_baron_participation: number;
-      season_avg_obj_participation: number;
-    }>(query);
-    const end = Date.now();
-    console.log(`Query took ${(end - start).toFixed(2)}ms`);
-    return c.json(results.data[0] ?? {});
-  } catch (error) {
-    console.error("Error querying Athena:", error);
-    return c.json({ error: "Internal server error" }, 500);
-  }
+const StartRewindSchema = z.object({
+  tagName: z.string(),
+  tagLine: z.string(),
+  region: z.enum([
+    PlatformId.BR1,
+    PlatformId.EUNE1,
+    PlatformId.EUW1,
+    PlatformId.JP1,
+    PlatformId.KR,
+    PlatformId.LA1,
+    PlatformId.LA2,
+    PlatformId.NA1,
+    PlatformId.ME1,
+    PlatformId.OC1,
+    PlatformId.RU,
+    PlatformId.TR1,
+    PlatformId.PH2,
+    PlatformId.SG2,
+    PlatformId.TH2,
+    PlatformId.TW2,
+    PlatformId.VN2,
+  ]),
 });
 
-export const handler = handle(app);
+type StartRewindTypes = z.infer<typeof StartRewindSchema>;
+
+app.post("/rewind/start", async (c) => {
+  consola.info(chalk.blue("🚀 Starting rewind request"));
+
+  const body = await c.req.json<StartRewindTypes>().catch(() => null);
+
+  if (!body) {
+    consola.error(chalk.red("❌ Invalid request body"));
+    return c.json({ error: "Invalid request body" }, 400);
+  }
+
+  const { success, data } = StartRewindSchema.safeParse(body);
+
+  if (!success) {
+    consola.error(chalk.red("❌ Schema validation failed:"), data);
+    return c.json({ error: data }, 400);
+  }
+
+  const { tagName, tagLine, region } = data;
+  consola.info(
+    chalk.cyan(`🎮 Processing request for ${tagName}#${tagLine} in ${region}`)
+  );
+
+  const cluster = regionToCluster(region as RiotAPITypes.LoLRegion) as
+    | PlatformId.EUROPE
+    | PlatformId.ASIA
+    | PlatformId.AMERICAS
+    | PlatformId.ESPORTS;
+
+  consola.info(
+    chalk.yellow(`🌍 Mapped region ${region} to cluster ${cluster}`)
+  );
+
+  const summoner = await riotAPI.account
+    .getByRiotId({
+      gameName: tagName,
+      tagLine,
+      region: cluster,
+    })
+    .catch((err) => {
+      consola.error(
+        chalk.red(`❌ Error fetching summoner: ${tagName}#${tagLine}`),
+        err
+      );
+      return null;
+    });
+
+  if (!summoner || !summoner.puuid) {
+    consola.error(chalk.red(`❌ Summoner not found: ${tagName}#${tagLine}`));
+    return c.json({ error: "Summoner not found" }, 404);
+  }
+
+  consola.success(
+    chalk.green(`✅ Found summoner with PUUID: ${summoner.puuid}`)
+  );
+
+  // Start queues and the rest of stuff
+  // 2) Stable jobId for dedupe
+  const jobId = makeRewindJobId(JOB_SCOPE, region, summoner.puuid);
+  consola.info(chalk.magenta(`🆔 Generated job ID: ${jobId}`));
+
+  // Optional alias for later lookups by RiotId
+  await redis.setex(
+    `rc:rewind:alias:${region}:${tagName.toLowerCase()}#${tagLine}`,
+    7 * 86400,
+    jobId
+  );
+  consola.info(
+    chalk.blue(`💾 Set Redis alias for ${tagName.toLowerCase()}#${tagLine}`)
+  );
+
+  // 3) Enqueue (or return existing)
+  const currentYear = new Date().getUTCFullYear();
+
+  // Check if job already exists and clean it up if completed/failed
+  const existingJob = await rewindQ.getJob(encodeJobId(jobId));
+  if (existingJob) {
+    const state = await existingJob.getState();
+    if (state === "completed" || state === "failed") {
+      consola.info(
+        chalk.blue(`🧹 Cleaning up ${state} job ${jobId} to allow re-run`)
+      );
+      await existingJob.remove();
+    } else {
+      consola.warn(
+        chalk.yellow(`⚠️ Job ${jobId} already exists in state: ${state}`)
+      );
+      // 4) Position
+      const position = await getQueuePosition(rewindQ, encodeJobId(jobId));
+      return c.json({ jobId, position });
+    }
+  }
+
+  await rewindQ.add(
+    "rewind",
+    {
+      region: cluster.toLowerCase(),
+      puuid: summoner.puuid,
+      season: currentYear,
+    },
+    { jobId: encodeJobId(jobId) }
+  );
+
+  consola.success(chalk.green(`✅ Job enqueued successfully: ${jobId}`));
+
+  // 4) Init progress hash (if first time)
+  const progKey = `rc:rewind:prog:${jobId}`;
+  const created = await redis.hsetnx(
+    progKey,
+    "startedAt",
+    Date.now().toString()
+  );
+  if (created) {
+    await redis.expire(progKey, 7 * 86400);
+    consola.info(chalk.blue(`📊 Initialized progress tracking for ${jobId}`));
+  } else {
+    consola.info(
+      chalk.yellow(`📊 Progress tracking already exists for ${jobId}`)
+    );
+  }
+
+  // 5) Position
+  const position = await getQueuePosition(rewindQ, encodeJobId(jobId));
+  consola.success(
+    chalk.green(
+      `🎯 Request completed - Job ID: ${jobId}, Queue position: ${position}`
+    )
+  );
+
+  return c.json({ jobId, position });
+});
+
+app.get("/rewind/:jobId/status", async (c) => {
+  const jobId = c.req.param("jobId");
+  const prog = await redis.hgetall(`rc:rewind:prog:${jobId}`);
+  if (!prog || Object.keys(prog).length === 0)
+    return c.json({ error: "not found" }, 404);
+
+  const position = await getQueuePosition(rewindQ, encodeJobId(jobId));
+  return c.json({
+    jobId,
+    position,
+    state: prog.state ?? "unknown",
+    pagesDone_420: Number(prog.pagesDone_420 || 0),
+    pagesDone_440: Number(prog.pagesDone_440 || 0),
+    idsFound: Number(prog.idsFound || 0),
+    matchesFetched: Number(prog.matchesFetched || 0),
+    timelinesFetched: Number(prog.timelinesFetched || 0),
+    startedAt: prog.startedAt ? Number(prog.startedAt) : null,
+    updatedAt: prog.updatedAt ? Number(prog.updatedAt) : null,
+    resultKey: prog.resultKey || null,
+  });
+});
+
+app.get("/queues", async (c) => {
+  return c.json({
+    rewind: await rewindQ.count(),
+    list: await listQ.count(),
+    fetch: await fetchQ.count(),
+  });
+});
+
+async function getQueuePosition(queue: Queue, jobId: string) {
+  const job = await queue.getJob(jobId);
+  if (!job) return null;
+  const state = await job.getState();
+  if (state === "active" || state === "completed" || state === "failed")
+    return 0;
+
+  const prefix = queue.opts.prefix ?? "bull";
+  const base = `${prefix}:${queue.name}`;
+  const waitKey = `${base}:wait`;
+  const prioKey = `${base}:prioritized`;
+  const delayedKey = `${base}:delayed`;
+
+  if (job.opts?.priority && job.opts.priority > 0) {
+    const rank = await redis.zrank(prioKey, jobId);
+    if (rank !== null) return rank + 1;
+  }
+  if (state === "waiting") {
+    const idx = await redis.lpos(waitKey, jobId);
+    if (idx !== null) return (idx as number) + 1;
+  }
+  if (state === "delayed") {
+    const rank = await redis.zrank(delayedKey, jobId);
+    if (rank !== null) return rank + 1;
+  }
+  return 0;
+}
+
+serve(
+  {
+    fetch: app.fetch,
+    port: 3000,
+  },
+  (info) => {
+    console.log(`Server is running on http://localhost:${info.port}`);
+  }
+);
