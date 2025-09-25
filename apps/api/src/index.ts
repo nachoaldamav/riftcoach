@@ -10,7 +10,6 @@ import {
   generateJobUUID,
   storeJobMapping,
   getJobMapping,
-  findJobByPuuid,
   PROG,
 } from "./queues/rewind.js";
 import type { Queue } from "bullmq";

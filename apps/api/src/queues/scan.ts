@@ -196,7 +196,14 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
       // if no more pages & no fetches left, mark ready
       const openFetch =
         Number(await redis.get(`rc:rewind:openFetch:${rootId}`)) || 0;
-      if (left <= 0 && openFetch === 0) {
+      
+      // Also check for queued jobs in the fetch queue that haven't started yet
+      const queuedJobs = await fetchQ.getJobs(['waiting', 'delayed']);
+      const pendingJobsForThisRoot = queuedJobs.filter(job => 
+        job.data?.opts?.rootId === rootId
+      ).length;
+      
+      if (left <= 0 && openFetch === 0 && pendingJobsForThisRoot === 0) {
         await redis.hset(progKey, {
           state: "ready",
           updatedAt: Date.now().toString(),
@@ -206,7 +213,7 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
         );
       } else {
         consola.info(
-          chalk.cyan(`📈 Pages left: ${left}, Fetches pending: ${openFetch}`)
+          chalk.cyan(`📈 Pages left: ${left}, Fetches pending: ${openFetch}, Queued: ${pendingJobsForThisRoot}`)
         );
       }
     }
@@ -301,7 +308,14 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
       const left = await redis.decr(openFetchKey);
       const openPages =
         Number(await redis.get(`rc:rewind:openPages:${rootId}`)) || 0;
-      if (left <= 0 && openPages === 0) {
+      
+      // Also check for queued jobs in the fetch queue that haven't started yet
+      const queuedJobs = await fetchQ.getJobs(['waiting', 'delayed']);
+      const pendingJobsForThisRoot = queuedJobs.filter(job => 
+        job.data?.opts?.rootId === rootId
+      ).length;
+      
+      if (left <= 0 && openPages === 0 && pendingJobsForThisRoot === 0) {
         await redis.hset(progKey, {
           state: "ready",
           updatedAt: Date.now().toString(),
@@ -311,7 +325,7 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
         );
       } else {
         consola.info(
-          chalk.cyan(`📈 Fetches left: ${left}, Pages pending: ${openPages}`)
+          chalk.cyan(`📈 Fetches left: ${left}, Pages pending: ${openPages}, Queued: ${pendingJobsForThisRoot}`)
         );
       }
 
