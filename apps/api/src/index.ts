@@ -17,6 +17,7 @@ import type { Queue } from "bullmq";
 import { consola } from "consola";
 import chalk from "chalk";
 import { fetchQ, listQ } from "./queues/scan.js";
+import { riot, type Region } from "./clients/riot-api.js";
 
 const JOB_SCOPE = process.env.JOB_SCOPE ?? "Y2025";
 
@@ -99,12 +100,8 @@ app.post("/rewind/start", async (c) => {
     chalk.yellow(`🌍 Mapped region ${region} to cluster ${cluster}`)
   );
 
-  const summoner = await riotAPI.account
-    .getByRiotId({
-      gameName: tagName,
-      tagLine,
-      region: cluster,
-    })
+  const summoner = await riot
+    .getAccountByRiotId(cluster as Region, tagName, tagLine)
     .catch((err) => {
       consola.error(
         chalk.red(`❌ Error fetching summoner: ${tagName}#${tagLine}`),
