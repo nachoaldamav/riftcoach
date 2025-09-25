@@ -5,7 +5,14 @@ import { riotAPI } from "./clients/riot.js";
 import { s3Client } from "./clients/s3.js";
 import { PlatformId, regionToCluster, RiotAPITypes } from "@fightmegg/riot-api";
 import z from "zod";
-import { makeRewindJobId, rewindQ, encodeJobId } from "./queues/rewind.js";
+import {
+  rewindQ,
+  generateJobUUID,
+  storeJobMapping,
+  getJobMapping,
+  findJobByPuuid,
+  PROG,
+} from "./queues/rewind.js";
 import type { Queue } from "bullmq";
 import { consola } from "consola";
 import chalk from "chalk";
@@ -115,57 +122,68 @@ app.post("/rewind/start", async (c) => {
     chalk.green(`✅ Found summoner with PUUID: ${summoner.puuid}`)
   );
 
-  // Start queues and the rest of stuff
-  // 2) Stable jobId for dedupe
-  const jobId = makeRewindJobId(JOB_SCOPE, region, summoner.puuid);
-  consola.info(chalk.magenta(`🆔 Generated job ID: ${jobId}`));
+  // Generate UUID for this job using the cluster region (same as worker)
+  const jobUUID = generateJobUUID(
+    JOB_SCOPE,
+    cluster.toLowerCase(),
+    summoner.puuid
+  );
+  consola.info(chalk.magenta(`🆔 Generated job UUID: ${jobUUID}`));
+
+  // Store job mapping in Redis
+  await storeJobMapping(
+    jobUUID,
+    JOB_SCOPE,
+    cluster.toLowerCase(),
+    summoner.puuid
+  );
 
   // Optional alias for later lookups by RiotId
   await redis.setex(
     `rc:rewind:alias:${region}:${tagName.toLowerCase()}#${tagLine}`,
     7 * 86400,
-    jobId
+    jobUUID
   );
   consola.info(
     chalk.blue(`💾 Set Redis alias for ${tagName.toLowerCase()}#${tagLine}`)
   );
 
-  // 3) Enqueue (or return existing)
-  const currentYear = new Date().getUTCFullYear();
-
   // Check if job already exists and clean it up if completed/failed
-  const existingJob = await rewindQ.getJob(encodeJobId(jobId));
+  const existingJob = await rewindQ.getJob(jobUUID);
   if (existingJob) {
     const state = await existingJob.getState();
     if (state === "completed" || state === "failed") {
       consola.info(
-        chalk.blue(`🧹 Cleaning up ${state} job ${jobId} to allow re-run`)
+        chalk.blue(`🧹 Cleaning up ${state} job ${jobUUID} to allow re-run`)
       );
       await existingJob.remove();
     } else {
       consola.warn(
-        chalk.yellow(`⚠️ Job ${jobId} already exists in state: ${state}`)
+        chalk.yellow(`⚠️ Job ${jobUUID} already exists in state: ${state}`)
       );
-      // 4) Position
-      const position = await getQueuePosition(rewindQ, encodeJobId(jobId));
-      return c.json({ jobId, position });
+      // Position
+      const position = await getQueuePosition(rewindQ, jobUUID);
+      return c.json({ jobId: jobUUID, position });
     }
   }
+
+  const currentYear = new Date().getUTCFullYear();
 
   await rewindQ.add(
     "rewind",
     {
+      scope: JOB_SCOPE,
       region: cluster.toLowerCase(),
       puuid: summoner.puuid,
       season: currentYear,
     },
-    { jobId: encodeJobId(jobId) }
+    { jobId: jobUUID }
   );
 
-  consola.success(chalk.green(`✅ Job enqueued successfully: ${jobId}`));
+  consola.success(chalk.green(`✅ Job enqueued successfully: ${jobUUID}`));
 
-  // 4) Init progress hash (if first time)
-  const progKey = `rc:rewind:prog:${jobId}`;
+  // Init progress hash (if first time)
+  const progKey = `rc:rewind:prog:${jobUUID}`;
   const created = await redis.hsetnx(
     progKey,
     "startedAt",
@@ -173,31 +191,41 @@ app.post("/rewind/start", async (c) => {
   );
   if (created) {
     await redis.expire(progKey, 7 * 86400);
-    consola.info(chalk.blue(`📊 Initialized progress tracking for ${jobId}`));
+    consola.info(chalk.blue(`📊 Initialized progress tracking for ${jobUUID}`));
   } else {
     consola.info(
-      chalk.yellow(`📊 Progress tracking already exists for ${jobId}`)
+      chalk.yellow(`📊 Progress tracking already exists for ${jobUUID}`)
     );
   }
 
-  // 5) Position
-  const position = await getQueuePosition(rewindQ, encodeJobId(jobId));
+  // Position
+  const position = await getQueuePosition(rewindQ, jobUUID);
   consola.success(
     chalk.green(
-      `🎯 Request completed - Job ID: ${jobId}, Queue position: ${position}`
+      `🎯 Request completed - Job UUID: ${jobUUID}, Queue position: ${position}`
     )
   );
 
-  return c.json({ jobId, position });
+  return c.json({ jobId: jobUUID, position });
 });
 
 app.get("/rewind/:jobId/status", async (c) => {
   const jobId = c.req.param("jobId");
-  const prog = await redis.hgetall(`rc:rewind:prog:${jobId}`);
-  if (!prog || Object.keys(prog).length === 0)
-    return c.json({ error: "not found" }, 404);
 
-  const position = await getQueuePosition(rewindQ, encodeJobId(jobId));
+  // Try to get job mapping first to validate UUID
+  const jobMapping = await getJobMapping(jobId);
+  if (!jobMapping) {
+    return c.json({ error: "Job not found" }, 404);
+  }
+
+  const key = PROG(jobId);
+
+  const prog = await redis.hgetall(key);
+
+  if (!prog || Object.keys(prog).length === 0)
+    return c.json({ error: "Progress not found" }, 404);
+
+  const position = await getQueuePosition(rewindQ, jobId);
   return c.json({
     jobId,
     position,
@@ -210,6 +238,7 @@ app.get("/rewind/:jobId/status", async (c) => {
     startedAt: prog.startedAt ? Number(prog.startedAt) : null,
     updatedAt: prog.updatedAt ? Number(prog.updatedAt) : null,
     resultKey: prog.resultKey || null,
+    jobMapping, // Include job mapping info for debugging
   });
 });
 
@@ -252,7 +281,7 @@ async function getQueuePosition(queue: Queue, jobId: string) {
 serve(
   {
     fetch: app.fetch,
-    port: 3000,
+    port: 4000,
   },
   (info) => {
     console.log(`Server is running on http://localhost:${info.port}`);

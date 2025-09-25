@@ -1,18 +1,12 @@
 import { Queue, Worker } from "bullmq";
-import {
-  PlatformId,
-  type RiotAPITypes,
-  regionToCluster,
-} from "@fightmegg/riot-api";
+import type { RiotAPITypes } from "@fightmegg/riot-api";
 import { redis } from "../clients/redis.js";
-import { riotAPI } from "../clients/riot.js";
 import ms from "ms";
 import { createS3Uploaders } from "../utils/upload.js";
 import { patchBucket } from "@riftcoach/shared.constants";
 import { consola } from "consola";
 import chalk from "chalk";
-import { encodeJobId } from "./rewind.js";
-import { getMatch, getMatchTimeline } from "../queries/get-match.js";
+import { riot, type Region } from "../clients/riot-api.js";
 
 const { uploadMatch, uploadTimeline } = createS3Uploaders({
   bucket: process.env.S3_BUCKET!,
@@ -71,24 +65,20 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
       )
     );
 
-    const startSec = Math.floor(Date.UTC(season, 0, 1) / 1000);
+    const startSec = new Date(Date.UTC(season, 0, 1)).getTime() / 1000;
+
+    consola.info(
+      `Using ${new Date(startSec * 1000).toISOString()} as season start`
+    );
 
     let ids: string[] = [];
     try {
       consola.info(chalk.yellow(`🔍 Fetching match IDs from Riot API...`));
-      ids = await riotAPI.matchV5.getIdsByPuuid({
-        cluster: region as
-          | PlatformId.EUROPE
-          | PlatformId.ASIA
-          | PlatformId.SEA
-          | PlatformId.AMERICAS,
-        puuid,
-        params: {
-          start,
-          count: 100,
-          queue,
-          startTime: startSec,
-        },
+      ids = await riot.getIdsByPuuid(region as Region, puuid, {
+        start,
+        count: 100,
+        queue,
+        startTime: startSec,
       });
       consola.success(chalk.green(`✅ Found ${ids.length} match IDs`));
     } catch (e: any) {
@@ -120,13 +110,31 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
     // stream matches into fetchQ (dedup by jobId = matchId)
     const fetchJobs = [];
     for (const matchId of ids) {
-      // Check if fetch job already exists and clean it up if completed/failed
+      // Check if fetch job already exists
       const existingFetchJob = await fetchQ.getJob(matchId);
       if (existingFetchJob) {
         const state = await existingFetchJob.getState();
-        if (state === "completed" || state === "failed") {
+        if (state === "completed") {
+          // Job is completed - match and timeline already indexed in S3
+          // Count it as completed for progress tracking but don't remove the job
           consola.info(
-            chalk.blue(`🧹 Cleaning up ${state} fetch job for match ${matchId}`)
+            chalk.green(
+              `✅ Match ${matchId} already processed and indexed in S3`
+            )
+          );
+
+          // Update progress counters as if the job just completed
+          await Promise.all([
+            redis.hincrby(progKey, "matchesFetched", 1),
+            redis.hincrby(progKey, "timelinesFetched", 1), // Assume timeline was also fetched
+            redis.hset(progKey, "updatedAt", Date.now().toString()),
+            redis.expire(progKey, 7 * 86400),
+          ]);
+
+          continue; // Skip creating a new job
+        } else if (state === "failed") {
+          consola.info(
+            chalk.blue(`🧹 Cleaning up failed fetch job for match ${matchId}`)
           );
           await existingFetchJob.remove();
         } else {
@@ -155,32 +163,6 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
 
     // next page if needed
     if (ids.length === 100) {
-      const nextJobId = encodeJobId(
-        `${region}:${puuid}:${queue}:start=${start + 100}`
-      );
-
-      // Check if next page job already exists and clean it up if completed/failed
-      const existingNextJob = await listQ.getJob(nextJobId);
-      if (existingNextJob) {
-        const state = await existingNextJob.getState();
-        if (state === "completed" || state === "failed") {
-          consola.info(
-            chalk.blue(
-              `🧹 Cleaning up ${state} next page job for queue ${queue}`
-            )
-          );
-          await existingNextJob.remove();
-        } else {
-          consola.warn(
-            chalk.yellow(
-              `⚠️ Next page job for queue ${queue} already exists in state: ${state}`
-            )
-          );
-          // Don't schedule duplicate job
-          return;
-        }
-      }
-
       await redis.incr(`rc:rewind:openPages:${rootId}`);
       await listQ.add(
         "scan-list",
@@ -189,10 +171,8 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
           puuid,
           step: "getMatchList",
           opts: { start: start + 100, season, queue, rootId },
-        },
-        {
-          jobId: nextJobId,
         }
+        // No jobId - allow multiple pagination jobs to run freely
       );
       consola.info(
         chalk.yellow(
@@ -202,7 +182,9 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
     } else {
       consola.info(
         chalk.blue(
-          `🏁 Last page for queue ${queue} - found ${ids.length} matches`
+          `🏁 Last page for queue ${queue} (${start / 100} page) - found ${
+            start + ids.length
+          } matches`
         )
       );
     }
@@ -232,7 +214,7 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
   {
     connection: redis,
     concurrency: 1,
-    limiter: { duration: ms("2m"), max: 1 },
+    limiter: { duration: ms("1s"), max: 1 },
   }
 );
 
@@ -245,29 +227,26 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
 
     const progKey = `rc:rewind:prog:${rootId}`;
     const openFetchKey = `rc:rewind:openFetch:${rootId}`;
-    const [shard] = matchId.split("_");
-    const cluster = regionToCluster(
-      shard.toLowerCase() as RiotAPITypes.LoLRegion
-    ) as
-      | PlatformId.EUROPE
-      | PlatformId.ASIA
-      | PlatformId.SEA
-      | PlatformId.AMERICAS;
 
     try {
       consola.info(
         chalk.yellow(`🔍 Fetching match data and timeline from Riot API...`)
       );
-      const m = await getMatch(matchId, cluster);
+      const m = await riot.getMatchById(matchId);
 
       consola.info(chalk.blue(`🔎 Fetched match data`));
 
       // Wait one second
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
 
       consola.info(chalk.blue(`🔎 Fetching match timeline`));
 
-      const t = await getMatchTimeline(matchId, cluster);
+      const t = await riot.getTimeline(matchId);
+
+      if (!t) {
+        consola.error(chalk.red(`❌ Failed to fetch timeline for ${matchId}`));
+        return;
+      }
 
       consola.info(chalk.blue(`🔎 Fetched match timeline`));
 
@@ -345,6 +324,6 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
   {
     connection: redis,
     concurrency: 1, // parallel fetch jobs
-    limiter: { duration: ms("1s"), max: 1 },
+    limiter: { duration: ms("1s"), max: 5 },
   }
 );
