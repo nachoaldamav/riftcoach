@@ -61,5 +61,9 @@ USER nodejs
 # Expose port (adjust if your app uses a different port)
 EXPOSE 4000
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1
+
 # Start the application
 CMD ["node", "--enable-source-maps", "dist/index.js"]
