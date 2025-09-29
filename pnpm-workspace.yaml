@@ -2,7 +2,11 @@ packages:
   - packages/**
   - apps/**
 
+minimumReleaseAge: 1440
+
 onlyBuiltDependencies:
+  - '@biomejs/biome'
+  - '@tailwindcss/oxide'
   - aws-sdk
   - esbuild
   - msgpackr-extract

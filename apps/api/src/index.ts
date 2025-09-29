@@ -15,12 +15,30 @@ import {
 import type { Queue } from "bullmq";
 import { consola } from "consola";
 import chalk from "chalk";
+import { createNodeWebSocket } from "@hono/node-ws";
 import { fetchQ, listQ } from "./queues/scan.js";
 import { riot, type Region } from "./clients/riot-api.js";
 
 const JOB_SCOPE = process.env.JOB_SCOPE ?? "Y2025";
 
 const app = new Hono();
+
+const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+
+app.get(
+  "/ws",
+  upgradeWebSocket((c) => {
+    return {
+      onMessage(event, ws) {
+        console.log(`Message from client: ${event.data}`);
+        ws.send("Hello from server!");
+      },
+      onClose: () => {
+        console.log("Connection closed");
+      },
+    };
+  })
+);
 
 app.get("/", (c) => {
   return c.text("Hello Hono!");
@@ -272,7 +290,7 @@ async function getQueuePosition(queue: Queue, jobId: string) {
   return 0;
 }
 
-serve(
+const server = serve(
   {
     fetch: app.fetch,
     port: 4000,
@@ -281,3 +299,5 @@ serve(
     console.log(`Server is running on http://localhost:${info.port}`);
   }
 );
+
+injectWebSocket(server);

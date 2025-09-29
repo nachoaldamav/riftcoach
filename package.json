@@ -20,6 +20,7 @@
     "sst": "3.17.13"
   },
   "devDependencies": {
+    "@biomejs/biome": "1.9.4",
     "@types/aws-lambda": "8.10.152",
     "tsx": "^4.20.5"
   }
