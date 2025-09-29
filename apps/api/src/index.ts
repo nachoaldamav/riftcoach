@@ -31,8 +31,6 @@ app.get("/", (c) => {
  * Showcase the health of the server and the clients
  */
 app.get("/health", (c) => {
-  console.log(riotAPI.riotRateLimiter);
-
   return c.json({
     status: "ok",
     redis: redis.status,
