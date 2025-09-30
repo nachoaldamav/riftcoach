@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as QueueIdRouteImport } from './routes/queue/$id'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo.tanstack-query'
 import { Route as ApiDemoTqTodosRouteImport } from './routes/api.demo-tq-todos'
 import { Route as ApiDemoNamesRouteImport } from './routes/api.demo-names'
@@ -19,6 +20,11 @@ import { Route as DemoStartApiRequestRouteImport } from './routes/demo.start.api
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QueueIdRoute = QueueIdRouteImport.update({
+  id: '/queue/$id',
+  path: '/queue/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
@@ -52,6 +58,7 @@ export interface FileRoutesByFullPath {
   '/api/demo-names': typeof ApiDemoNamesRoute
   '/api/demo-tq-todos': typeof ApiDemoTqTodosRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/queue/$id': typeof QueueIdRoute
   '/demo/start/api-request': typeof DemoStartApiRequestRoute
   '/demo/start/server-funcs': typeof DemoStartServerFuncsRoute
 }
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/api/demo-names': typeof ApiDemoNamesRoute
   '/api/demo-tq-todos': typeof ApiDemoTqTodosRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/queue/$id': typeof QueueIdRoute
   '/demo/start/api-request': typeof DemoStartApiRequestRoute
   '/demo/start/server-funcs': typeof DemoStartServerFuncsRoute
 }
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/api/demo-names': typeof ApiDemoNamesRoute
   '/api/demo-tq-todos': typeof ApiDemoTqTodosRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/queue/$id': typeof QueueIdRoute
   '/demo/start/api-request': typeof DemoStartApiRequestRoute
   '/demo/start/server-funcs': typeof DemoStartServerFuncsRoute
 }
@@ -79,6 +88,7 @@ export interface FileRouteTypes {
     | '/api/demo-names'
     | '/api/demo-tq-todos'
     | '/demo/tanstack-query'
+    | '/queue/$id'
     | '/demo/start/api-request'
     | '/demo/start/server-funcs'
   fileRoutesByTo: FileRoutesByTo
@@ -87,6 +97,7 @@ export interface FileRouteTypes {
     | '/api/demo-names'
     | '/api/demo-tq-todos'
     | '/demo/tanstack-query'
+    | '/queue/$id'
     | '/demo/start/api-request'
     | '/demo/start/server-funcs'
   id:
@@ -95,6 +106,7 @@ export interface FileRouteTypes {
     | '/api/demo-names'
     | '/api/demo-tq-todos'
     | '/demo/tanstack-query'
+    | '/queue/$id'
     | '/demo/start/api-request'
     | '/demo/start/server-funcs'
   fileRoutesById: FileRoutesById
@@ -104,6 +116,7 @@ export interface RootRouteChildren {
   ApiDemoNamesRoute: typeof ApiDemoNamesRoute
   ApiDemoTqTodosRoute: typeof ApiDemoTqTodosRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
+  QueueIdRoute: typeof QueueIdRoute
   DemoStartApiRequestRoute: typeof DemoStartApiRequestRoute
   DemoStartServerFuncsRoute: typeof DemoStartServerFuncsRoute
 }
@@ -115,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/queue/$id': {
+      id: '/queue/$id'
+      path: '/queue/$id'
+      fullPath: '/queue/$id'
+      preLoaderRoute: typeof QueueIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/demo/tanstack-query': {
@@ -160,6 +180,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDemoNamesRoute: ApiDemoNamesRoute,
   ApiDemoTqTodosRoute: ApiDemoTqTodosRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
+  QueueIdRoute: QueueIdRoute,
   DemoStartApiRequestRoute: DemoStartApiRequestRoute,
   DemoStartServerFuncsRoute: DemoStartServerFuncsRoute,
 }

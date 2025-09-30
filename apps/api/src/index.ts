@@ -1,59 +1,71 @@
-import { serve } from "@hono/node-server";
-import { Hono } from "hono";
-import { redis } from "./clients/redis.js";
-import { riotAPI } from "./clients/riot.js";
-import { s3Client } from "./clients/s3.js";
-import { PlatformId, regionToCluster, RiotAPITypes } from "@fightmegg/riot-api";
-import z from "zod";
 import {
-  rewindQ,
-  generateJobUUID,
-  storeJobMapping,
-  getJobMapping,
+  PlatformId,
+  type RiotAPITypes,
+  regionToCluster,
+} from '@fightmegg/riot-api';
+import { serve } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
+import type { Queue } from 'bullmq';
+import chalk from 'chalk';
+import { consola } from 'consola';
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import z from 'zod';
+import { redis } from './clients/redis.js';
+import { type Region, riot } from './clients/riot-api.js';
+import { riotAPI } from './clients/riot.js';
+import { s3Client } from './clients/s3.js';
+import {
   PROG,
-} from "./queues/rewind.js";
-import type { Queue } from "bullmq";
-import { consola } from "consola";
-import chalk from "chalk";
-import { createNodeWebSocket } from "@hono/node-ws";
-import { fetchQ, listQ } from "./queues/scan.js";
-import { riot, type Region } from "./clients/riot-api.js";
+  generateJobUUID,
+  getJobMapping,
+  rewindQ,
+  storeJobMapping,
+} from './queues/rewind.js';
+import { fetchQ, listQ } from './queues/scan.js';
 
-const JOB_SCOPE = process.env.JOB_SCOPE ?? "Y2025";
+const JOB_SCOPE = process.env.JOB_SCOPE ?? 'Y2025';
 
 const app = new Hono();
+
+app.use(
+  '*',
+  cors({
+    origin: '*',
+  }),
+);
 
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 app.get(
-  "/ws",
+  '/ws',
   upgradeWebSocket((c) => {
     return {
       onMessage(event, ws) {
         console.log(`Message from client: ${event.data}`);
-        ws.send("Hello from server!");
+        ws.send('Hello from server!');
       },
       onClose: () => {
-        console.log("Connection closed");
+        console.log('Connection closed');
       },
     };
-  })
+  }),
 );
 
-app.get("/", (c) => {
-  return c.text("Hello Hono!");
+app.get('/', (c) => {
+  return c.text('Hello Hono!');
 });
 
 /**
  * Health check endpoint
  * Showcase the health of the server and the clients
  */
-app.get("/health", (c) => {
+app.get('/health', (c) => {
   return c.json({
-    status: "ok",
+    status: 'ok',
     redis: redis.status,
-    riotAPI: !!riotAPI.token ? "ready" : "failed",
-    s3: !!s3Client.config ? "ready" : "failed",
+    riotAPI: riotAPI.token ? 'ready' : 'failed',
+    s3: s3Client.config ? 'ready' : 'failed',
   });
 });
 
@@ -83,26 +95,26 @@ const StartRewindSchema = z.object({
 
 type StartRewindTypes = z.infer<typeof StartRewindSchema>;
 
-app.post("/rewind/start", async (c) => {
-  consola.info(chalk.blue("🚀 Starting rewind request"));
+app.post('/rewind/start', async (c) => {
+  consola.info(chalk.blue('🚀 Starting rewind request'));
 
   const body = await c.req.json<StartRewindTypes>().catch(() => null);
 
   if (!body) {
-    consola.error(chalk.red("❌ Invalid request body"));
-    return c.json({ error: "Invalid request body" }, 400);
+    consola.error(chalk.red('❌ Invalid request body'));
+    return c.json({ error: 'Invalid request body' }, 400);
   }
 
   const { success, data } = StartRewindSchema.safeParse(body);
 
   if (!success) {
-    consola.error(chalk.red("❌ Schema validation failed:"), data);
+    consola.error(chalk.red('❌ Schema validation failed:'), data);
     return c.json({ error: data }, 400);
   }
 
   const { tagName, tagLine, region } = data;
   consola.info(
-    chalk.cyan(`🎮 Processing request for ${tagName}#${tagLine} in ${region}`)
+    chalk.cyan(`🎮 Processing request for ${tagName}#${tagLine} in ${region}`),
   );
 
   const cluster = regionToCluster(region as RiotAPITypes.LoLRegion) as
@@ -112,7 +124,7 @@ app.post("/rewind/start", async (c) => {
     | PlatformId.ESPORTS;
 
   consola.info(
-    chalk.yellow(`🌍 Mapped region ${region} to cluster ${cluster}`)
+    chalk.yellow(`🌍 Mapped region ${region} to cluster ${cluster}`),
   );
 
   const summoner = await riot
@@ -120,25 +132,25 @@ app.post("/rewind/start", async (c) => {
     .catch((err) => {
       consola.error(
         chalk.red(`❌ Error fetching summoner: ${tagName}#${tagLine}`),
-        err
+        err,
       );
       return null;
     });
 
   if (!summoner || !summoner.puuid) {
     consola.error(chalk.red(`❌ Summoner not found: ${tagName}#${tagLine}`));
-    return c.json({ error: "Summoner not found" }, 404);
+    return c.json({ error: 'Summoner not found' }, 404);
   }
 
   consola.success(
-    chalk.green(`✅ Found summoner with PUUID: ${summoner.puuid}`)
+    chalk.green(`✅ Found summoner with PUUID: ${summoner.puuid}`),
   );
 
   // Generate UUID for this job using the cluster region (same as worker)
   const jobUUID = generateJobUUID(
     JOB_SCOPE,
     cluster.toLowerCase(),
-    summoner.puuid
+    summoner.puuid,
   );
   consola.info(chalk.magenta(`🆔 Generated job UUID: ${jobUUID}`));
 
@@ -147,31 +159,31 @@ app.post("/rewind/start", async (c) => {
     jobUUID,
     JOB_SCOPE,
     cluster.toLowerCase(),
-    summoner.puuid
+    summoner.puuid,
   );
 
   // Optional alias for later lookups by RiotId
   await redis.setex(
     `rc:rewind:alias:${region}:${tagName.toLowerCase()}#${tagLine}`,
     7 * 86400,
-    jobUUID
+    jobUUID,
   );
   consola.info(
-    chalk.blue(`💾 Set Redis alias for ${tagName.toLowerCase()}#${tagLine}`)
+    chalk.blue(`💾 Set Redis alias for ${tagName.toLowerCase()}#${tagLine}`),
   );
 
   // Check if job already exists and clean it up if completed/failed
   const existingJob = await rewindQ.getJob(jobUUID);
   if (existingJob) {
     const state = await existingJob.getState();
-    if (state === "completed" || state === "failed") {
+    if (state === 'completed' || state === 'failed') {
       consola.info(
-        chalk.blue(`🧹 Cleaning up ${state} job ${jobUUID} to allow re-run`)
+        chalk.blue(`🧹 Cleaning up ${state} job ${jobUUID} to allow re-run`),
       );
       await existingJob.remove();
     } else {
       consola.warn(
-        chalk.yellow(`⚠️ Job ${jobUUID} already exists in state: ${state}`)
+        chalk.yellow(`⚠️ Job ${jobUUID} already exists in state: ${state}`),
       );
       // Position
       const position = await getQueuePosition(rewindQ, jobUUID);
@@ -182,14 +194,14 @@ app.post("/rewind/start", async (c) => {
   const currentYear = new Date().getUTCFullYear();
 
   await rewindQ.add(
-    "rewind",
+    'rewind',
     {
       scope: JOB_SCOPE,
       region: cluster.toLowerCase(),
       puuid: summoner.puuid,
       season: currentYear,
     },
-    { jobId: jobUUID }
+    { jobId: jobUUID },
   );
 
   consola.success(chalk.green(`✅ Job enqueued successfully: ${jobUUID}`));
@@ -198,15 +210,15 @@ app.post("/rewind/start", async (c) => {
   const progKey = `rc:rewind:prog:${jobUUID}`;
   const created = await redis.hsetnx(
     progKey,
-    "startedAt",
-    Date.now().toString()
+    'startedAt',
+    Date.now().toString(),
   );
   if (created) {
     await redis.expire(progKey, 7 * 86400);
     consola.info(chalk.blue(`📊 Initialized progress tracking for ${jobUUID}`));
   } else {
     consola.info(
-      chalk.yellow(`📊 Progress tracking already exists for ${jobUUID}`)
+      chalk.yellow(`📊 Progress tracking already exists for ${jobUUID}`),
     );
   }
 
@@ -214,20 +226,20 @@ app.post("/rewind/start", async (c) => {
   const position = await getQueuePosition(rewindQ, jobUUID);
   consola.success(
     chalk.green(
-      `🎯 Request completed - Job UUID: ${jobUUID}, Queue position: ${position}`
-    )
+      `🎯 Request completed - Job UUID: ${jobUUID}, Queue position: ${position}`,
+    ),
   );
 
   return c.json({ jobId: jobUUID, position });
 });
 
-app.get("/rewind/:jobId/status", async (c) => {
-  const jobId = c.req.param("jobId");
+app.get('/rewind/:jobId/status', async (c) => {
+  const jobId = c.req.param('jobId');
 
   // Try to get job mapping first to validate UUID
   const jobMapping = await getJobMapping(jobId);
   if (!jobMapping) {
-    return c.json({ error: "Job not found" }, 404);
+    return c.json({ error: 'Job not found' }, 404);
   }
 
   const key = PROG(jobId);
@@ -235,13 +247,13 @@ app.get("/rewind/:jobId/status", async (c) => {
   const prog = await redis.hgetall(key);
 
   if (!prog || Object.keys(prog).length === 0)
-    return c.json({ error: "Progress not found" }, 404);
+    return c.json({ error: 'Progress not found' }, 404);
 
   const position = await getQueuePosition(rewindQ, jobId);
   return c.json({
     jobId,
     position,
-    state: prog.state ?? "unknown",
+    state: prog.state ?? 'unknown',
     pagesDone_420: Number(prog.pagesDone_420 || 0),
     pagesDone_440: Number(prog.pagesDone_440 || 0),
     idsFound: Number(prog.idsFound || 0),
@@ -254,7 +266,7 @@ app.get("/rewind/:jobId/status", async (c) => {
   });
 });
 
-app.get("/queues", async (c) => {
+app.get('/queues', async (c) => {
   return c.json({
     rewind: await rewindQ.count(),
     list: await listQ.count(),
@@ -266,10 +278,10 @@ async function getQueuePosition(queue: Queue, jobId: string) {
   const job = await queue.getJob(jobId);
   if (!job) return null;
   const state = await job.getState();
-  if (state === "active" || state === "completed" || state === "failed")
+  if (state === 'active' || state === 'completed' || state === 'failed')
     return 0;
 
-  const prefix = queue.opts.prefix ?? "bull";
+  const prefix = queue.opts.prefix ?? 'bull';
   const base = `${prefix}:${queue.name}`;
   const waitKey = `${base}:wait`;
   const prioKey = `${base}:prioritized`;
@@ -279,11 +291,11 @@ async function getQueuePosition(queue: Queue, jobId: string) {
     const rank = await redis.zrank(prioKey, jobId);
     if (rank !== null) return rank + 1;
   }
-  if (state === "waiting") {
+  if (state === 'waiting') {
     const idx = await redis.lpos(waitKey, jobId);
     if (idx !== null) return (idx as number) + 1;
   }
-  if (state === "delayed") {
+  if (state === 'delayed') {
     const rank = await redis.zrank(delayedKey, jobId);
     if (rank !== null) return rank + 1;
   }
@@ -297,7 +309,7 @@ const server = serve(
   },
   (info) => {
     console.log(`Server is running on http://localhost:${info.port}`);
-  }
+  },
 );
 
 injectWebSocket(server);

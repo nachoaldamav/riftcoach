@@ -9,7 +9,10 @@
     "export:pro": "pnpm run -r --filter @riftcoach/apps.pro-exporter export",
     "dev:api": "pnpm run -r --filter api dev",
     "build:api": "pnpm run -r --filter api build",
-    "start:api": "pnpm run -r --filter api start"
+    "start:api": "pnpm run -r --filter api start",
+    "dev:web": "pnpm run -r --filter web dev",
+    "build:web": "pnpm run -r --filter web build",
+    "start:web": "pnpm run -r --filter web start"
   },
   "keywords": [],
   "author": "",
