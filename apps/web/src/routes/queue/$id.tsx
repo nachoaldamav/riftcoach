@@ -13,11 +13,13 @@ export const Route = createFileRoute('/queue/$id')({
 
 function RouteComponent() {
   const { id } = Route.useParams();
-  const { data: crawlData } = useQuery(getQueueStatusQueryOptions(id));
+  const { data: crawlData, isLoading } = useQuery(
+    getQueueStatusQueryOptions(id),
+  );
   const [elapsedTime, setElapsedTime] = useState(0);
 
   useEffect(() => {
-    if (!crawlData?.startedAt) return;
+    if (!crawlData?.startedAt || isLoading) return;
     const interval = setInterval(() => {
       const now = Date.now();
       const elapsed = Math.floor((now - crawlData.startedAt) / 1000);
@@ -60,6 +62,14 @@ function RouteComponent() {
       },
     },
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background gradient-mesh dark">
+        <h1>Loading</h1>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background gradient-mesh dark">
