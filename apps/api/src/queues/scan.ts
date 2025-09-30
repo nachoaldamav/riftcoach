@@ -339,7 +339,7 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
   },
   {
     connection: redis,
-    concurrency: 3, // parallel fetch jobs
+    concurrency: 2, // parallel fetch jobs
     limiter: { duration: ms('1s'), max: 5 },
   },
 );
