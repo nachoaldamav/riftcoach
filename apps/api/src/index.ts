@@ -16,6 +16,11 @@ import { type Region, riot } from './clients/riot-api.js';
 import { riotAPI } from './clients/riot.js';
 import { s3Client } from './clients/s3.js';
 import {
+  buildPlaystyleBadgePrompt,
+  getCohortStats,
+  getPlaystyleStats,
+} from './queues/playstyle-badges.js';
+import {
   PROG,
   generateJobUUID,
   getJobMapping,
@@ -264,6 +269,91 @@ app.get('/rewind/:jobId/status', async (c) => {
     resultKey: prog.resultKey || null,
     jobMapping, // Include job mapping info for debugging
   });
+});
+
+app.get('/rewind/:jobId/playstyle-badges', async (c) => {
+  const jobId = c.req.param('jobId');
+
+  const jobMapping = await getJobMapping(jobId);
+  if (!jobMapping) {
+    return c.json({ error: 'Job not found' }, 404);
+  }
+
+  try {
+    // Run both queries in parallel using Promise.allSettled
+    const [playstyleResult, cohortResult] = await Promise.allSettled([
+      getPlaystyleStats(jobMapping.puuid, {
+        scope: jobMapping.scope,
+      }),
+      getCohortStats(),
+    ]);
+
+    // Handle playstyle stats result
+    if (playstyleResult.status === 'rejected') {
+      throw new Error(`Failed to get playstyle stats: ${playstyleResult.reason}`);
+    }
+
+    const { stats, meta } = playstyleResult.value;
+
+    if (!stats || stats.matchesPlayed === 0) {
+      return c.json(
+        {
+          jobId,
+          puuid: jobMapping.puuid,
+          scope: jobMapping.scope,
+          stats,
+          message: 'No ranked matches found for this player in Athena.',
+          analysisContext: {
+            season: meta.season ?? null,
+            queues: meta.queues,
+          },
+          athena: {
+            queryExecutionId: meta.queryExecutionId,
+            statistics: meta.statistics ?? null,
+            sql: meta.sql,
+          },
+        },
+        404,
+      );
+    }
+
+    // Handle cohort stats result
+    let cohortData = null;
+    if (cohortResult.status === 'fulfilled') {
+      cohortData = cohortResult.value;
+    } else {
+      consola.warn(
+        chalk.yellow(`⚠️ Failed to get cohort stats for job ${jobId}:`),
+        cohortResult.reason,
+      );
+    }
+
+    const prompt = buildPlaystyleBadgePrompt(stats);
+
+    return c.json({
+      jobId,
+      puuid: jobMapping.puuid,
+      scope: jobMapping.scope,
+      stats,
+      cohort: cohortData,
+      prompt,
+      analysisContext: {
+        season: meta.season ?? null,
+        queues: meta.queues,
+      },
+      athena: {
+        queryExecutionId: meta.queryExecutionId,
+        statistics: meta.statistics ?? null,
+        sql: meta.sql,
+      },
+    });
+  } catch (error) {
+    consola.error(
+      chalk.red(`❌ Failed to build playstyle badges for job ${jobId}`),
+      error,
+    );
+    return c.json({ error: 'Failed to build playstyle badges' }, 500);
+  }
 });
 
 app.get('/queues', async (c) => {
