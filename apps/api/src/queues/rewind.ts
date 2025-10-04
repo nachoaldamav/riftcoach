@@ -69,7 +69,7 @@ export async function getJobMapping(uuid: string): Promise<{
 export async function findJobByPuuid(puuid: string): Promise<string | null> {
   // We'll need to scan through job mappings to find by PUUID
   // This is a simple implementation - for better performance, consider maintaining a separate PUUID -> UUID mapping
-  const keys = await redis.keys(`rc:rewind:job:*`);
+  const keys = await redis.keys('rc:rewind:job:*');
   for (const key of keys) {
     const data = await redis.get(key);
     if (data) {
@@ -167,12 +167,16 @@ export const worker = new Worker(
       }
 
       await redis.incr(OPEN_PAGES(jobUUID));
-      await listQ.add('scan:list', {
-        region,
-        puuid,
-        step: 'getMatchList',
-        opts: { start: 0, season, queue: q, rootId: jobUUID },
-      }, { jobId: listJobId });
+      await listQ.add(
+        'scan:list',
+        {
+          region,
+          puuid,
+          step: 'getMatchList',
+          opts: { start: 0, season, queue: q, rootId: jobUUID },
+        },
+        { jobId: listJobId },
+      );
       consola.info(
         chalk.yellow(`📋 [${jobUUID}] Enqueued list job for queue ${q}`),
       );

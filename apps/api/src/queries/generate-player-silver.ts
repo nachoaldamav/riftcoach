@@ -30,14 +30,14 @@ export const GENERATE_PLAYER_SILVER_SQL = ({
   const patchMajorStr = String(patch_major); // convert to string but don't quote yet
   const queuesIn = buildInList(queues, true); // numeric IN list
 
-  return SQL`
+  const query = SQL`
 INSERT INTO lol.silver_player_match_summary
 WITH
 /* ----------------------- params ----------------------- */
 params AS (
   SELECT
-    CAST(${season} AS INTEGER)      AS season_filter,
-    CAST(${patchMajorStr} AS VARCHAR) AS patch_major_filter
+    CAST(SEASON_PLACEHOLDER AS INTEGER)      AS season_filter,
+    CAST(PATCH_MAJOR_PLACEHOLDER AS VARCHAR) AS patch_major_filter
 ),
 
 /* ----------------------- participants (player-only) ----------------------- */
@@ -63,10 +63,10 @@ parts_all AS (
   FROM lol.raw_matches m
   CROSS JOIN UNNEST(m.info.participants) AS t(p)
   CROSS JOIN params pr
-  WHERE p.puuid    = ${puuid}
+  WHERE p.puuid    = PUUID_PLACEHOLDER
     AND m.season   = pr.season_filter
     AND m.patch LIKE pr.patch_major_filter || '.%'
-    AND m.queue   IN (${queuesIn})
+    AND m.queue   IN (QUEUES_PLACEHOLDER)
 ),
 
 /* ----------------------- team totals (only those matches) ----------------------- */
@@ -289,5 +289,21 @@ new_rows AS (
   )
 )
 SELECT * FROM new_rows;
-`.text.trim();
+`;
+
+  // Replace all placeholders with actual values
+  const finalQuery = query.text
+    .replaceAll('SEASON_PLACEHOLDER', season.toString())
+    .replaceAll('PATCH_MAJOR_PLACEHOLDER', `'${patchMajorStr}'`)
+    .replaceAll('PUUID_PLACEHOLDER', `'${puuid}'`)
+    .replaceAll('QUEUES_PLACEHOLDER', queuesIn);
+
+  // Create a new SQL object with the modified text but no values (since we're not using parameterization)
+  const modifiedQuery = {
+    text: finalQuery,
+    sql: finalQuery,
+    values: [],
+  };
+
+  return modifiedQuery.text;
 };

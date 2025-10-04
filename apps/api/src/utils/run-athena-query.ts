@@ -82,7 +82,7 @@ export async function runAthenaQuery({
   }
 
   let attempts = 0;
-  let state: QueryExecution['Status']['State'] | undefined;
+  let state: string | undefined;
   let execution: QueryExecution | undefined;
 
   // eslint-disable-next-line no-constant-condition

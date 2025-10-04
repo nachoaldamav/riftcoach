@@ -5,23 +5,20 @@ import {
 } from '@fightmegg/riot-api';
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
-import type { Queue } from 'bullmq';
 import chalk from 'chalk';
 import { consola } from 'consola';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import z from 'zod';
 import { redis } from './clients/redis.js';
-import { type Region, riot } from './clients/riot-api.js';
+import {
+  type Platform,
+  type Region,
+  RiotClient,
+  riot,
+} from './clients/riot-api.js';
 import { riotAPI } from './clients/riot.js';
 import { s3Client } from './clients/s3.js';
-import {
-  buildPlaystyleBadgePrompt,
-  getCachedAIBadges,
-  getCachedPlaystyleStats,
-  getCohortStats,
-  getPlaystyleStats,
-} from './queues/playstyle-badges.js';
 import {
   PROG,
   generateJobUUID,
@@ -30,6 +27,12 @@ import {
   storeJobMapping,
 } from './queues/rewind.js';
 import { fetchQ, listQ } from './queues/scan.js';
+import {
+  getCachedAIBadges,
+  getCachedPlaystyleStats,
+  getCohortStats,
+} from './services/playstyle-badges.js';
+import { getQueuePosition } from './utils/queue-position.js';
 
 const JOB_SCOPE = process.env.JOB_SCOPE ?? 'Y2025';
 
@@ -292,28 +295,17 @@ app.get('/rewind/:jobId/playstyle-badges', async (c) => {
 
     // Handle playstyle stats result
     if (playstyleResult.status === 'rejected') {
-      throw new Error(`Failed to get playstyle stats: ${playstyleResult.reason}`);
+      throw new Error(
+        `Failed to get playstyle stats: ${playstyleResult.reason}`,
+      );
     }
 
-    const { stats, meta } = playstyleResult.value;
+    const { stats } = playstyleResult.value;
 
     if (!stats || stats.matchesPlayed === 0) {
       return c.json(
         {
-          jobId,
-          puuid: jobMapping.puuid,
-          scope: jobMapping.scope,
-          stats,
           message: 'No ranked matches found for this player in Athena.',
-          analysisContext: {
-            season: meta.season ?? null,
-            queues: meta.queues,
-          },
-          athena: {
-            queryExecutionId: meta.queryExecutionId,
-            statistics: meta.statistics ?? null,
-            sql: meta.sql,
-          },
         },
         404,
       );
@@ -331,28 +323,13 @@ app.get('/rewind/:jobId/playstyle-badges', async (c) => {
     }
 
     // Generate AI badges using cached function
-    const aiBadges = await getCachedAIBadges(stats, cohortData?.stats || undefined, jobMapping.puuid);
-    
-    const prompt = buildPlaystyleBadgePrompt(stats);
-
-    return c.json({
-      jobId,
-      puuid: jobMapping.puuid,
-      scope: jobMapping.scope,
+    const aiBadges = await getCachedAIBadges(
       stats,
-      cohort: cohortData,
-      aiBadges,
-      prompt,
-      analysisContext: {
-        season: meta.season ?? null,
-        queues: meta.queues,
-      },
-      athena: {
-        queryExecutionId: meta.queryExecutionId,
-        statistics: meta.statistics ?? null,
-        sql: meta.sql,
-      },
-    });
+      cohortData?.stats || undefined,
+      jobMapping.puuid,
+    );
+
+    return c.json(aiBadges);
   } catch (error) {
     consola.error(
       chalk.red(`❌ Failed to build playstyle badges for job ${jobId}`),
@@ -362,6 +339,76 @@ app.get('/rewind/:jobId/playstyle-badges', async (c) => {
   }
 });
 
+app.get('/rewind/:jobId/profile', async (c) => {
+  const jobId = c.req.param('jobId');
+  consola.info(chalk.blue(`🔍 Fetching profile for job ${jobId}`));
+
+  const jobMapping = await getJobMapping(jobId);
+  if (!jobMapping) {
+    return c.json({ error: 'Job not found' }, 404);
+  }
+
+  const cachePlatformKey = `rc:platform:${jobMapping.puuid}:${jobMapping.region}`;
+  const cacheProfileKey = `rc:profile:${jobMapping.puuid}:${jobMapping.region}`;
+
+  // Check profile cache
+  const cachedProfile = await redis.get(cacheProfileKey);
+  if (cachedProfile) {
+    return c.json(JSON.parse(cachedProfile));
+  }
+
+  // Check platform cache
+  let platform: Platform | null = null;
+  const cachedPlatform = await redis.get(cachePlatformKey);
+  if (cachedPlatform) {
+    platform = JSON.parse(cachedPlatform).region;
+  } else {
+    // If not in cache, fetch from Riot API
+    platform = (
+      await riot.getPlatform(jobMapping.puuid, jobMapping.region as Region)
+    ).region;
+    // Cache the platform for future use
+    await redis.set(
+      cachePlatformKey,
+      JSON.stringify({ region: platform }),
+      'EX',
+      60 * 5, // 5-minute cache
+    );
+  }
+
+  // If platform is still null, return error
+  if (!platform) {
+    return c.json({ error: 'Failed to fetch platform' }, 500);
+  }
+
+  const account = await riot
+    .summonerByPuuid(platform, jobMapping.puuid)
+    .catch((error) => {
+      consola.error(
+        chalk.red(`❌ Failed to fetch profile for job ${jobId}`),
+        error,
+      );
+      return null;
+    });
+
+  // Cache the profile for future use
+  if (account) {
+    await redis.set(
+      cacheProfileKey,
+      JSON.stringify(account),
+      'EX',
+      60 * 5, // 5-minute cache
+    );
+  }
+
+  // If account is still null, return error
+  if (!account) {
+    return c.json({ error: 'Failed to fetch profile' }, 500);
+  }
+
+  return c.json(account);
+});
+
 app.get('/queues', async (c) => {
   return c.json({
     rewind: await rewindQ.count(),
@@ -369,34 +416,6 @@ app.get('/queues', async (c) => {
     fetch: await fetchQ.count(),
   });
 });
-
-async function getQueuePosition(queue: Queue, jobId: string) {
-  const job = await queue.getJob(jobId);
-  if (!job) return null;
-  const state = await job.getState();
-  if (state === 'active' || state === 'completed' || state === 'failed')
-    return 0;
-
-  const prefix = queue.opts.prefix ?? 'bull';
-  const base = `${prefix}:${queue.name}`;
-  const waitKey = `${base}:wait`;
-  const prioKey = `${base}:prioritized`;
-  const delayedKey = `${base}:delayed`;
-
-  if (job.opts?.priority && job.opts.priority > 0) {
-    const rank = await redis.zrank(prioKey, jobId);
-    if (rank !== null) return rank + 1;
-  }
-  if (state === 'waiting') {
-    const idx = await redis.lpos(waitKey, jobId);
-    if (idx !== null) return (idx as number) + 1;
-  }
-  if (state === 'delayed') {
-    const rank = await redis.zrank(delayedKey, jobId);
-    if (rank !== null) return rank + 1;
-  }
-  return 0;
-}
 
 const server = serve(
   {
