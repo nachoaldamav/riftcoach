@@ -47,16 +47,59 @@ app.use(
 
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
+// WebSocket connection management with subscriptions
+const wsConnections = new Map<unknown, Set<string>>();
+
+// Broadcast function for sending messages to subscribed clients only
+export const broadcastToWebSockets = (channel: string, message: unknown) => {
+  const messageStr = JSON.stringify(message);
+  for (const [ws, subscriptions] of wsConnections) {
+    if ((ws as any).readyState === 1 && subscriptions.has(channel)) { // WebSocket.OPEN
+      (ws as any).send(messageStr);
+    }
+  }
+};
+
 app.get(
   '/ws',
   upgradeWebSocket((c) => {
     return {
-      onMessage(event, ws) {
-        console.log(`Message from client: ${event.data}`);
-        ws.send('Hello from server!');
+      onOpen(event, ws) {
+        wsConnections.set(ws, new Set<string>());
+        console.log('WebSocket connection opened, total connections:', wsConnections.size);
       },
-      onClose: () => {
-        console.log('Connection closed');
+      onMessage(event, ws) {
+        try {
+          const data = JSON.parse(event.data.toString());
+          
+          if (data.type === 'subscribe' && data.channel) {
+            const subscriptions = wsConnections.get(ws);
+            if (subscriptions) {
+              subscriptions.add(data.channel);
+              console.log(`Client subscribed to channel: ${data.channel}`);
+              ws.send(JSON.stringify({ 
+                type: 'subscription_confirmed', 
+                channel: data.channel 
+              }));
+            }
+          } else if (data.type === 'unsubscribe' && data.channel) {
+            const subscriptions = wsConnections.get(ws);
+            if (subscriptions) {
+              subscriptions.delete(data.channel);
+              console.log(`Client unsubscribed from channel: ${data.channel}`);
+              ws.send(JSON.stringify({ 
+                type: 'unsubscription_confirmed', 
+                channel: data.channel 
+              }));
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      },
+      onClose: (event, ws) => {
+        wsConnections.delete(ws);
+        console.log('WebSocket connection closed, remaining connections:', wsConnections.size);
       },
     };
   }),

@@ -6,6 +6,7 @@ import { consola } from 'consola';
 import ms from 'ms';
 import { redis } from '../clients/redis.js';
 import { type Region, riot } from '../clients/riot-api.js';
+import { broadcastToWebSockets } from '../index.js';
 import { GENERATE_PLAYER_SILVER_SQL } from '../queries/generate-player-silver.js';
 import { runAthenaQuery } from '../utils/run-athena-query.js';
 import { createS3Uploaders } from '../utils/upload.js';
@@ -316,6 +317,49 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
           `📤 Successfully uploaded ${matchId} - Queue: ${queue}, Patch: ${m.info.gameVersion}`,
         ),
       );
+
+      // Get job mapping to find the player's PUUID
+      const jobMapping = await getJobMapping(rootId);
+      if (jobMapping) {
+        try {
+          // Find the player's participant data
+          const playerParticipant = m.info.participants.find(p => p.puuid === jobMapping.puuid);
+          
+          if (playerParticipant) {
+            // Find opponent in the same lane/role (simplified approach - find enemy team player with same team position)
+            const opponentParticipant = m.info.participants.find(p => 
+              p.teamId !== playerParticipant.teamId && 
+              p.teamPosition === playerParticipant.teamPosition
+            );
+
+            // Prepare WebSocket message with minimal match information
+            const matchMessage = {
+              type: 'match_processed',
+              jobId: rootId,
+              matchId,
+              player: {
+                championId: playerParticipant.championId,
+                kills: playerParticipant.kills,
+                deaths: playerParticipant.deaths,
+                assists: playerParticipant.assists,
+                win: playerParticipant.win
+              },
+              opponent: opponentParticipant ? {
+                championId: opponentParticipant.championId
+              } : null
+            };
+
+            // Broadcast to all connected WebSocket clients
+            broadcastToWebSockets(`rewind:progress:${rootId}`, matchMessage);
+            
+            consola.info(
+              chalk.blue(`📡 Broadcasted match data: ${playerParticipant.championId} vs ${opponentParticipant?.championId || 'unknown'} - ${playerParticipant.kills}/${playerParticipant.deaths}/${playerParticipant.assists} - ${playerParticipant.win ? 'Win' : 'Loss'}`)
+            );
+          }
+        } catch (wsError) {
+          consola.warn(chalk.yellow(`⚠️ Failed to broadcast WebSocket message for ${matchId}:`), wsError);
+        }
+      }
 
       // bump counters
       await redis.hincrby(progKey, 'matchesFetched', 1);

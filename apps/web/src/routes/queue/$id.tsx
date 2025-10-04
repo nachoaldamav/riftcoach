@@ -1,15 +1,27 @@
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import { getQueueStatusQueryOptions } from '@/queries/get-queue-status';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
-import { Clock, Search, Trophy } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Clock, Search, Trophy, Gamepad2, Target, Zap } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
 
 export const Route = createFileRoute('/queue/$id')({
   component: RouteComponent,
 });
+
+interface ProcessedMatch {
+  matchId: string;
+  playerChampionId: number;
+  opponentChampionId: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  won: boolean;
+  timestamp: number;
+}
 
 function RouteComponent() {
   const { id } = Route.useParams();
@@ -17,6 +29,73 @@ function RouteComponent() {
     getQueueStatusQueryOptions(id),
   );
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [processedMatches, setProcessedMatches] = useState<ProcessedMatch[]>([]);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // WebSocket connection
+  useEffect(() => {
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+    if (!apiBaseUrl || !id) return;
+
+    // Convert HTTP URL to WebSocket URL
+    const wsUrl = apiBaseUrl.replace(/^https?:\/\//, 'ws://').replace(/\/$/, '');
+    
+    const ws = new WebSocket(`${wsUrl}/ws`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setWsConnected(true);
+      
+      // Subscribe to match processing updates for this job
+      ws.send(JSON.stringify({
+        type: 'subscribe',
+        channel: `rewind:progress:${id}`
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        
+        if (message.type === 'subscription_confirmed') {
+          console.log('Subscribed to channel:', message.channel);
+        } else if (message.type === 'match_processed') {
+          const matchData: ProcessedMatch = {
+            matchId: message.data.matchId,
+            playerChampionId: message.data.playerChampionId,
+            opponentChampionId: message.data.opponentChampionId,
+            kills: message.data.kills,
+            deaths: message.data.deaths,
+            assists: message.data.assists,
+            won: message.data.won,
+            timestamp: Date.now()
+          };
+          
+          setProcessedMatches(prev => [matchData, ...prev.slice(0, 9)]); // Keep last 10 matches
+        }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      setWsConnected(false);
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setWsConnected(false);
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, [id]);
 
   useEffect(() => {
     if (!crawlData?.startedAt || isLoading) return;
@@ -27,7 +106,7 @@ function RouteComponent() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [crawlData?.startedAt]);
+  }, [crawlData?.startedAt, isLoading]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -36,7 +115,7 @@ function RouteComponent() {
   };
 
   const progressPercentage = Math.min(
-    (crawlData?.matchesFetched / crawlData?.idsFound) * 100,
+    ((crawlData?.matchesFetched || 0) / (crawlData?.idsFound || 1)) * 100,
     100,
   );
 
@@ -58,7 +137,7 @@ function RouteComponent() {
       y: 0,
       transition: {
         duration: 0.6,
-        ease: 'easeOut',
+        ease: 'easeOut' as const,
       },
     },
   };
@@ -67,6 +146,14 @@ function RouteComponent() {
     return (
       <div className="min-h-screen bg-background gradient-mesh dark">
         <h1>Loading</h1>
+      </div>
+    );
+  }
+
+  if (!crawlData) {
+    return (
+      <div className="min-h-screen bg-background gradient-mesh dark">
+        <h1>No data found</h1>
       </div>
     );
   }
@@ -83,9 +170,9 @@ function RouteComponent() {
           {/* Header */}
           <motion.div variants={itemVariants} className="text-center space-y-4">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20">
-              <div className="w-2 h-2 bg-primary rounded-full pulse-glow" />
+              <div className={`w-2 h-2 rounded-full pulse-glow ${wsConnected ? 'bg-green-500' : 'bg-primary'}`} />
               <span className="text-sm font-medium text-primary">
-                Analyzing your matches
+                {wsConnected ? 'Live updates active' : 'Analyzing your matches'}
               </span>
             </div>
             <h1 className="text-4xl md:text-5xl font-bold text-balance">
@@ -126,6 +213,51 @@ function RouteComponent() {
               </div>
             </Card>
           </motion.div>
+
+          {/* Recently Processed Matches */}
+          {processedMatches.length > 0 && (
+            <motion.div variants={itemVariants}>
+              <Card className="p-6 bg-card/30 backdrop-blur-sm border-border/50">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-5 h-5 text-primary" />
+                    <h3 className="text-lg font-semibold">Recently Processed Matches</h3>
+                  </div>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {processedMatches.map((match) => (
+                      <div
+                        key={match.matchId}
+                        className="flex items-center justify-between p-3 rounded-lg bg-background/50 border border-border/30"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <Gamepad2 className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm font-mono text-muted-foreground">
+                              Champion {match.playerChampionId}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Target className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              vs {match.opponentChampionId}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={match.won ? "default" : "destructive"}>
+                            {match.won ? "Victory" : "Defeat"}
+                          </Badge>
+                          <span className="text-sm font-mono text-muted-foreground">
+                            {match.kills}/{match.deaths}/{match.assists}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          )}
 
           <motion.div
             variants={itemVariants}
