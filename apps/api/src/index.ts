@@ -17,6 +17,8 @@ import { riotAPI } from './clients/riot.js';
 import { s3Client } from './clients/s3.js';
 import {
   buildPlaystyleBadgePrompt,
+  getCachedAIBadges,
+  getCachedPlaystyleStats,
   getCohortStats,
   getPlaystyleStats,
 } from './queues/playstyle-badges.js';
@@ -282,7 +284,7 @@ app.get('/rewind/:jobId/playstyle-badges', async (c) => {
   try {
     // Run both queries in parallel using Promise.allSettled
     const [playstyleResult, cohortResult] = await Promise.allSettled([
-      getPlaystyleStats(jobMapping.puuid, {
+      getCachedPlaystyleStats(jobMapping.puuid, {
         scope: jobMapping.scope,
       }),
       getCohortStats(),
@@ -328,6 +330,9 @@ app.get('/rewind/:jobId/playstyle-badges', async (c) => {
       );
     }
 
+    // Generate AI badges using cached function
+    const aiBadges = await getCachedAIBadges(stats, cohortData?.stats || undefined, jobMapping.puuid);
+    
     const prompt = buildPlaystyleBadgePrompt(stats);
 
     return c.json({
@@ -336,6 +341,7 @@ app.get('/rewind/:jobId/playstyle-badges', async (c) => {
       scope: jobMapping.scope,
       stats,
       cohort: cohortData,
+      aiBadges,
       prompt,
       analysisContext: {
         season: meta.season ?? null,

@@ -1,18 +1,18 @@
+import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
 // src/queues/rewind.ts
-import { Queue, Worker } from "bullmq";
-import { redis } from "../clients/redis.js";
-import ms from "ms";
-import { listQ } from "./scan.js"; // your listQ from the code you pasted
-import { consola } from "consola";
-import chalk from "chalk";
-import { ALLOWED_QUEUE_IDS } from "@riftcoach/shared.constants";
-import { v5 as uuidv5 } from "uuid";
+import { Queue, Worker } from 'bullmq';
+import chalk from 'chalk';
+import { consola } from 'consola';
+import ms from 'ms';
+import { v5 as uuidv5 } from 'uuid';
+import { redis } from '../clients/redis.js';
+import { listQ } from './scan.js'; // your listQ from the code you pasted
 
-export const rewindQ = new Queue("rewind", {
+export const rewindQ = new Queue('rewind', {
   connection: redis,
   defaultJobOptions: {
     attempts: 3,
-    backoff: { type: "exponential", delay: 2000 },
+    backoff: { type: 'exponential', delay: 2000 },
   },
 });
 
@@ -22,7 +22,7 @@ export const OPEN_FETCH = (id: string) => `rc:rewind:openFetch:${id}`;
 export const JOB_MAPPING = (uuid: string) => `rc:rewind:job:${uuid}`;
 
 // UUID v5 namespace for RiftCoach rewind jobs
-export const REWIND_NAMESPACE = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+export const REWIND_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 
 export function makeRewindJobId(scope: string, region: string, puuid: string) {
   return `${scope}:${region}:${puuid}`;
@@ -32,7 +32,7 @@ export function makeRewindJobId(scope: string, region: string, puuid: string) {
 export function generateJobUUID(
   scope: string,
   region: string,
-  puuid: string
+  puuid: string,
 ): string {
   const jobData = `${scope}:${region}:${puuid}`;
   return uuidv5(jobData, REWIND_NAMESPACE);
@@ -43,7 +43,7 @@ export async function storeJobMapping(
   uuid: string,
   scope: string,
   region: string,
-  puuid: string
+  puuid: string,
 ): Promise<void> {
   const jobData = {
     scope,
@@ -75,7 +75,7 @@ export async function findJobByPuuid(puuid: string): Promise<string | null> {
     if (data) {
       const jobData = JSON.parse(data);
       if (jobData.puuid === puuid) {
-        return key.replace("rc:rewind:job:", "");
+        return key.replace('rc:rewind:job:', '');
       }
     }
   }
@@ -85,12 +85,12 @@ export async function findJobByPuuid(puuid: string): Promise<string | null> {
 // Keep these functions for internal job ID encoding in scan queues
 // Encode job ID for use as BullMQ custom ID (base64 encoding to avoid conflicts)
 export function encodeJobId(jobId: string): string {
-  return Buffer.from(jobId, "utf8").toString("base64");
+  return Buffer.from(jobId, 'utf8').toString('base64');
 }
 
 // Decode job ID back to original format
 export function decodeJobId(encodedJobId: string): string {
-  return Buffer.from(encodedJobId, "base64").toString("utf8");
+  return Buffer.from(encodedJobId, 'base64').toString('utf8');
 }
 
 // Orchestrator: enqueue first pages for 420 & 440 and initialize progress
@@ -105,7 +105,7 @@ export const worker = new Worker(
       queues = ALLOWED_QUEUE_IDS,
     } = job.data as {
       scope: string;
-      region: "europe" | "americas" | "asia" | "sea";
+      region: 'europe' | 'americas' | 'asia' | 'sea';
       puuid: string;
       season: number;
       queues?: number[];
@@ -119,28 +119,28 @@ export const worker = new Worker(
     consola.info(
       chalk.cyan(
         `📊 Scope: ${scope}, Region: ${region}, PUUID: ${puuid}, Season: ${season}, Queues: [${queues.join(
-          ", "
-        )}]`
-      )
+          ', ',
+        )}]`,
+      ),
     );
 
     // init progress hash + open counters using UUID
     await redis.hset(PROG(jobUUID), {
-      state: "listing",
-      pagesDone_420: "0",
-      pagesDone_440: "0",
-      idsFound: "0",
-      matchesFetched: "0",
-      timelinesFetched: "0",
+      state: 'listing',
+      pagesDone_420: '0',
+      pagesDone_440: '0',
+      idsFound: '0',
+      matchesFetched: '0',
+      timelinesFetched: '0',
       startedAt: Date.now().toString(),
       updatedAt: Date.now().toString(),
     });
     await redis.expire(PROG(jobUUID), 7 * 86400);
-    await redis.set(OPEN_PAGES(jobUUID), "0", "EX", 7 * 86400);
-    await redis.set(OPEN_FETCH(jobUUID), "0", "EX", 7 * 86400);
+    await redis.set(OPEN_PAGES(jobUUID), '0', 'EX', 7 * 86400);
+    await redis.set(OPEN_FETCH(jobUUID), '0', 'EX', 7 * 86400);
 
     consola.success(
-      chalk.green(`✅ [${jobUUID}] Progress tracking initialized`)
+      chalk.green(`✅ [${jobUUID}] Progress tracking initialized`),
     );
 
     // enqueue first list page per queue (dedup by jobId)
@@ -151,41 +151,41 @@ export const worker = new Worker(
       const existingListJob = await listQ.getJob(listJobId);
       if (existingListJob) {
         const state = await existingListJob.getState();
-        if (state === "completed" || state === "failed") {
+        if (state === 'completed' || state === 'failed') {
           consola.info(
-            chalk.blue(`🧹 Cleaning up ${state} list job for queue ${q}`)
+            chalk.blue(`🧹 Cleaning up ${state} list job for queue ${q}`),
           );
           await existingListJob.remove();
         } else {
           consola.warn(
             chalk.yellow(
-              `⚠️ List job for queue ${q} already exists in state: ${state}`
-            )
+              `⚠️ List job for queue ${q} already exists in state: ${state}`,
+            ),
           );
           continue; // Skip this queue if job is still active
         }
       }
 
       await redis.incr(OPEN_PAGES(jobUUID));
-      await listQ.add("scan:list", {
+      await listQ.add('scan:list', {
         region,
         puuid,
-        step: "getMatchList",
+        step: 'getMatchList',
         opts: { start: 0, season, queue: q, rootId: jobUUID },
-      });
+      }, { jobId: listJobId });
       consola.info(
-        chalk.yellow(`📋 [${jobUUID}] Enqueued list job for queue ${q}`)
+        chalk.yellow(`📋 [${jobUUID}] Enqueued list job for queue ${q}`),
       );
     }
 
     consola.success(
       chalk.green(
-        `🚀 [${jobUUID}] Orchestration complete - ${queues.length} list jobs enqueued`
-      )
+        `🚀 [${jobUUID}] Orchestration complete - ${queues.length} list jobs enqueued`,
+      ),
     );
 
     // Orchestrator exits fast; `/status` will read the progress hash.
     return { ok: true, uuid: jobUUID };
   },
-  { connection: redis, limiter: { duration: ms("1s"), max: 10 } }
+  { connection: redis, limiter: { duration: ms('1s'), max: 10 } },
 );

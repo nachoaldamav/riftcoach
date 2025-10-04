@@ -1,15 +1,18 @@
 import type { RiotAPITypes } from '@fightmegg/riot-api';
-import { patchBucket } from '@riftcoach/shared.constants';
+import { ALLOWED_QUEUE_IDS, patchBucket } from '@riftcoach/shared.constants';
 import { Queue, Worker } from 'bullmq';
 import chalk from 'chalk';
 import { consola } from 'consola';
 import ms from 'ms';
 import { redis } from '../clients/redis.js';
 import { type Region, riot } from '../clients/riot-api.js';
+import { GENERATE_PLAYER_SILVER_SQL } from '../queries/generate-player-silver.js';
+import { runAthenaQuery } from '../utils/run-athena-query.js';
 import { createS3Uploaders } from '../utils/upload.js';
+import { getJobMapping } from './rewind.js';
 
 const { uploadMatch, uploadTimeline } = createS3Uploaders({
-  bucket: process.env.S3_BUCKET!,
+  bucket: process.env.S3_BUCKET as string,
 });
 
 export const listQ = new Queue('scan-list', {
@@ -73,7 +76,7 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
 
     let ids: string[] = [];
     try {
-      consola.info(chalk.yellow(`🔍 Fetching match IDs from Riot API...`));
+      consola.info(chalk.yellow('🔍 Fetching match IDs from Riot API...'));
       ids = await riot.getIdsByPuuid(region as Region, puuid, {
         start,
         count: 100,
@@ -81,6 +84,7 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
         startTime: startSec,
       });
       consola.success(chalk.green(`✅ Found ${ids.length} match IDs`));
+      // biome-ignore lint/suspicious/noExplicitAny: <explanation>
     } catch (e: any) {
       if (String(e?.status) === '429') {
         consola.warn(
@@ -91,7 +95,7 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
         await job.updateProgress({ retryAfter: e?.headers?.['retry-after'] });
         throw e;
       }
-      consola.error(chalk.red(`❌ Error fetching match IDs:`), e);
+      consola.error(chalk.red('❌ Error fetching match IDs:'), e);
       throw e;
     }
 
@@ -132,7 +136,8 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
           ]);
 
           continue; // Skip creating a new job
-        } else if (state === 'failed') {
+        }
+        if (state === 'failed') {
           consola.info(
             chalk.blue(`🧹 Cleaning up failed fetch job for match ${matchId}`),
           );
@@ -204,12 +209,36 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
       ).length;
 
       if (left <= 0 && openFetch === 0 && pendingJobsForThisRoot === 0) {
+        consola.info('Fetching complete - marking as ready');
         await redis.hset(progKey, {
           state: 'ready',
           updatedAt: Date.now().toString(),
         });
+
+        consola.info('Running Athena query to generate player silver');
+        await runAthenaQuery({
+          query: GENERATE_PLAYER_SILVER_SQL({
+            patch_major: '15',
+            queues: ALLOWED_QUEUE_IDS.map((id) => id.toString()),
+            puuid: (await getJobMapping(rootId).then(
+              (mapping) => mapping?.puuid,
+            )) as string,
+            season: 2025,
+          }),
+        }).catch((error) => {
+          consola.error(
+            chalk.red('❌ Failed to generate player silver:'),
+            error,
+          );
+          throw error;
+        });
+
         consola.success(
-          chalk.green(`🎯 All listing complete - marked as ready!`),
+          chalk.green('🎯 Player silver generated successfully!'),
+        );
+
+        consola.success(
+          chalk.green('🎯 All fetching complete - marked as ready!'),
         );
       } else {
         consola.info(
@@ -239,16 +268,16 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
 
     try {
       consola.info(
-        chalk.yellow(`🔍 Fetching match data and timeline from Riot API...`),
+        chalk.yellow('🔍 Fetching match data and timeline from Riot API...'),
       );
       const m = await riot.getMatchById(matchId);
 
-      consola.info(chalk.blue(`🔎 Fetched match data`));
+      consola.info(chalk.blue('🔎 Fetched match data'));
 
       // Wait one second
       await new Promise((resolve) => setTimeout(resolve, 1_000));
 
-      consola.info(chalk.blue(`🔎 Fetching match timeline`));
+      consola.info(chalk.blue('🔎 Fetching match timeline'));
 
       const t = await riot.getTimeline(matchId);
 
@@ -257,11 +286,11 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
         return;
       }
 
-      consola.info(chalk.blue(`🔎 Fetched match timeline`));
+      consola.info(chalk.blue('🔎 Fetched match timeline'));
 
       consola.success(chalk.green(`✅ Retrieved match data for ${matchId}`));
 
-      consola.info(chalk.cyan(`☁️ Uploading match to S3...`));
+      consola.info(chalk.cyan('☁️ Uploading match to S3...'));
       await uploadMatch({
         matchId,
         info: m.info,
@@ -272,7 +301,7 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
       const pb = patchBucket(m.info.gameVersion);
       const queue = m.info.queueId;
 
-      consola.info(chalk.cyan(`☁️ Uploading timeline to S3...`));
+      consola.info(chalk.cyan('☁️ Uploading timeline to S3...'));
       await uploadTimeline({
         matchId,
         frames: t.info.frames,
@@ -293,41 +322,115 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
       if (t?.info?.frames?.length) {
         await redis.hincrby(progKey, 'timelinesFetched', 1);
         consola.info(
-          chalk.cyan(`📊 Updated counters - Match & timeline processed`),
+          chalk.cyan('📊 Updated counters - Match & timeline processed'),
         );
       } else {
         consola.warn(chalk.yellow(`⚠️ No timeline frames found for ${matchId}`));
         consola.info(
-          chalk.cyan(`📊 Updated counters - Match processed (no timeline)`),
+          chalk.cyan('📊 Updated counters - Match processed (no timeline)'),
         );
       }
       await redis.hset(progKey, 'updatedAt', Date.now().toString());
       await redis.expire(progKey, 7 * 86400);
 
-      // decrement open fetch and maybe mark ready
-      const left = await redis.decr(openFetchKey);
-      const openPages =
-        Number(await redis.get(`rc:rewind:openPages:${rootId}`)) || 0;
+      // Atomic completion check using Lua script to prevent race conditions
+      const completionScript = `
+        local openFetchKey = KEYS[1]
+        local openPagesKey = KEYS[2]
+        local progKey = KEYS[3]
+        local completionKey = KEYS[4]
+        
+        -- Decrement open fetch counter
+        local left = redis.call('DECR', openFetchKey)
+        local openPages = tonumber(redis.call('GET', openPagesKey)) or 0
+        
+        -- Check if already marked as complete to prevent double execution
+        local alreadyComplete = redis.call('GET', completionKey)
+        if alreadyComplete then
+          return {left, openPages, 1} -- 1 indicates already complete
+        end
+        
+        -- Check completion conditions
+        if left <= 0 and openPages <= 0 then
+          -- Mark as completing to prevent other workers from triggering
+          redis.call('SET', completionKey, '1', 'EX', 300) -- 5 min expiry
+          redis.call('HSET', progKey, 'state', 'ready', 'updatedAt', tostring(tonumber(ARGV[1])))
+          return {left, openPages, 2} -- 2 indicates this worker should trigger completion
+        end
+        
+        return {left, openPages, 0} -- 0 indicates not complete yet
+      `;
 
-      // Also check for queued jobs in the fetch queue that haven't started yet
-      const queuedJobs = await fetchQ.getJobs(['waiting', 'delayed']);
-      const pendingJobsForThisRoot = queuedJobs.filter(
-        (job) => job.data?.opts?.rootId === rootId,
-      ).length;
+      const completionKey = `rc:rewind:completing:${rootId}`;
+      const openPagesKey = `rc:rewind:openPages:${rootId}`;
 
-      if (left <= 0 && openPages === 0 && pendingJobsForThisRoot === 0) {
-        await redis.hset(progKey, {
-          state: 'ready',
-          updatedAt: Date.now().toString(),
-        });
-        consola.success(
-          chalk.green('🎯 All fetching complete - marked as ready!'),
+      const [left, openPages, shouldComplete] = (await redis.eval(
+        completionScript,
+        4,
+        openFetchKey,
+        openPagesKey,
+        progKey,
+        completionKey,
+        Date.now().toString(),
+      )) as [number, number, number];
+
+      if (shouldComplete === 1) {
+        consola.info(
+          chalk.blue('📋 Completion already handled by another worker'),
         );
+        return { queueId: m.info.queueId, patch: m.info.gameVersion };
+      }
+
+      if (shouldComplete === 2) {
+        // Also check for queued jobs in the fetch queue that haven't started yet
+        const queuedJobs = await fetchQ.getJobs(['waiting', 'delayed']);
+        const pendingJobsForThisRoot = queuedJobs.filter(
+          (job) => job.data?.opts?.rootId === rootId,
+        ).length;
+
+        if (pendingJobsForThisRoot === 0) {
+          consola.info('Fetching complete - marked as ready');
+
+          consola.info('Running Athena query to generate player silver');
+          await runAthenaQuery({
+            query: GENERATE_PLAYER_SILVER_SQL({
+              patch_major: '15',
+              queues: ALLOWED_QUEUE_IDS.map((id) => id.toString()),
+              puuid: (await getJobMapping(rootId).then(
+                (mapping) => mapping?.puuid,
+              )) as string,
+              season: 2025,
+            }),
+          }).catch(async (error) => {
+            consola.error(
+              chalk.red('❌ Failed to generate player silver:'),
+              error,
+            );
+            // Clean up completion lock on error
+            await redis.del(completionKey);
+            throw error;
+          });
+
+          consola.success(
+            chalk.green('🎯 Player silver generated successfully!'),
+          );
+
+          consola.success(
+            chalk.green('🎯 All fetching complete - marked as ready!'),
+          );
+        } else {
+          // Still have queued jobs, revert the completion state
+          await redis.del(completionKey);
+          await redis.hset(progKey, 'state', 'processing');
+          consola.info(
+            chalk.cyan(
+              `📈 Found ${pendingJobsForThisRoot} queued jobs, continuing...`,
+            ),
+          );
+        }
       } else {
         consola.info(
-          chalk.cyan(
-            `📈 Fetches left: ${left}, Pages pending: ${openPages}, Queued: ${pendingJobsForThisRoot}`,
-          ),
+          chalk.cyan(`📈 Fetches left: ${left}, Pages pending: ${openPages}`),
         );
       }
 
