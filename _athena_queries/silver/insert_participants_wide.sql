@@ -1,4 +1,4 @@
-INSERT INTO rift_silver.participants_wide_v4
+INSERT INTO rift_silver.participants_wide_v7
 WITH
 -- =========================
 -- Edit only this block 👇
@@ -187,38 +187,94 @@ objective_events AS (
   FROM events
   WHERE type = 'ELITE_MONSTER_KILL'
 ),
+
+-- Normalize objective kinds
+objective_events_norm AS (
+  SELECT
+    matchid,
+    ts,
+    killer_id,
+    assists_ids,
+    CASE
+      WHEN monster_type = 'DRAGON' AND monster_subtype = 'ELDER_DRAGON' THEN 'ELDER'
+      WHEN monster_type = 'DRAGON' THEN 'DRAGON'
+      WHEN monster_type = 'RIFTHERALD' THEN 'HERALD'
+      WHEN monster_type = 'BARON_NASHOR' THEN 'BARON'
+      WHEN monster_subtype = 'HORDE' THEN 'GRUBS'
+      WHEN monster_subtype = 'ATAKHAN' THEN 'ATAKHAN'
+      ELSE COALESCE(monster_type, monster_subtype, 'OTHER')
+    END AS obj_norm
+  FROM objective_events
+),
+
+-- Participant -> team lookup
+team_lookup AS (
+  SELECT
+    matchid,
+    CAST(json_extract_scalar(p_json,'$.participantId') AS integer) AS participant_id,
+    CAST(json_extract_scalar(p_json,'$.teamId') AS integer) AS team_id
+  FROM participants
+),
+
 objective_participation AS (
-  SELECT matchid, obj_kind, participant_id, count(*) AS takedowns
+  SELECT matchid, obj_kind, participant_id, count(DISTINCT ts) AS takedowns
   FROM (
-    SELECT matchid,
-           CASE
-             WHEN monster_type = 'DRAGON' THEN COALESCE(monster_subtype,'DRAGON')
-             WHEN monster_type = 'RIFTHERALD' THEN 'HERALD'
-             WHEN monster_type = 'BARON_NASHOR' THEN 'BARON'
-             WHEN monster_type = 'ELDER_DRAGON' THEN 'ELDER'
-             WHEN monster_subtype = 'HORDE' THEN 'GRUBS'
-             WHEN monster_subtype = 'ATAKHAN' THEN 'ATAKHAN'
-             ELSE COALESCE(monster_type, monster_subtype, 'OTHER')
-           END AS obj_kind,
-           p AS participant_id
+    SELECT
+      o.matchid,
+      o.ts,
+      CASE
+        WHEN monster_type = 'DRAGON' THEN COALESCE(monster_subtype,'DRAGON')
+        WHEN monster_type = 'RIFTHERALD' THEN 'HERALD'
+        WHEN monster_type = 'BARON_NASHOR' THEN 'BARON'
+        WHEN monster_type = 'ELDER_DRAGON' THEN 'ELDER'
+        WHEN monster_subtype = 'HORDE' THEN 'GRUBS'
+        WHEN monster_subtype = 'ATAKHAN' THEN 'ATAKHAN'
+        ELSE COALESCE(monster_type, monster_subtype, 'OTHER')
+      END AS obj_kind,
+      p AS participant_id
     FROM objective_events o
     CROSS JOIN UNNEST(ARRAY[o.killer_id]) AS t(p)
+    WHERE p BETWEEN 1 AND 10
     UNION ALL
-    SELECT matchid,
-           CASE
-             WHEN monster_type = 'DRAGON' THEN COALESCE(monster_subtype,'DRAGON')
-             WHEN monster_type = 'RIFTHERALD' THEN 'HERALD'
-             WHEN monster_type = 'BARON_NASHOR' THEN 'BARON'
-             WHEN monster_type = 'ELDER_DRAGON' THEN 'ELDER'
-             WHEN monster_subtype = 'HORDE' THEN 'GRUBS'
-             WHEN monster_subtype = 'ATAKHAN' THEN 'ATAKHAN'
-             ELSE COALESCE(monster_type, monster_subtype, 'OTHER')
-           END AS obj_kind,
-           a AS participant_id
+    SELECT
+      o.matchid,
+      o.ts,
+      CASE
+        WHEN monster_type = 'DRAGON' THEN COALESCE(monster_subtype,'DRAGON')
+        WHEN monster_type = 'RIFTHERALD' THEN 'HERALD'
+        WHEN monster_type = 'BARON_NASHOR' THEN 'BARON'
+        WHEN monster_type = 'ELDER_DRAGON' THEN 'ELDER'
+        WHEN monster_subtype = 'HORDE' THEN 'GRUBS'
+        WHEN monster_subtype = 'ATAKHAN' THEN 'ATAKHAN'
+        ELSE COALESCE(monster_type, monster_subtype, 'OTHER')
+      END AS obj_kind,
+      a AS participant_id
     FROM objective_events o
     CROSS JOIN UNNEST(o.assists_ids) AS t(a)
+    LEFT JOIN team_lookup killer_team ON o.matchid = killer_team.matchid AND o.killer_id = killer_team.participant_id
+    LEFT JOIN team_lookup assist_team ON o.matchid = assist_team.matchid AND a = assist_team.participant_id
+    WHERE a BETWEEN 1 AND 10 
+      AND killer_team.team_id = assist_team.team_id  -- Only count assists from same team as killer
   ) x
-  WHERE participant_id BETWEEN 1 AND 10
+  GROUP BY 1,2,3
+),
+
+-- Normalized per-participant takedowns (DRAGON collapsed, ELDER separate)
+objective_participation_norm AS (
+  SELECT matchid, obj_norm, participant_id, count(DISTINCT ts) AS takedowns_norm
+  FROM (
+    SELECT e.matchid, e.ts, e.obj_norm, e.killer_id AS participant_id
+    FROM objective_events_norm e
+    WHERE e.killer_id BETWEEN 1 AND 10
+    UNION ALL
+    SELECT e.matchid, e.ts, e.obj_norm, a AS participant_id
+    FROM objective_events_norm e
+    CROSS JOIN UNNEST(e.assists_ids) AS t(a)
+    LEFT JOIN team_lookup killer_team ON e.matchid = killer_team.matchid AND e.killer_id = killer_team.participant_id
+    LEFT JOIN team_lookup assist_team ON e.matchid = assist_team.matchid AND a = assist_team.participant_id
+    WHERE a BETWEEN 1 AND 10 
+      AND killer_team.team_id = assist_team.team_id  -- Only count assists from same team as killer
+  ) u
   GROUP BY 1,2,3
 ),
 
@@ -236,6 +292,40 @@ ward_destroy_maps AS (
 objective_maps AS (
   SELECT matchid, participant_id, map_agg(obj_kind, takedowns) AS objective_takedowns_map
   FROM objective_participation
+  GROUP BY 1,2
+),
+objective_maps_norm AS (
+  SELECT matchid, participant_id, map_agg(obj_norm, takedowns_norm) AS objective_takedowns_norm_map
+  FROM objective_participation_norm
+  GROUP BY 1,2
+),
+
+-- Infer team for each objective event (killer team first, else first-assist team)
+objective_events_norm_with_team AS (
+  SELECT
+    e.matchid,
+    e.ts,
+    e.obj_norm,
+    COALESCE(tk.team_id, ta.team_id) AS team_id
+  FROM objective_events_norm e
+  LEFT JOIN team_lookup tk
+    ON e.matchid = tk.matchid AND e.killer_id BETWEEN 1 AND 10 AND e.killer_id = tk.participant_id
+  LEFT JOIN team_lookup ta
+    ON e.matchid = ta.matchid
+   AND CARDINALITY(e.assists_ids) > 0
+   AND element_at(e.assists_ids, 1) = ta.participant_id
+),
+
+-- Team totals per normalized objective kind (count distinct events)
+team_objective_totals_norm AS (
+  SELECT matchid, team_id, obj_norm, count(DISTINCT ts) AS team_total
+  FROM objective_events_norm_with_team
+  WHERE team_id IS NOT NULL
+  GROUP BY 1,2,3
+),
+team_objective_totals_map AS (
+  SELECT matchid, team_id, map_agg(obj_norm, team_total) AS team_objective_totals_map
+  FROM team_objective_totals_norm
   GROUP BY 1,2
 ),
 positions_ts AS (
@@ -401,6 +491,11 @@ final AS (
     COALESCE(wm.wards_placed_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer)))     AS wards_placed_by_type,
     COALESCE(wdm.wards_destroyed_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS wards_destroyed_by_type,
     COALESCE(om.objective_takedowns_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS objective_takedowns_by_type,
+    COALESCE(omn.objective_takedowns_norm_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS objective_takedowns_by_type_norm,
+    COALESCE(totm.team_objective_totals_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS team_objective_totals_by_type,
+    transform_values(totm.team_objective_totals_map, (k, v) -> 
+      COALESCE(CAST(element_at(omn.objective_takedowns_norm_map, k) AS double) / NULLIF(v, 0), 0.0)
+    ) AS objective_participation_by_type,
     COALESCE(pos.positions,   CAST(ARRAY[] AS ARRAY(ROW(ts bigint, x integer, y integer)))) AS positions_ts,
     COALESCE(it.item_events,  CAST(ARRAY[] AS ARRAY(ROW(ts bigint, type varchar, item_id integer)))) AS item_events_ts,
     COALESCE(kt.combat_events,CAST(ARRAY[] AS ARRAY(ROW(ts bigint, x integer, y integer, kind varchar, killer_id integer, victim_id integer, assists_count integer, assists_ids ARRAY(integer))))) AS combat_events_ts,
@@ -413,6 +508,8 @@ final AS (
   LEFT JOIN ward_maps wm           ON wm.matchid = b.matchid AND wm.participant_id = b.participant_id
   LEFT JOIN ward_destroy_maps wdm  ON wdm.matchid = b.matchid AND wdm.participant_id = b.participant_id
   LEFT JOIN objective_maps om      ON om.matchid = b.matchid AND om.participant_id = b.participant_id
+  LEFT JOIN objective_maps_norm omn ON omn.matchid = b.matchid AND omn.participant_id = b.participant_id
+  LEFT JOIN team_objective_totals_map totm ON totm.matchid = b.matchid AND totm.team_id = b.team_id
   LEFT JOIN positions_ts pos       ON pos.matchid = b.matchid AND pos.participant_id = b.participant_id
   LEFT JOIN item_ts it             ON it.matchid = b.matchid AND it.participant_id = b.participant_id
   LEFT JOIN kills_ts kt            ON kt.matchid = b.matchid AND kt.participant_id = b.participant_id
@@ -424,7 +521,7 @@ final_dedup AS (
 to_insert AS (
   SELECT fr.*
   FROM final_dedup fr
-  LEFT JOIN rift_silver.participants_wide_v4 t
+  LEFT JOIN rift_silver.participants_wide_v7 t
     ON t.matchid     = fr.matchid
    AND t.puuid       = fr.puuid
    AND t.season      = fr.season
@@ -443,6 +540,7 @@ SELECT
   dragon_kills_personal, baron_kills_personal, rift_herald_kills_personal, turret_takedowns, inhib_takedowns,
   cs_at10, gold_at10, xp_at10, level_at10, cs_at20, gold_at20, xp_at20, level_at20,
   wards_placed_by_type, wards_destroyed_by_type, objective_takedowns_by_type,
+  objective_takedowns_by_type_norm, team_objective_totals_by_type, objective_participation_by_type,
   positions_ts, item_events_ts, combat_events_ts,
   meta, perks_json, participant_json,
   matchid, puuid, queue,
