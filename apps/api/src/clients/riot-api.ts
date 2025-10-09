@@ -22,7 +22,7 @@ export type Platform =
   | 'sg2'
   | 'th2'
   | 'tw2'
-  | 'vn2'; // SEA shards
+  | 'vn2';
 
 const BASE: Record<Region, string> = {
   europe: 'https://europe.api.riotgames.com',
@@ -35,11 +35,13 @@ function parseRetryAfterMs(h: Headers, fallback = 3000) {
   const ra = h.get('retry-after');
   if (!ra) return fallback;
   const n = Number(ra);
-  if (Number.isFinite(n)) return Math.min(60_000, Math.max(1000, n * 1000)); // 1s..60s clamp
+  if (Number.isFinite(n)) return Math.min(60_000, Math.max(1000, n * 1000)); // 1..60s
   return fallback;
 }
 const jitter = (ms: number) =>
   Math.round(ms * (1 + (Math.random() - 0.5) * 0.2)); // ±10%
+
+type Window = { limit: number; intervalMs: number };
 
 export interface RiotClientOptions {
   apiKey: string;
@@ -51,9 +53,16 @@ export interface RiotClientOptions {
   // Optional UA header
   userAgent?: string;
 
-  // Bottleneck tuning (per routing region)
-  perSecond?: number; // default ~18 req/s
-  concurrent?: number; // default 4 in-flight per region
+  // Concurrency per routing region
+  concurrent?: number;
+
+  // Dual-window rate limits (per routing region)
+  // Defaults are for DEV apps: 20/1s and 100/120s.
+  shortWindow?: Window; // e.g. { limit: 20, intervalMs: 1000 }
+  longWindow?: Window; // e.g. { limit: 100, intervalMs: 120_000 }
+
+  // Optional: tune min spacing; by default we derive from windows
+  minTimeMsOverride?: number;
 }
 
 export class RiotClient {
@@ -62,8 +71,7 @@ export class RiotClient {
   private maxRetries: number;
   private userAgent?: string;
 
-  // One limiter per routing region (local, single-process).
-  // If you need cross-process, swap to Bottleneck Redis connection.
+  // One COMPOSITE limiter per routing region: short window chained to long window.
   private limiters: Record<Region, Bottleneck>;
 
   constructor(opts: RiotClientOptions) {
@@ -72,46 +80,67 @@ export class RiotClient {
     this.maxRetries = Math.max(0, opts.maxRetries ?? 6);
     this.userAgent = opts.userAgent;
 
-    const perSecond = Math.max(1, opts.perSecond ?? 18);
     const concurrent = Math.max(1, opts.concurrent ?? 4);
 
-    const mkLimiter = () =>
-      new Bottleneck({
-        // token bucket ~perSecond tokens refilled every second
-        reservoir: perSecond,
-        reservoirRefreshAmount: perSecond,
-        reservoirRefreshInterval: 1000,
+    // Windows (defaults: DEV app)
+    const short: Window = opts.shortWindow ?? { limit: 20, intervalMs: 1000 };
+    const long: Window = opts.longWindow ?? { limit: 100, intervalMs: 120_000 };
+
+    const minTimeShort = Math.max(0, Math.ceil(short.intervalMs / short.limit));
+    const minTimeLong = Math.max(0, Math.ceil(long.intervalMs / long.limit));
+    const minTimeMs =
+      opts.minTimeMsOverride ?? Math.max(1, Math.min(minTimeShort, 50)); // keep bursts smoothed
+
+    const mkDualLimiter = () => {
+      // Fast bucket (e.g., 20/1s or 500/10s)
+      const fast = new Bottleneck({
+        reservoir: short.limit,
+        reservoirRefreshAmount: short.limit,
+        reservoirRefreshInterval: short.intervalMs,
         maxConcurrent: concurrent,
-        // tiny spacing to avoid bursts
-        minTime: Math.ceil(1000 / perSecond),
+        minTime: minTimeMs,
       });
 
+      // Slow bucket (e.g., 100/120s or 30k/600s)
+      const slow = new Bottleneck({
+        reservoir: long.limit,
+        reservoirRefreshAmount: long.limit,
+        reservoirRefreshInterval: long.intervalMs,
+        // Concurrency on the slow bucket can be same or higher; same is safe.
+        maxConcurrent: concurrent,
+        // minTime here is irrelevant-ish because the reservoir dominates,
+        // but we keep a tiny spacing to avoid micro-bursts when the long bucket refills.
+        minTime: Math.max(1, Math.min(minTimeLong, 50)),
+      });
+
+      // Every job scheduled on `fast` must also be accepted by `slow`.
+      fast.chain(slow);
+      return fast;
+    };
+
     this.limiters = {
-      europe: mkLimiter(),
-      americas: mkLimiter(),
-      asia: mkLimiter(),
-      sea: mkLimiter(),
+      europe: mkDualLimiter(),
+      americas: mkDualLimiter(),
+      asia: mkDualLimiter(),
+      sea: mkDualLimiter(),
     };
   }
 
   // ---------- helpers ----------
 
-  /** Map platform (euw1, na1, kr, …) to routing region */
   platformToRegion(platform: Platform): Region {
     const p = platform.toLowerCase() as Platform;
     if (['euw1', 'eun1', 'tr1', 'ru'].includes(p)) return 'europe';
     if (['na1', 'br1', 'la1', 'la2', 'oc1'].includes(p)) return 'americas';
     if (['kr', 'jp1'].includes(p)) return 'asia';
-    return 'sea'; // ph2, sg2, th2, tw2, vn2
+    return 'sea';
   }
 
-  /** Infer routing region straight from a matchId (EUW1_..., NA1_..., KR_..., etc.) */
   regionFromMatchId(matchId: string): Region {
     const [shard] = (matchId || '').split('_');
     return this.platformToRegion(shard.toLowerCase() as Platform);
   }
 
-  /** Build URL safely with new URL + search params */
   private buildUrl(
     base: string,
     pathname: string,
@@ -173,8 +202,13 @@ export class RiotClient {
         const retryable = status === 429 || (status >= 500 && status < 600);
         if (!retryable || attempt >= this.maxRetries) throw e;
 
+        if (status === 429) {
+          console.warn(
+            `⚠️  Rate limit hit (429) - retrying in ${e?.retryAfterMs ?? 3000}ms (attempt ${attempt + 1}/${this.maxRetries + 1})`,
+          );
+        }
         const base = e?.retryAfterMs ?? 3000;
-        const backoff = jitter(base * Math.pow(2, attempt)); // exp backoff + jitter
+        const backoff = jitter(base * Math.pow(2, attempt));
         await sleep(backoff);
         attempt++;
       }
@@ -187,20 +221,16 @@ export class RiotClient {
 
   // ---------- API methods ----------
 
-  /** Account-V1 by Riot ID (routing region: europe/americas/asia/sea) */
   getAccountByRiotId(region: Region, gameName: string, tagLine: string) {
     const url = this.buildUrl(
       BASE[region],
-      `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(
-        gameName,
-      )}/${encodeURIComponent(tagLine)}`,
+      `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`,
     );
     return this.schedule<RiotAPITypes.Account.AccountDTO>(region, () =>
       this.withRetry(() => this.fetchJson(url, { method: 'GET' })),
     );
   }
 
-  /** Match-V5 IDs by PUUID (routing region: europe/americas/asia/sea) */
   getIdsByPuuid(
     region: Region,
     puuid: string,
@@ -208,8 +238,8 @@ export class RiotClient {
       start?: number;
       count?: number;
       queue?: number;
-      startTime?: number; // UNIX seconds
-      endTime?: number; // UNIX seconds
+      startTime?: number;
+      endTime?: number;
     } = {},
   ) {
     const url = this.buildUrl(
@@ -222,7 +252,6 @@ export class RiotClient {
     );
   }
 
-  /** Match-V5 match detail (routing region inferred or provided) */
   getMatchById(regionOrMatchId: Region | string, maybeMatchId?: string) {
     const region: Region = maybeMatchId
       ? (regionOrMatchId as Region)
@@ -237,7 +266,6 @@ export class RiotClient {
     );
   }
 
-  /** Match-V5 timeline (returns null on 404) */
   async getTimeline(regionOrMatchId: Region | string, maybeMatchId?: string) {
     const region: Region = maybeMatchId
       ? (regionOrMatchId as Region)
@@ -253,7 +281,7 @@ export class RiotClient {
         () => this.withRetry(() => this.fetchJson(url, { method: 'GET' })),
       );
     } catch (e: any) {
-      if (Number(e?.status) === 404) return null; // legit: some games have no timeline
+      if (Number(e?.status) === 404) return null;
       throw e;
     }
   }
@@ -263,13 +291,9 @@ export class RiotClient {
       BASE[region],
       `/riot/account/v1/region/by-game/lol/by-puuid/${encodeURIComponent(puuid)}`,
     );
-
-    return this.schedule<{
-      puuid: string;
-      game: 'lol';
-      region: Platform;
-    }>(region, () =>
-      this.withRetry(() => this.fetchJson(url, { method: 'GET' })),
+    return this.schedule<{ puuid: string; game: 'lol'; region: Platform }>(
+      region,
+      () => this.withRetry(() => this.fetchJson(url, { method: 'GET' })),
     );
   }
 
@@ -284,7 +308,17 @@ export class RiotClient {
     );
   }
 
-  /** Optional: drain/stop limiters on shutdown */
+  async accountByPuuid(platform: Platform, puuid: string) {
+    const region = this.platformToRegion(platform);
+    const url = this.buildUrl(
+      `https://${region}.api.riotgames.com`,
+      `/riot/account/v1/accounts/by-puuid/${encodeURIComponent(puuid)}`,
+    );
+    return this.schedule<RiotAPITypes.Account.AccountDTO>(region, () =>
+      this.withRetry(() => this.fetchJson(url, { method: 'GET' })),
+    );
+  }
+
   async stop() {
     await Promise.all(
       Object.values(this.limiters).map((l) =>
@@ -294,10 +328,14 @@ export class RiotClient {
   }
 }
 
+// ---------- Instances ----------
+
+// DEV app defaults: 20/1s & 100/2m
 export const riot = new RiotClient({
   apiKey: process.env.RIOT_API_KEY ?? '',
-  perSecond: 18, // tokens/sec per routing region
-  concurrent: 4, // in-flight per region
+  concurrent: 10,
   timeoutMs: 15_000,
   maxRetries: 6,
+  // shortWindow: { limit: 20, intervalMs: 1000 },         // default
+  // longWindow:  { limit: 100, intervalMs: 120_000 },     // default
 });

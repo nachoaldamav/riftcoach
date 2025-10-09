@@ -9,16 +9,14 @@ import chalk from 'chalk';
 import { consola } from 'consola';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { HTTPException } from 'hono/http-exception';
 import z from 'zod';
 import { redis } from './clients/redis.js';
-import {
-  type Platform,
-  type Region,
-  RiotClient,
-  riot,
-} from './clients/riot-api.js';
+import { type Platform, type Region, riot } from './clients/riot-api.js';
 import { riotAPI } from './clients/riot.js';
 import { s3Client } from './clients/s3.js';
+import { getCohortStatsPerRole } from './queries/cohorts-role-stats.js';
+import { getPlayerStatsPerRole } from './queries/puuid-role-stats.js';
 import {
   PROG,
   generateJobUUID,
@@ -27,12 +25,12 @@ import {
   storeJobMapping,
 } from './queues/rewind.js';
 import { fetchQ, listQ } from './queues/scan.js';
-import {
-  getCachedAIBadges,
-  getCachedPlaystyleStats,
-  getCohortStats,
-} from './services/playstyle-badges.js';
+import { getCachedAIBadges } from './services/ai-service.js';
 import { getQueuePosition } from './utils/queue-position.js';
+import {
+  runAthenaQuery,
+  runAthenaQueryWithCache,
+} from './utils/run-athena-query.js';
 
 const JOB_SCOPE = process.env.JOB_SCOPE ?? 'Y2025';
 
@@ -54,7 +52,10 @@ const wsConnections = new Map<unknown, Set<string>>();
 export const broadcastToWebSockets = (channel: string, message: unknown) => {
   const messageStr = JSON.stringify(message);
   for (const [ws, subscriptions] of wsConnections) {
-    if ((ws as any).readyState === 1 && subscriptions.has(channel)) { // WebSocket.OPEN
+    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+    if ((ws as any).readyState === 1 && subscriptions.has(channel)) {
+      // WebSocket.OPEN
+      // biome-ignore lint/suspicious/noExplicitAny: <explanation>
       (ws as any).send(messageStr);
     }
   }
@@ -66,31 +67,38 @@ app.get(
     return {
       onOpen(event, ws) {
         wsConnections.set(ws, new Set<string>());
-        console.log('WebSocket connection opened, total connections:', wsConnections.size);
+        console.log(
+          'WebSocket connection opened, total connections:',
+          wsConnections.size,
+        );
       },
       onMessage(event, ws) {
         try {
           const data = JSON.parse(event.data.toString());
-          
+
           if (data.type === 'subscribe' && data.channel) {
             const subscriptions = wsConnections.get(ws);
             if (subscriptions) {
               subscriptions.add(data.channel);
               console.log(`Client subscribed to channel: ${data.channel}`);
-              ws.send(JSON.stringify({ 
-                type: 'subscription_confirmed', 
-                channel: data.channel 
-              }));
+              ws.send(
+                JSON.stringify({
+                  type: 'subscription_confirmed',
+                  channel: data.channel,
+                }),
+              );
             }
           } else if (data.type === 'unsubscribe' && data.channel) {
             const subscriptions = wsConnections.get(ws);
             if (subscriptions) {
               subscriptions.delete(data.channel);
               console.log(`Client unsubscribed from channel: ${data.channel}`);
-              ws.send(JSON.stringify({ 
-                type: 'unsubscription_confirmed', 
-                channel: data.channel 
-              }));
+              ws.send(
+                JSON.stringify({
+                  type: 'unsubscription_confirmed',
+                  channel: data.channel,
+                }),
+              );
             }
           }
         } catch (error) {
@@ -99,7 +107,10 @@ app.get(
       },
       onClose: (event, ws) => {
         wsConnections.delete(ws);
-        console.log('WebSocket connection closed, remaining connections:', wsConnections.size);
+        console.log(
+          'WebSocket connection closed, remaining connections:',
+          wsConnections.size,
+        );
       },
     };
   }),
@@ -320,6 +331,7 @@ app.get('/rewind/:jobId/status', async (c) => {
 });
 
 app.get('/rewind/:jobId/playstyle-badges', async (c) => {
+  // AI-focused implementation using new per-role queries and prompt builder.
   const jobId = c.req.param('jobId');
 
   const jobMapping = await getJobMapping(jobId);
@@ -328,57 +340,160 @@ app.get('/rewind/:jobId/playstyle-badges', async (c) => {
   }
 
   try {
-    // Run both queries in parallel using Promise.allSettled
-    const [playstyleResult, cohortResult] = await Promise.allSettled([
-      getCachedPlaystyleStats(jobMapping.puuid, {
-        scope: jobMapping.scope,
-      }),
-      getCohortStats(),
+    const playerSql = getPlayerStatsPerRole(jobMapping.puuid);
+    const cohortSql = getCohortStatsPerRole(jobMapping.puuid);
+
+    const [playerRes, cohortRes] = await Promise.allSettled([
+      runAthenaQueryWithCache({ query: playerSql }),
+      runAthenaQueryWithCache({ query: cohortSql }),
     ]);
 
-    // Handle playstyle stats result
-    if (playstyleResult.status === 'rejected') {
-      throw new Error(
-        `Failed to get playstyle stats: ${playstyleResult.reason}`,
-      );
+    if (cohortRes.status === 'rejected') {
+      throw new HTTPException(500, {
+        message: `Failed to get cohort per-role stats: ${String(
+          cohortRes.reason,
+        )}`,
+      });
     }
 
-    const { stats } = playstyleResult.value;
+    if (playerRes.status === 'rejected') {
+      throw new HTTPException(500, {
+        message: `Failed to get player per-role stats: ${String(
+          playerRes.reason,
+        )}`,
+      });
+    }
 
-    if (!stats || stats.matchesPlayed === 0) {
+    const playerRecords = playerRes.value.records;
+    if (!playerRecords || playerRecords.length === 0) {
       return c.json(
-        {
-          message: 'No ranked matches found for this player in Athena.',
-        },
+        { message: 'No ranked matches found for this player in Athena.' },
         404,
       );
     }
 
-    // Handle cohort stats result
-    let cohortData = null;
-    if (cohortResult.status === 'fulfilled') {
-      cohortData = cohortResult.value;
-    } else {
-      consola.warn(
-        chalk.yellow(`⚠️ Failed to get cohort stats for job ${jobId}:`),
-        cohortResult.reason,
-      );
-    }
+    const toNumber = (value: string | null | undefined): number | null => {
+      if (value === null || value === undefined || value === '') return null;
+      const num = Number.parseFloat(value);
+      return Number.isNaN(num) ? null : num;
+    };
 
-    // Generate AI badges using cached function
-    const aiBadges = await getCachedAIBadges(
-      stats,
-      cohortData?.stats || undefined,
+    const normalizePercentish = (
+      v: number | null | undefined,
+    ): number | null => {
+      if (v == null) return null;
+      return v > 1 ? v / 100 : v;
+    };
+
+    const mapPlayerRecord = (record: Record<string, string | null>) => ({
+      role: (record.role ?? '') as string,
+      games: Number.parseInt(record.games ?? '0', 10) || 0,
+      win_rate_pct_estimate: normalizePercentish(
+        toNumber(record.win_rate_pct_estimate),
+      ),
+      kill_participation_pct_est: normalizePercentish(
+        toNumber(record.kill_participation_pct_est),
+      ),
+      avg_vision_score_per_min: toNumber(record.avg_vision_score_per_min),
+      avg_dpm: toNumber(record.avg_dpm),
+      avg_cs_at10: toNumber(record.avg_cs_at10),
+      avg_cs_total: toNumber(record.avg_cs_total),
+      avg_dragon_participation: normalizePercentish(
+        toNumber(record.avg_dragon_participation),
+      ),
+      avg_herald_participation: normalizePercentish(
+        toNumber(record.avg_herald_participation),
+      ),
+      avg_baron_participation: normalizePercentish(
+        toNumber(record.avg_baron_participation),
+      ),
+      avg_early_deaths: toNumber(record.avg_early_deaths),
+      avg_early_kills_near_enemy_tower: toNumber(
+        record.avg_early_kills_near_enemy_tower,
+      ),
+      avg_early_kills_near_ally_tower: toNumber(
+        record.avg_early_kills_near_ally_tower,
+      ),
+      avg_early_deaths_near_ally_tower: toNumber(
+        record.avg_early_deaths_near_ally_tower,
+      ),
+      avg_kills: toNumber(record.avg_kills),
+      avg_deaths: toNumber(record.avg_deaths),
+      avg_assists: toNumber(record.avg_assists),
+      avg_kda: toNumber(record.avg_kda),
+      avg_team_dmg_pct: normalizePercentish(toNumber(record.avg_team_dmg_pct)),
+      avg_gpm: toNumber(record.avg_gpm),
+      avg_wards_killed: toNumber(record.avg_wards_killed),
+      avg_early_solo_kills: toNumber(record.avg_early_solo_kills),
+    });
+
+    const mapCohortRecord = (record: Record<string, string | null>) => ({
+      role: (record.role ?? '') as string,
+      games: Number.parseInt(record.weighted_games ?? '0', 10) || 0,
+      win_rate_pct_estimate: normalizePercentish(
+        toNumber(record.win_rate_pct_estimate),
+      ),
+      kill_participation_pct_est: normalizePercentish(
+        toNumber(record.kill_participation_pct_est),
+      ),
+      avg_vision_score_per_min: toNumber(record.avg_vision_score_per_min),
+      avg_dpm: toNumber(record.avg_dpm),
+      avg_cs_at10: toNumber(record.avg_cs_at10),
+      avg_cs_total: toNumber(record.avg_cs_total),
+      avg_dragon_participation: normalizePercentish(
+        toNumber(record.avg_dragon_participation),
+      ),
+      avg_herald_participation: normalizePercentish(
+        toNumber(record.avg_herald_participation),
+      ),
+      avg_baron_participation: normalizePercentish(
+        toNumber(record.avg_baron_participation),
+      ),
+      avg_early_deaths: toNumber(record.avg_early_deaths),
+      avg_early_kills_near_enemy_tower: toNumber(
+        record.avg_early_kills_near_enemy_tower,
+      ),
+      avg_early_kills_near_ally_tower: toNumber(
+        record.avg_early_kills_near_ally_tower,
+      ),
+      avg_early_deaths_near_ally_tower: toNumber(
+        record.avg_early_deaths_near_ally_tower,
+      ),
+      avg_kills: toNumber(record.avg_kills),
+      avg_deaths: toNumber(record.avg_deaths),
+      avg_assists: toNumber(record.avg_assists),
+      avg_kda: toNumber(record.avg_kda),
+      avg_team_dmg_pct: normalizePercentish(toNumber(record.avg_team_dmg_pct)),
+      avg_gpm: toNumber(record.avg_gpm),
+      avg_wards_killed: toNumber(record.avg_wards_killed),
+      avg_early_solo_kills: toNumber(record.avg_early_solo_kills),
+    });
+
+    const playerPerRole = playerRecords.map(mapPlayerRecord);
+    const cohortPerRole =
+      cohortRes.status === 'fulfilled'
+        ? cohortRes.value.records.map(mapCohortRecord)
+        : undefined;
+
+    // Generate AI badges with caching using per-role arrays
+    const aiJson = await getCachedAIBadges(
+      // @ts-expect-error
+      playerPerRole,
+      cohortPerRole,
       jobMapping.puuid,
     );
 
-    return c.json(aiBadges);
+    return c.json({
+      ...aiJson,
+      playerPerRole,
+      cohortPerRole,
+    });
   } catch (error) {
     consola.error(
-      chalk.red(`❌ Failed to build playstyle badges for job ${jobId}`),
+      chalk.red(`❌ Failed to generate AI playstyle badges for job ${jobId}`),
       error,
     );
-    return c.json({ error: 'Failed to build playstyle badges' }, 500);
+    return c.json({ error: 'Failed to generate AI badges' }, 500);
   }
 });
 
@@ -424,32 +539,27 @@ app.get('/rewind/:jobId/profile', async (c) => {
     return c.json({ error: 'Failed to fetch platform' }, 500);
   }
 
-  const account = await riot
-    .summonerByPuuid(platform, jobMapping.puuid)
-    .catch((error) => {
-      consola.error(
-        chalk.red(`❌ Failed to fetch profile for job ${jobId}`),
-        error,
-      );
-      return null;
-    });
+  const [summoner, account] = await Promise.all([
+    riot.summonerByPuuid(platform, jobMapping.puuid),
+    riot.accountByPuuid(platform, jobMapping.puuid),
+  ]);
 
   // Cache the profile for future use
-  if (account) {
+  if (summoner && account) {
     await redis.set(
       cacheProfileKey,
-      JSON.stringify(account),
+      JSON.stringify({ ...summoner, ...account }),
       'EX',
       60 * 5, // 5-minute cache
     );
   }
 
-  // If account is still null, return error
-  if (!account) {
+  // If summoner is still null, return error
+  if (!summoner || !account) {
     return c.json({ error: 'Failed to fetch profile' }, 500);
   }
 
-  return c.json(account);
+  return c.json({ ...summoner, ...account });
 });
 
 app.get('/queues', async (c) => {

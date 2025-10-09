@@ -6,6 +6,7 @@ minimumReleaseAge: 1440
 
 onlyBuiltDependencies:
   - '@biomejs/biome'
+  - '@heroui/shared-utils'
   - '@tailwindcss/oxide'
   - aws-sdk
   - esbuild

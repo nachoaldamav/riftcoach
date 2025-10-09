@@ -6,9 +6,12 @@ import {
 } from '@tanstack/react-router';
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools';
 
-import Header from '../components/Header';
-
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools';
+import {
+  championDataQueryOptions,
+  versionsQueryOptions,
+} from '../lib/data-dragon';
+import { DataDragonProvider } from '../providers/data-dragon-provider';
 
 import appCss from '../styles.css?url';
 
@@ -19,6 +22,22 @@ interface MyRouterContext {
 }
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
+  beforeLoad: async ({ context }) => {
+    // Prefetch Data Dragon data
+    const queryClient = context.queryClient;
+
+    // Prefetch the latest version
+    const versionPromise = queryClient.prefetchQuery(versionsQueryOptions);
+
+    // Get the version and prefetch champion data
+    const version = await queryClient.ensureQueryData(versionsQueryOptions);
+    const championPromise = queryClient.prefetchQuery(
+      championDataQueryOptions(version),
+    );
+
+    // Wait for both to complete
+    await Promise.all([versionPromise, championPromise]);
+  },
   head: () => ({
     meta: [
       {
@@ -50,7 +69,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
+        <DataDragonProvider>{children}</DataDragonProvider>
         <TanstackDevtools
           config={{
             position: 'bottom-left',

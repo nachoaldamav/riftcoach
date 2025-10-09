@@ -1,75 +1,63 @@
-import type { BuildQueryOptions } from './types.js';
-
 function escapeLiteral(value: string) {
   return value.replace(/'/g, "''");
-}
-
-function parseSeason(scope?: string | null): number | undefined {
-  if (!scope) return undefined;
-  const match = scope.match(/season-(\d+)/);
-  return match ? Number.parseInt(match[1], 10) : undefined;
 }
 
 export function buildPlaystyleStatsQuery({ puuid }: { puuid: string }): string {
   return `
 WITH player_matches AS (
   SELECT
-    m.match_id,
-    m.game_duration_seconds,
-    m.queue_id,
-    m.season,
-    m.patch,
-    p.role,
-    p.champion_name,
-    p.kills,
-    p.deaths,
-    p.assists,
-    p.total_damage_dealt_to_champions,
-    p.gold_earned,
-    p.total_minions_killed,
-    p.neutral_minions_killed,
-    p.vision_score,
-    p.control_wards_placed,
-    p.wards_killed,
-    p.solo_kills,
-    p.turret_takedowns,
-    p.inhibitor_takedowns,
-    p.objective_stolen,
-    p.baron_kills,
-    p.dragon_kills,
-    p.rift_herald_kills,
-    p.team_position,
-    p.win,
-    p.cs_at_10_min,
-    p.kills_near_enemy_turret,
-    p.kills_under_own_turret,
-    p.deaths_near_enemy_turret,
-    p.deaths_under_own_turret,
-    p.early_game_deaths,
-    p.laning_survival_rate,
-    p.scuttle_crab_kills,
-    p.wards_killed_early,
-    p.objective_participation,
-    p.dragon_participation,
-    p.baron_participation,
-    p.herald_participation,
+    s.match_id,
+    s.time_played_sec as game_duration_seconds,
+    s.queue as queue_id,
+    s.season,
+    CONCAT(s.patch_major, '.0') as patch,
+    s.role,
+    NULL as champion_name, -- Not available in silver table, would need champion lookup
+    s.kills,
+    s.deaths,
+    s.assists,
+    s.total_damage_to_champions as total_damage_dealt_to_champions,
+    s.gold_earned,
+    s.cs_total as total_minions_killed,
+    0 as neutral_minions_killed, -- Included in cs_total
+    s.vision_score,
+    0 as control_wards_placed, -- Not available in silver table
+    s.wards_cleared as wards_killed,
+    s.solo_kills,
+    0 as turret_takedowns, -- Not available in silver table
+    0 as inhibitor_takedowns, -- Not available in silver table
+    0 as objective_stolen, -- Not available in silver table
+    0 as baron_kills, -- Not available in silver table
+    0 as dragon_kills, -- Not available in silver table
+    0 as rift_herald_kills, -- Not available in silver table
+    s.role as team_position,
+    CASE WHEN s.win_flag = 1 THEN true ELSE false END as win,
+    s.cs10_per_min * 10 as cs_at_10_min,
+    s.kills_near_enemy_turret,
+    s.kills_under_own_turret,
+    s.deaths_near_enemy_turret,
+    s.deaths_under_own_turret,
+    s.early_game_deaths,
+    NULL as laning_survival_rate, -- Not available in silver table
+    s.scuttle_kills as scuttle_crab_kills,
+    s.wards_cleared_early as wards_killed_early,
+    CASE 
+      WHEN s.team_kill_events > 0 
+      THEN s.kp_events / CAST(s.team_kill_events AS DOUBLE)
+      ELSE 0 
+    END as objective_participation,
+    s.drake_participation as dragon_participation,
+    s.baron_participation,
+    s.herald_participation,
     -- Team stats for damage percentage calculation
-    team.total_team_damage
-  FROM lol.matches m
-  JOIN lol.participants p ON m.match_id = p.match_id
-  LEFT JOIN (
-    SELECT 
-      match_id,
-      team_id,
-      SUM(total_damage_dealt_to_champions) as total_team_damage
-    FROM lol.participants
-    GROUP BY match_id, team_id
-  ) team ON m.match_id = team.match_id AND p.team_id = team.team_id
-  WHERE p.puuid = '${escapeLiteral(puuid)}'
-    AND m.season = 2025
-    AND m.patch LIKE '15.%'
-    AND m.queue_id IN (400, 420, 440)
-    AND m.game_duration_seconds >= 300
+    s.team_total_damage_to_champions as total_team_damage,
+    s.team_id
+  FROM lol.silver_player_match_summary s
+  WHERE s.participant_puuid = '${escapeLiteral(puuid)}'
+    AND s.season = 2025
+    AND s.patch_major = '15'
+    AND s.queue IN (400, 420, 440)
+    AND s.time_played_sec >= 300
 ),
 role_distribution AS (
   SELECT
@@ -94,13 +82,7 @@ role_stats AS (
     ROUND(100.0 * AVG(CASE WHEN pm.win THEN 1.0 ELSE 0.0 END), 1) as win_rate,
     
     -- Kill participation (calculated from team stats)
-    ROUND(100.0 * AVG(
-      CASE 
-        WHEN team_kills.team_kills > 0 
-        THEN (pm.kills + pm.assists) / CAST(team_kills.team_kills AS DOUBLE)
-        ELSE 0 
-      END
-    ), 1) as kp_mean,
+    ROUND(100.0 * AVG(pm.objective_participation), 1) as kp_mean,
     
     -- Economic stats
     ROUND(AVG(pm.gold_earned / (pm.game_duration_seconds / 60.0)), 1) as avg_gpm,
@@ -145,15 +127,6 @@ role_stats AS (
     ROUND(AVG(COALESCE(CAST(pm.scuttle_crab_kills AS DOUBLE), 0)), 2) as scuttle_kills_mean
     
   FROM player_matches pm
-  LEFT JOIN (
-    SELECT 
-      m2.match_id,
-      p2.team_id,
-      SUM(p2.kills) as team_kills
-    FROM lol.matches m2
-    JOIN lol.participants p2 ON m2.match_id = p2.match_id
-    GROUP BY m2.match_id, p2.team_id
-  ) team_kills ON pm.match_id = team_kills.match_id AND pm.team_id = team_kills.team_id
   GROUP BY COALESCE(NULLIF(pm.role, ''), 'UNKNOWN')
 ),
 overall_stats AS (
@@ -169,13 +142,7 @@ overall_stats AS (
     
     -- Win rate and kill participation
     ROUND(100.0 * AVG(CASE WHEN win THEN 1.0 ELSE 0.0 END), 1) as win_rate,
-    ROUND(100.0 * AVG(
-      CASE 
-        WHEN team_kills.team_kills > 0 
-        THEN (kills + assists) / CAST(team_kills.team_kills AS DOUBLE)
-        ELSE 0 
-      END
-    ), 1) as avg_kill_participation,
+    ROUND(100.0 * AVG(objective_participation), 1) as avg_kill_participation,
     
     -- Economic stats
     ROUND(AVG(gold_earned / (game_duration_seconds / 60.0)), 1) as avg_gold_per_minute,
@@ -194,15 +161,15 @@ overall_stats AS (
     
     -- Vision stats
     ROUND(AVG(vision_score / (game_duration_seconds / 60.0)), 2) as avg_vision_score_per_minute,
-    ROUND(AVG(CAST(control_wards_placed AS DOUBLE)), 1) as avg_control_wards,
+    ROUND(AVG(CAST(0 AS DOUBLE)), 1) as avg_control_wards, -- Not available in silver table
     ROUND(AVG(CAST(wards_killed AS DOUBLE)), 1) as avg_wards_cleared,
     ROUND(AVG(CAST(wards_killed_early AS DOUBLE)), 1) as avg_wards_cleared_early,
     
     -- Combat stats
     ROUND(AVG(CAST(solo_kills AS DOUBLE)), 2) as avg_solo_kills,
-    ROUND(AVG(CAST(turret_takedowns AS DOUBLE)), 1) as avg_turret_takedowns,
-    ROUND(AVG(CAST(inhibitor_takedowns AS DOUBLE)), 1) as avg_inhibitor_takedowns,
-    ROUND(AVG(CAST(objective_stolen AS DOUBLE)), 1) as avg_objective_takedowns,
+    ROUND(AVG(CAST(0 AS DOUBLE)), 1) as avg_turret_takedowns, -- Not available in silver table
+    ROUND(AVG(CAST(0 AS DOUBLE)), 1) as avg_inhibitor_takedowns, -- Not available in silver table
+    ROUND(AVG(CAST(0 AS DOUBLE)), 1) as avg_objective_takedowns, -- Not available in silver table
     ROUND(AVG(CAST(scuttle_crab_kills AS DOUBLE)), 2) as avg_scuttle_kills,
     
     -- Turret proximity stats
@@ -222,15 +189,6 @@ overall_stats AS (
     ROUND(100.0 * AVG(COALESCE(herald_participation, 0)), 1) as avg_herald_participation
     
   FROM player_matches
-  LEFT JOIN (
-    SELECT 
-      m2.match_id,
-      p2.team_id,
-      SUM(p2.kills) as team_kills
-    FROM lol.matches m2
-    JOIN lol.participants p2 ON m2.match_id = p2.match_id
-    GROUP BY m2.match_id, p2.team_id
-  ) team_kills ON player_matches.match_id = team_kills.match_id AND player_matches.team_id = team_kills.team_id
 )
 
 SELECT 
@@ -238,13 +196,13 @@ SELECT
   os.*,
   
   -- Role distribution as JSON
-  CAST(MAP(
-    ARRAY_AGG(rd.role_name),
-    ARRAY_AGG(rd.role_percentage)
-  ) AS JSON) as role_distribution_json,
+  (SELECT CAST(MAP(
+    ARRAY_AGG(role_name),
+    ARRAY_AGG(role_percentage)
+  ) AS JSON) FROM role_distribution) as role_distribution_json,
   
   -- Role stats as JSON array
-  CAST(ARRAY_AGG(
+  (SELECT CAST(ARRAY_AGG(
     MAP(
       ARRAY['role_bucket', 'games', 'win_rate', 'kp_mean', 'vis_per_min_mean', 'wclear_per_min_mean', 
             'avg_dpm', 'cs10_mean', 'csfull_mean', 'drake_participation_mean', 'herald_participation_mean', 
@@ -253,31 +211,21 @@ SELECT
             'deaths_under_own_turret_mean', 'avg_kills', 'avg_deaths', 'avg_assists', 'avg_kda', 
             'avg_gpm', 'avg_team_damage_pct', 'avg_cs_per_min', 'avg_wards_cleared', 'avg_wards_cleared_early', 
             'solo_kills_mean', 'scuttle_kills_mean'],
-      ARRAY[rs.role_bucket, CAST(rs.games AS VARCHAR), CAST(rs.win_rate AS VARCHAR), CAST(rs.kp_mean AS VARCHAR),
-            CAST(rs.vis_per_min_mean AS VARCHAR), CAST(rs.wclear_per_min_mean AS VARCHAR), CAST(rs.avg_dpm AS VARCHAR),
-            CAST(rs.cs10_mean AS VARCHAR), CAST(rs.csfull_mean AS VARCHAR), CAST(rs.drake_participation_mean AS VARCHAR),
-            CAST(rs.herald_participation_mean AS VARCHAR), CAST(rs.baron_participation_mean AS VARCHAR), 
-            CAST(rs.avg_obj_participation AS VARCHAR), CAST(rs.avg_laning_survival_rate AS VARCHAR), 
-            CAST(rs.avg_early_game_deaths AS VARCHAR), CAST(rs.kills_near_enemy_turret_mean AS VARCHAR),
-            CAST(rs.kills_under_own_turret_mean AS VARCHAR), CAST(rs.deaths_near_enemy_turret_mean AS VARCHAR),
-            CAST(rs.deaths_under_own_turret_mean AS VARCHAR), CAST(rs.avg_kills AS VARCHAR), CAST(rs.avg_deaths AS VARCHAR),
-            CAST(rs.avg_assists AS VARCHAR), CAST(rs.avg_kda AS VARCHAR), CAST(rs.avg_gpm AS VARCHAR),
-            CAST(rs.avg_team_damage_pct AS VARCHAR), CAST(rs.avg_cs_per_min AS VARCHAR), CAST(rs.avg_wards_cleared AS VARCHAR),
-            CAST(rs.avg_wards_cleared_early AS VARCHAR), CAST(rs.solo_kills_mean AS VARCHAR), CAST(rs.scuttle_kills_mean AS VARCHAR)]
+      ARRAY[role_bucket, CAST(games AS VARCHAR), CAST(win_rate AS VARCHAR), CAST(kp_mean AS VARCHAR),
+            CAST(vis_per_min_mean AS VARCHAR), CAST(wclear_per_min_mean AS VARCHAR), CAST(avg_dpm AS VARCHAR),
+            CAST(cs10_mean AS VARCHAR), CAST(csfull_mean AS VARCHAR), CAST(drake_participation_mean AS VARCHAR),
+            CAST(herald_participation_mean AS VARCHAR), CAST(baron_participation_mean AS VARCHAR), 
+            CAST(avg_obj_participation AS VARCHAR), CAST(avg_laning_survival_rate AS VARCHAR), 
+            CAST(avg_early_game_deaths AS VARCHAR), CAST(kills_near_enemy_turret_mean AS VARCHAR),
+            CAST(kills_under_own_turret_mean AS VARCHAR), CAST(deaths_near_enemy_turret_mean AS VARCHAR),
+            CAST(deaths_under_own_turret_mean AS VARCHAR), CAST(avg_kills AS VARCHAR), CAST(avg_deaths AS VARCHAR),
+            CAST(avg_assists AS VARCHAR), CAST(avg_kda AS VARCHAR), CAST(avg_gpm AS VARCHAR),
+            CAST(avg_team_damage_pct AS VARCHAR), CAST(avg_cs_per_min AS VARCHAR), CAST(avg_wards_cleared AS VARCHAR),
+            CAST(avg_wards_cleared_early AS VARCHAR), CAST(solo_kills_mean AS VARCHAR), CAST(scuttle_kills_mean AS VARCHAR)]
     )
-  ) AS JSON) as role_stats_json
+  ) AS JSON) FROM role_stats) as role_stats_json
 
-FROM overall_stats os
-CROSS JOIN role_distribution rd
-CROSS JOIN role_stats rs
-GROUP BY os.matches_played, os.avg_game_duration_min, os.avg_kills, os.avg_deaths, os.avg_assists, os.avg_kda,
-         os.win_rate, os.avg_kill_participation, os.avg_gold_per_minute, os.avg_cs_per_minute, os.avg_cs_at_10,
-         os.avg_damage_per_minute, os.avg_team_damage_pct, os.avg_vision_score_per_minute, os.avg_control_wards,
-         os.avg_wards_cleared, os.avg_wards_cleared_early, os.avg_solo_kills, os.avg_turret_takedowns,
-         os.avg_inhibitor_takedowns, os.avg_objective_takedowns, os.avg_scuttle_kills, os.avg_kills_near_enemy_turret,
-         os.avg_kills_under_own_turret, os.avg_deaths_near_enemy_turret, os.avg_deaths_under_own_turret,
-         os.avg_laning_survival_rate, os.avg_early_game_deaths, os.avg_objective_participation,
-         os.avg_dragon_participation, os.avg_baron_participation, os.avg_herald_participation;
+FROM overall_stats os;
 `;
 }
 
@@ -288,54 +236,48 @@ SELECT
   CASE WHEN GROUPING(role)=1 THEN 'ALL' ELSE COALESCE(NULLIF(role,''),'UNKNOWN') END AS role_bucket,
 
   -- counts
-  SUM(players) AS players_appearances,
-  CAST(CASE WHEN GROUPING(role)=1 THEN SUM(games)/10 ELSE SUM(games)/2 END AS BIGINT) AS matches_est,
+  SUM(unique_players) AS players_appearances,
+  SUM(games) AS matches_est,
 
-  -- weighted means (by games) -- core
-  SUM(kp_mean                  * games) / NULLIF(SUM(games),0) AS avg_kp,
-  SUM(vis_per_min_mean         * games) / NULLIF(SUM(games),0) AS avg_vis_per_min,
-  SUM(wclear_per_min_mean      * games) / NULLIF(SUM(games),0) AS avg_wclear_per_min,
-  SUM(dpg_mean                 * games) / NULLIF(SUM(games),0) AS avg_dpg,
-  SUM(cs10_mean                * games) / NULLIF(SUM(games),0) AS avg_cs10,
-  SUM(csfull_mean              * games) / NULLIF(SUM(games),0) AS avg_csfull,
+  -- core stats
+  AVG(kda_ratio) AS avg_kda,
+  AVG(avg_dpm) AS avg_dpg,
+  AVG(avg_gpm) AS avg_gpm,
+  AVG(avg_team_dmg_pct) AS avg_team_damage_pct,
+  AVG(avg_cs_per_min) AS avg_csfull,
+  AVG(avg_cs_at10) AS avg_cs10,
+  AVG(avg_vision_score_per_min) AS avg_vis_per_min,
+  AVG(wards_killed_per10) AS avg_wclear_per_min,
+  AVG(avg_wards_killed) AS avg_wards_cleared,
 
-  -- objectives (0..1 each; sum 0..3)
-  SUM(drake_participation_mean * games) / NULLIF(SUM(games),0) AS avg_drake_participation,
-  SUM(herald_participation_mean* games) / NULLIF(SUM(games),0) AS avg_herald_participation,
-  SUM(baron_participation_mean * games) / NULLIF(SUM(games),0) AS avg_baron_participation,
-  SUM(avg_objective_participation * games) / NULLIF(SUM(games),0) AS avg_obj_participation,
+  -- combat stats
+  AVG(avg_kills) AS avg_kills,
+  AVG(avg_deaths) AS avg_deaths,
+  AVG(avg_assists) AS avg_assists,
+  AVG(avg_solo_kills) AS avg_solo_kills,
 
-  -- early lane
-  SUM(avg_laning_survival_rate * games) / NULLIF(SUM(games),0) AS avg_laning_survival_rate,
-  SUM(avg_early_game_deaths    * games) / NULLIF(SUM(games),0) AS avg_early_game_deaths,
+  -- objective participation (using corrected participation rates 0-1)
+  AVG(avg_participation_dragons) AS avg_drake_participation,
+  AVG(avg_participation_herald) AS avg_herald_participation,
+  AVG(avg_participation_baron) AS avg_baron_participation,
+  
+  -- calculate overall objective participation as average of major objectives
+  (AVG(avg_participation_dragons) + AVG(avg_participation_baron) + AVG(avg_participation_herald)) / 3.0 AS avg_obj_participation,
 
-  -- laning-phase turret proximity
-  SUM(kills_near_enemy_turret_mean  * games) / NULLIF(SUM(games),0) AS avg_kills_near_enemy_turret,
-  SUM(kills_under_own_turret_mean   * games) / NULLIF(SUM(games),0) AS avg_kills_under_own_turret,
-  SUM(deaths_near_enemy_turret_mean * games) / NULLIF(SUM(games),0) AS avg_deaths_near_enemy_turret,
-  SUM(deaths_under_own_turret_mean  * games) / NULLIF(SUM(games),0) AS avg_deaths_under_own_turret,
+  -- structures
+  AVG(avg_turret_takedowns) AS avg_turret_takedowns,
+  AVG(avg_inhib_takedowns) AS avg_inhibitor_takedowns,
 
-  -- extras from v2.2 we can now surface in cohorts rollup
-  SUM(kills_mean            * games) / NULLIF(SUM(games),0) AS avg_kills,
-  SUM(deaths_mean           * games) / NULLIF(SUM(games),0) AS avg_deaths,
-  SUM(assists_mean          * games) / NULLIF(SUM(games),0) AS avg_assists,
-  SUM(kda_mean              * games) / NULLIF(SUM(games),0) AS avg_kda,
-  SUM(gpm_mean              * games) / NULLIF(SUM(games),0) AS avg_gpm,
-  SUM(team_damage_pct_mean  * games) / NULLIF(SUM(games),0) AS avg_team_damage_pct,
-  SUM(wclear_mean           * games) / NULLIF(SUM(games),0) AS avg_wards_cleared,
-  SUM(wclear_early_mean     * games) / NULLIF(SUM(games),0) AS avg_wards_cleared_early,
-  SUM(solo_kills_mean       * games) / NULLIF(SUM(games),0) AS avg_solo_kills,
-  SUM(scuttle_kills_mean    * games) / NULLIF(SUM(games),0) AS avg_scuttle_kills,
+  -- win rate and kill participation
+  AVG(win_rate) AS avg_win_rate,
+  100.0 * AVG(avg_kills + avg_assists) / NULLIF(AVG(avg_kills + avg_deaths + avg_assists), 0) AS avg_kp,
+  100.0 * AVG(avg_kills + avg_assists) / NULLIF(AVG(avg_kills + avg_deaths + avg_assists), 0) AS avg_kill_participation_pct
 
-  -- win rate and convenience % for KP
-  SUM(win_rate * games) / NULLIF(SUM(games),0)              AS avg_win_rate,
-  100.0 * (SUM(kp_mean * games) / NULLIF(SUM(games),0))     AS avg_kill_participation_pct
-
-FROM lol.cohorts_role_champ_snap_v2
+FROM rift_gold.v_cohort_role_stats
 WHERE season = 2025
-  AND patch LIKE '15.%'
+  AND patch_major = '15'
   AND queue IN (400,420,440)
-  AND cs10_mean > 0
+  AND avg_cs_at10 > 0
 GROUP BY GROUPING SETS ((season, role), (season))
 ORDER BY season, CASE WHEN role IS NULL THEN 0 ELSE 1 END, role;
 `;

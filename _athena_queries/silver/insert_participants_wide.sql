@@ -1,4 +1,4 @@
-INSERT INTO rift_silver.participants_wide_v7
+INSERT INTO rift_silver.participants_wide_v8
 WITH
 -- =========================
 -- Edit only this block 👇
@@ -7,7 +7,7 @@ cfg AS (
   SELECT
     CAST(2025 AS integer)          AS season,      -- <== change once
     CAST('15.%' AS varchar)        AS patch_like,  -- e.g. '15.%' or '15.19'
-    CAST('PUUID_HERE' AS varchar)  AS puuid        -- target player PUUID
+    CAST(':puuid' AS varchar)  AS puuid        -- target player PUUID
 ),
 
 -- --------------------------
@@ -152,8 +152,8 @@ events AS (
     CAST(json_extract_scalar(e,'$.monsterType') AS varchar)  AS monster_type,
     CAST(json_extract_scalar(e,'$.buildingType') AS varchar) AS building_type,
     CAST(json_extract_scalar(e,'$.towerType') AS varchar)    AS tower_type,
-    CAST(json_extract_scalar(e,'$.teamId') AS integer)       AS team_id,
-    CAST(json_extract_scalar(e,'$.participantId') AS integer) AS participant_id
+    CAST(json_extract_scalar(e,'$.teamId') AS integer)       AS team_event_id,
+    CAST(json_extract_scalar(e,'$.participantId') AS integer) AS participant_event_id
   FROM frames fr
   CROSS JOIN UNNEST(CAST(json_extract(fr.f_json,'$.events') AS ARRAY(JSON))) AS t(e)
 ),
@@ -172,10 +172,10 @@ ward_destroys AS (
   GROUP BY 1,2,3
 ),
 item_events AS (
-  SELECT matchid, participant_id, type, ts, item_id
+  SELECT matchid, participant_event_id AS participant_id, type, ts, item_id
   FROM events
   WHERE type IN ('ITEM_PURCHASED','ITEM_SOLD','ITEM_DESTROYED','ITEM_UNDO')
-    AND participant_id BETWEEN 1 AND 10
+    AND participant_event_id BETWEEN 1 AND 10
 ),
 kill_events AS (
   SELECT matchid, ts, killer_id, victim_id, assists_ids, pos
@@ -213,9 +213,16 @@ team_lookup AS (
     matchid,
     CAST(json_extract_scalar(p_json,'$.participantId') AS integer) AS participant_id,
     CAST(json_extract_scalar(p_json,'$.teamId') AS integer) AS team_id
-  FROM participants
+  -- This CTE needs to source from all participants in a match, not just the one we're inserting
+  FROM (
+      SELECT m.matchid, CAST(pj AS JSON) AS p_json
+      FROM matches_dedup m
+      JOIN (SELECT DISTINCT matchid FROM participants) p_match ON p_match.matchid = m.matchid
+      CROSS JOIN UNNEST(CAST(m.participants_json AS ARRAY(JSON))) AS t(pj)
+  )
 ),
 
+-- Detailed per-participant takedowns (keep dragon subtypes if you want another map; optional)
 objective_participation AS (
   SELECT matchid, obj_kind, participant_id, count(DISTINCT ts) AS takedowns
   FROM (
@@ -253,7 +260,7 @@ objective_participation AS (
     CROSS JOIN UNNEST(o.assists_ids) AS t(a)
     LEFT JOIN team_lookup killer_team ON o.matchid = killer_team.matchid AND o.killer_id = killer_team.participant_id
     LEFT JOIN team_lookup assist_team ON o.matchid = assist_team.matchid AND a = assist_team.participant_id
-    WHERE a BETWEEN 1 AND 10 
+    WHERE a BETWEEN 1 AND 10
       AND killer_team.team_id = assist_team.team_id  -- Only count assists from same team as killer
   ) x
   GROUP BY 1,2,3
@@ -272,13 +279,13 @@ objective_participation_norm AS (
     CROSS JOIN UNNEST(e.assists_ids) AS t(a)
     LEFT JOIN team_lookup killer_team ON e.matchid = killer_team.matchid AND e.killer_id = killer_team.participant_id
     LEFT JOIN team_lookup assist_team ON e.matchid = assist_team.matchid AND a = assist_team.participant_id
-    WHERE a BETWEEN 1 AND 10 
+    WHERE a BETWEEN 1 AND 10
       AND killer_team.team_id = assist_team.team_id  -- Only count assists from same team as killer
   ) u
   GROUP BY 1,2,3
 ),
 
--- Maps & arrays
+-- Build per-player maps
 ward_maps AS (
   SELECT matchid, participant_id, map_agg(ward_type, wards_placed_by_type) AS wards_placed_map
   FROM ward_events
@@ -492,10 +499,19 @@ final AS (
     COALESCE(wdm.wards_destroyed_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS wards_destroyed_by_type,
     COALESCE(om.objective_takedowns_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS objective_takedowns_by_type,
     COALESCE(omn.objective_takedowns_norm_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS objective_takedowns_by_type_norm,
-    COALESCE(totm.team_objective_totals_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS team_objective_totals_by_type,
-    transform_values(totm.team_objective_totals_map, (k, v) -> 
-      COALESCE(CAST(element_at(omn.objective_takedowns_norm_map, k) AS double) / NULLIF(v, 0), 0.0)
+    COALESCE(tom.team_objective_totals_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS team_objective_totals_by_type,
+    
+    -- MODIFIED: This logic now matches the CREATE TABLE statement exactly
+    transform_values(
+      COALESCE(tom.team_objective_totals_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))),
+      (k, teamv) -> CASE
+                      WHEN teamv > 0
+                        THEN CAST(COALESCE(omn.objective_takedowns_norm_map[k], 0) AS double)
+                             / CAST(teamv AS double)
+                      ELSE CAST(NULL AS double)
+                    END
     ) AS objective_participation_by_type,
+
     COALESCE(pos.positions,   CAST(ARRAY[] AS ARRAY(ROW(ts bigint, x integer, y integer)))) AS positions_ts,
     COALESCE(it.item_events,  CAST(ARRAY[] AS ARRAY(ROW(ts bigint, type varchar, item_id integer)))) AS item_events_ts,
     COALESCE(kt.combat_events,CAST(ARRAY[] AS ARRAY(ROW(ts bigint, x integer, y integer, kind varchar, killer_id integer, victim_id integer, assists_count integer, assists_ids ARRAY(integer))))) AS combat_events_ts,
@@ -509,7 +525,7 @@ final AS (
   LEFT JOIN ward_destroy_maps wdm  ON wdm.matchid = b.matchid AND wdm.participant_id = b.participant_id
   LEFT JOIN objective_maps om      ON om.matchid = b.matchid AND om.participant_id = b.participant_id
   LEFT JOIN objective_maps_norm omn ON omn.matchid = b.matchid AND omn.participant_id = b.participant_id
-  LEFT JOIN team_objective_totals_map totm ON totm.matchid = b.matchid AND totm.team_id = b.team_id
+  LEFT JOIN team_objective_totals_map tom ON tom.matchid = b.matchid AND tom.team_id = b.team_id
   LEFT JOIN positions_ts pos       ON pos.matchid = b.matchid AND pos.participant_id = b.participant_id
   LEFT JOIN item_ts it             ON it.matchid = b.matchid AND it.participant_id = b.participant_id
   LEFT JOIN kills_ts kt            ON kt.matchid = b.matchid AND kt.participant_id = b.participant_id
@@ -521,7 +537,8 @@ final_dedup AS (
 to_insert AS (
   SELECT fr.*
   FROM final_dedup fr
-  LEFT JOIN rift_silver.participants_wide_v7 t
+  -- MODIFIED: Anti-join now points to the correct v8 table
+  LEFT JOIN rift_silver.participants_wide_v8 t
     ON t.matchid     = fr.matchid
    AND t.puuid       = fr.puuid
    AND t.season      = fr.season
@@ -530,19 +547,54 @@ to_insert AS (
     AND t.matchid IS NULL
 )
 SELECT
-  participant_id, team_id, team_position, individual_position, lane, role,
-  champion_id, champion_name, final_champ_level, profile_icon, summoner_name, summoner_id,
-  summoner_d, summoner_f, spell1_casts, spell2_casts, spell3_casts, spell4_casts,
+  -- non-partition columns
+  participant_id,
+  team_id,
+  team_position,
+  individual_position,
+  lane,
+  role,
+  champion_id,
+  champion_name,
+  final_champ_level,
+  profile_icon,
+  summoner_name,
+  summoner_id,
+  summoner_d, summoner_f,
+  spell1_casts, spell2_casts, spell3_casts, spell4_casts,
   kills, deaths, assists, kda,
   dpm, total_dmg_to_champs, team_dmg_pct, total_dmg_dealt, total_dmg_taken,
-  gold_earned, gpm, total_minions_killed, neutral_minions_killed, total_time_spent_dead,
-  vision_score, vision_score_per_min, wards_placed, wards_killed, control_wards_placed,
-  dragon_kills_personal, baron_kills_personal, rift_herald_kills_personal, turret_takedowns, inhib_takedowns,
-  cs_at10, gold_at10, xp_at10, level_at10, cs_at20, gold_at20, xp_at20, level_at20,
-  wards_placed_by_type, wards_destroyed_by_type, objective_takedowns_by_type,
-  objective_takedowns_by_type_norm, team_objective_totals_by_type, objective_participation_by_type,
-  positions_ts, item_events_ts, combat_events_ts,
-  meta, perks_json, participant_json,
-  matchid, puuid, queue,
-  season, patch_major
+  gold_earned, gpm,
+  total_minions_killed, neutral_minions_killed,
+  total_time_spent_dead,
+  vision_score, vision_score_per_min,
+  wards_placed, wards_killed, control_wards_placed,
+  dragon_kills_personal, baron_kills_personal, rift_herald_kills_personal,
+  turret_takedowns, inhib_takedowns,
+  cs_at10, gold_at10, xp_at10, level_at10,
+  cs_at20, gold_at20, xp_at20, level_at20,
+
+  wards_placed_by_type,
+  wards_destroyed_by_type,
+
+  objective_takedowns_by_type,
+  objective_takedowns_by_type_norm,
+  team_objective_totals_by_type,
+  objective_participation_by_type,
+
+  positions_ts,
+  item_events_ts,
+  combat_events_ts,
+
+  meta,
+  perks_json,
+  participant_json,
+
+  matchid,
+  puuid,
+  queue,
+
+  -- partitions LAST (must match 'partitioned_by' order)
+  season,
+  patch_major
 FROM to_insert;

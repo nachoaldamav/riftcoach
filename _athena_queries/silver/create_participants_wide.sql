@@ -1,14 +1,16 @@
 -- ============================================
--- SILVER SUPER-WIDE PER-PARTICIPANT TABLE (PARQUET)
+-- SILVER SUPER-WIDE PER-PARTICIPANT TABLE - v9 (Iceberg)
 -- Partitions: (season, patch_major)
 -- ============================================
 
-CREATE TABLE rift_silver.participants_wide_v7
+CREATE TABLE rift_silver.participants_wide_v9
 WITH (
+  table_type = 'ICEBERG',
   format = 'PARQUET',
-  parquet_compression = 'SNAPPY',
-  external_location = 's3://riftcoach/silver/participants_wide_v7/',
-  partitioned_by = ARRAY['season','patch_major']
+  location = 's3://riftcoach/silver/participants_wide_v9/',
+  is_external = false,
+  partitioning = ARRAY['season','patch_major'],
+  write_target_data_file_size_bytes = 268435456  -- ~256MB target files
 ) AS
 WITH
 -- --------------------------
@@ -17,20 +19,37 @@ WITH
 matches AS (
   SELECT
     COALESCE(
-      json_extract_scalar(raw, '$.matchId'),
-      json_extract_scalar(raw, '$.metadata.matchId')
+      json_extract_scalar(m.raw, '$.matchId'),
+      json_extract_scalar(m.raw, '$.metadata.matchId')
     )                                                       AS matchid,
-    CAST(json_extract_scalar(raw, '$.season') AS integer)   AS season,
-    json_extract_scalar(raw, '$.patch')                     AS patch_full,
-    split_part(json_extract_scalar(raw, '$.patch'), '.', 1) || '.' ||
-    split_part(json_extract_scalar(raw, '$.patch'), '.', 2) AS patch_major,
-    CAST(json_extract_scalar(raw, '$.queue') AS integer)    AS queue,
-    CAST(json_extract_scalar(raw, '$.info.gameDuration') AS integer)      AS game_duration_sec,
-    CAST(json_extract_scalar(raw, '$.info.gameStartTimestamp') AS bigint) AS game_start_ts,
-    CAST(json_extract_scalar(raw, '$.info.gameEndTimestamp') AS bigint)   AS game_end_ts,
-    json_extract(raw, '$.info.participants')                 AS participants_json,
-    raw AS match_raw
-  FROM rift_raw.matches_json
+    CAST(json_extract_scalar(m.raw, '$.season') AS integer)   AS season,
+    json_extract_scalar(m.raw, '$.patch')                     AS patch_full,
+    split_part(json_extract_scalar(m.raw, '$.patch'), '.', 1) || '.' ||
+    split_part(json_extract_scalar(m.raw, '$.patch'), '.', 2) AS patch_major,
+    CAST(json_extract_scalar(m.raw, '$.queue') AS integer)    AS queue,
+    CAST(json_extract_scalar(m.raw, '$.info.gameDuration') AS integer)      AS game_duration_sec,
+    CAST(json_extract_scalar(m.raw, '$.info.gameStartTimestamp') AS bigint) AS game_start_ts,
+    CAST(json_extract_scalar(m.raw, '$.info.gameEndTimestamp') AS bigint)   AS game_end_ts,
+    json_extract(m.raw, '$.info.participants')                 AS participants_json,
+    m.raw AS match_raw
+  FROM rift_raw.matches_json m
+  WHERE EXISTS ( -- Only include matches that have a corresponding, non-empty timeline
+    SELECT 1
+    FROM rift_raw.timelines_json t
+    WHERE
+      -- Match on matchId
+      COALESCE(
+        json_extract_scalar(m.raw, '$.matchId'),
+        json_extract_scalar(m.raw, '$.metadata.matchId')
+      )
+      =
+      COALESCE(
+        json_extract_scalar(t.raw, '$.matchId'),
+        json_extract_scalar(t.raw, '$.metadata.matchId')
+      )
+      -- Also ensure the timeline has frames
+      AND COALESCE(json_array_length(json_extract(t.raw, '$.frames')), 0) > 0
+  )
 ),
 
 -- --------------------------
@@ -132,7 +151,7 @@ p_base AS (
     CAST(json_extract_scalar(p_json,'$.turretTakedowns') AS integer)          AS turret_takedowns,
     CAST(json_extract_scalar(p_json,'$.inhibitorTakedowns') AS integer)       AS inhib_takedowns,
 
-    -- Items (flat; timeline adds time-series)
+    -- Items
     CAST(json_extract_scalar(p_json,'$.item0') AS integer)                    AS item0,
     CAST(json_extract_scalar(p_json,'$.item1') AS integer)                    AS item1,
     CAST(json_extract_scalar(p_json,'$.item2') AS integer)                    AS item2,
@@ -141,9 +160,8 @@ p_base AS (
     CAST(json_extract_scalar(p_json,'$.item5') AS integer)                    AS item5,
     CAST(json_extract_scalar(p_json,'$.item6') AS integer)                    AS item6,
 
-    -- Perks (keep full JSON too; will json_format() later)
+    -- Perks + raw participant
     json_extract(p_json,'$.perks')                                            AS perks_json,
-    -- Keep raw participant JSON (will json_format() later)
     p_json
   FROM participants
 ),
@@ -277,13 +295,13 @@ objective_events_norm AS (
   FROM objective_events
 ),
 
--- Participant -> team (moved up to be available for objective participation CTEs)
+-- Participant -> team
 team_lookup AS (
   SELECT matchid, participant_id, team_id
   FROM p_base
 ),
 
--- Detailed per-participant takedowns (keep dragon subtypes if you want another map; optional)
+-- Detailed per-participant takedowns (dragon subtypes kept)
 objective_participation AS (
   SELECT matchid, obj_kind, participant_id, count(DISTINCT ts) AS takedowns
   FROM (
@@ -321,13 +339,13 @@ objective_participation AS (
     CROSS JOIN UNNEST(o.assists_ids) AS t(a)
     LEFT JOIN team_lookup killer_team ON o.matchid = killer_team.matchid AND o.killer_id = killer_team.participant_id
     LEFT JOIN team_lookup assist_team ON o.matchid = assist_team.matchid AND a = assist_team.participant_id
-    WHERE a BETWEEN 1 AND 10 
-      AND killer_team.team_id = assist_team.team_id  -- Only count assists from same team as killer
+    WHERE a BETWEEN 1 AND 10
+      AND killer_team.team_id = assist_team.team_id
   ) x
   GROUP BY 1,2,3
 ),
 
--- Normalized per-participant takedowns (DRAGON collapsed, ELDER separate)
+-- Normalized per-participant takedowns (DRAGON collapsed)
 objective_participation_norm AS (
   SELECT matchid, obj_norm, participant_id, count(DISTINCT ts) AS takedowns_norm
   FROM (
@@ -340,8 +358,8 @@ objective_participation_norm AS (
     CROSS JOIN UNNEST(e.assists_ids) AS t(a)
     LEFT JOIN team_lookup killer_team ON e.matchid = killer_team.matchid AND e.killer_id = killer_team.participant_id
     LEFT JOIN team_lookup assist_team ON e.matchid = assist_team.matchid AND a = assist_team.participant_id
-    WHERE a BETWEEN 1 AND 10 
-      AND killer_team.team_id = assist_team.team_id  -- Only count assists from same team as killer
+    WHERE a BETWEEN 1 AND 10
+      AND killer_team.team_id = assist_team.team_id
   ) u
   GROUP BY 1,2,3
 ),
@@ -358,7 +376,7 @@ objective_maps_norm AS (
   GROUP BY 1,2
 ),
 
--- Infer team for each objective event (killer team first, else first-assist team)
+-- Infer team for each objective event
 objective_events_norm_with_team AS (
   SELECT
     e.matchid,
@@ -521,8 +539,7 @@ final AS (
     -- Team totals map for the participant's team (normalized keys)
     COALESCE(tom.team_objective_totals_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))) AS team_objective_totals_by_type,
 
-    -- Participation fraction map (0–1) per normalized type:
-    -- participation = player_norm_count / team_total_for_that_type
+    -- Participation fraction map (0–1)
     transform_values(
       COALESCE(tom.team_objective_totals_map, CAST(MAP(ARRAY[], ARRAY[]) AS MAP(varchar, integer))),
       (k, teamv) -> CASE
@@ -613,7 +630,7 @@ SELECT
   puuid,
   queue,
 
-  -- partitions LAST (must match 'partitioned_by' order)
+  -- partitions LAST
   season,
   patch_major
 FROM final;

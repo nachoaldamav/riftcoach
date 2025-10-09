@@ -3,32 +3,23 @@
 import type React from 'react';
 
 import { http } from '@/clients/http';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Button, Input, Select, SelectItem } from '@heroui/react';
 import { useNavigate } from '@tanstack/react-router';
 import { Sparkles } from 'lucide-react';
 import { useState } from 'react';
 
 const REGIONS = [
-  { value: 'na1', label: 'North America' },
-  { value: 'euw1', label: 'Europe West' },
-  { value: 'eun1', label: 'Europe Nordic & East' },
-  { value: 'kr', label: 'Korea' },
-  { value: 'br1', label: 'Brazil' },
-  { value: 'la1', label: 'Latin America North' },
-  { value: 'la2', label: 'Latin America South' },
-  { value: 'oc1', label: 'Oceania' },
-  { value: 'ru', label: 'Russia' },
-  { value: 'tr1', label: 'Turkey' },
-  { value: 'jp1', label: 'Japan' },
+  { value: 'na1', label: 'NA' },
+  { value: 'euw1', label: 'EUW' },
+  { value: 'eun1', label: 'EUN' },
+  { value: 'kr', label: 'KR' },
+  { value: 'br1', label: 'BR' },
+  { value: 'la1', label: 'LA1' },
+  { value: 'la2', label: 'LA2' },
+  { value: 'oc1', label: 'OC' },
+  { value: 'ru', label: 'RU' },
+  { value: 'tr1', label: 'TR' },
+  { value: 'jp1', label: 'JP' },
 ];
 
 export function RewindForm() {
@@ -62,61 +53,60 @@ export function RewindForm() {
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className="flex flex-col gap-4 rounded-xl border border-border bg-card/50 p-6 backdrop-blur-sm md:flex-row md:items-end md:p-8">
+      <div className="flex flex-col gap-4 rounded-xl border border-divider bg-content1/50 p-6 backdrop-blur-sm md:flex-row md:items-end md:p-8">
         {/* Region Select */}
         <div className="flex-shrink-0 space-y-2 md:w-48">
-          <Label
-            htmlFor="region"
-            className="text-sm font-medium text-card-foreground"
+          <Select
+            placeholder="Select region"
+            selectedKeys={region ? [region] : []}
+            onSelectionChange={(keys) => {
+              const selected = Array.from(keys)[0] as string;
+              setRegion(selected);
+            }}
+            className="w-full"
+            size="lg"
           >
-            Region
-          </Label>
-          <Select value={region} onValueChange={setRegion}>
-            <SelectTrigger
-              id="region"
-              className="h-12 w-full bg-secondary text-base"
-            >
-              <SelectValue placeholder="Select region" />
-            </SelectTrigger>
-            <SelectContent>
-              {REGIONS.map((r) => (
-                <SelectItem key={r.value} value={r.value}>
-                  {r.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
+            {REGIONS.map((r) => (
+              <SelectItem key={r.value}>{r.label}</SelectItem>
+            ))}
           </Select>
         </div>
 
         <div className="flex-1 space-y-2">
-          <Label
-            htmlFor="summoner-name"
-            className="text-sm font-medium text-card-foreground"
-          >
-            Summoner Name & Tag
-          </Label>
-          <div className="flex h-12 overflow-hidden rounded-md border border-input bg-secondary">
+          <div className="flex rounded-lg border border-slate-600 bg-slate-800/50 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all">
             <Input
-              id="summoner-name"
-              type="text"
-              placeholder="Summoner Name"
+              placeholder="Summoner"
               value={summonerName}
-              onChange={(e) => setSummonerName(e.target.value)}
-              className="h-full flex-1 border-0 bg-transparent text-base focus-visible:ring-0 focus-visible:ring-offset-0"
-              required
+              onValueChange={setSummonerName}
+              className="flex-1 border-0 bg-transparent hover:bg-transparent"
+              size="lg"
+              isRequired
+              classNames={{
+                input: 'bg-transparent border-0 focus:ring-0',
+                inputWrapper:
+                  'bg-transparent border-0 shadow-none hover:bg-transparent group-data-[focus=true]:bg-transparent',
+                label: 'text-slate-300',
+                base: 'bg-transparent border-0 focus:ring-0',
+              }}
             />
-            <div className="flex items-center border-l border-input/50 bg-secondary/50 px-3">
-              <span className="text-base text-muted-foreground">#</span>
-              <Input
-                id="tagline"
-                type="text"
-                placeholder="NA1"
-                value={tagline}
-                onChange={(e) => setTagline(e.target.value)}
-                className="h-full w-20 border-0 bg-transparent px-1 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
-                required
-              />
+            <div className="flex items-center px-3 text-slate-400 font-mono text-lg">
+              #
             </div>
+            <Input
+              placeholder="EUW"
+              value={tagline}
+              onValueChange={setTagline}
+              className="w-20 border-0 bg-transparent"
+              size="lg"
+              isRequired
+              classNames={{
+                input: 'bg-transparent border-0 focus:ring-0',
+                inputWrapper:
+                  'bg-transparent border-0 shadow-none hover:bg-transparent group-data-[focus=true]:bg-transparent',
+                label: 'text-slate-300',
+                base: 'bg-transparent border-0 focus:ring-0',
+              }}
+            />
           </div>
         </div>
 
@@ -124,9 +114,9 @@ export function RewindForm() {
         <Button
           type="submit"
           size="lg"
-          className="h-12 flex-shrink-0 bg-gradient-to-r from-primary to-accent px-8 text-base font-semibold text-primary-foreground hover:opacity-90 md:w-auto"
+          className="h-12 flex-shrink-0 bg-slate-700 hover:bg-slate-600 border border-slate-600 hover:border-slate-500 px-8 text-base font-medium text-slate-200 hover:text-white transition-all duration-200 md:w-auto"
+          startContent={<Sparkles className="h-5 w-5" />}
         >
-          <Sparkles className="mr-2 h-5 w-5" />
           Start Rewind
         </Button>
       </div>

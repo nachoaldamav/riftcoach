@@ -7,9 +7,8 @@ import ms from 'ms';
 import { redis } from '../clients/redis.js';
 import { type Region, riot } from '../clients/riot-api.js';
 import { broadcastToWebSockets } from '../index.js';
-import { GENERATE_PLAYER_SILVER_SQL } from '../queries/generate-player-silver.js';
-import { runAthenaQuery } from '../utils/run-athena-query.js';
 import { createS3Uploaders } from '../utils/upload.js';
+import { athenaQ } from './athena.js';
 import { getJobMapping } from './rewind.js';
 
 const { uploadMatch, uploadTimeline } = createS3Uploaders({
@@ -199,52 +198,87 @@ export const listWorker = new Worker<GetMatchListWorkerParams>(
     if (ids.length === 100) {
       // you scheduled the next page above; counter will be incremented there
     } else {
-      // if no more pages & no fetches left, mark ready
-      const openFetch =
-        Number(await redis.get(`rc:rewind:openFetch:${rootId}`)) || 0;
+      // Use atomic completion check using Lua script to prevent race conditions
+      const completionScript = `
+        local openPagesKey = KEYS[1]
+        local openFetchKey = KEYS[2]
+        local progKey = KEYS[3]
+        local completionKey = KEYS[4]
+        
+        -- Get current counters
+        local openPages = tonumber(redis.call('GET', openPagesKey)) or 0
+        local openFetch = tonumber(redis.call('GET', openFetchKey)) or 0
+        
+        -- Check if already marked as complete to prevent double execution
+        local alreadyComplete = redis.call('GET', completionKey)
+        if alreadyComplete then
+          return {openPages, openFetch, 1} -- 1 indicates already complete
+        end
+        
+        -- Check completion conditions
+        if openPages <= 0 and openFetch <= 0 then
+          -- Mark as completing to prevent other workers from triggering
+          redis.call('SET', completionKey, '1', 'EX', 300) -- 5 min expiry
+          redis.call('HSET', progKey, 'state', 'processing', 'updatedAt', tostring(tonumber(ARGV[1])))
+          return {openPages, openFetch, 2} -- 2 indicates this worker should trigger completion
+        end
+        
+        return {openPages, openFetch, 0} -- 0 indicates not complete yet
+      `;
 
-      // Also check for queued jobs in the fetch queue that haven't started yet
-      const queuedJobs = await fetchQ.getJobs(['waiting', 'delayed']);
-      const pendingJobsForThisRoot = queuedJobs.filter(
-        (job) => job.data?.opts?.rootId === rootId,
-      ).length;
+      const completionKey = `rc:rewind:completing:${rootId}`;
+      const openPagesKey = `rc:rewind:openPages:${rootId}`;
+      const openFetchKey = `rc:rewind:openFetch:${rootId}`;
 
-      if (left <= 0 && openFetch === 0 && pendingJobsForThisRoot === 0) {
-        consola.info('Fetching complete - marking as ready');
-        await redis.hset(progKey, {
-          state: 'ready',
-          updatedAt: Date.now().toString(),
-        });
+      const [openPages, openFetch, shouldComplete] = (await redis.eval(
+        completionScript,
+        4,
+        openPagesKey,
+        openFetchKey,
+        progKey,
+        completionKey,
+        Date.now().toString(),
+      )) as [number, number, number];
 
-        consola.info('Running Athena query to generate player silver');
-        await runAthenaQuery({
-          query: GENERATE_PLAYER_SILVER_SQL({
-            patch_major: '15',
-            queues: ALLOWED_QUEUE_IDS.map((id) => id.toString()),
-            puuid: (await getJobMapping(rootId).then(
-              (mapping) => mapping?.puuid,
-            )) as string,
+      if (shouldComplete === 1) {
+        consola.info(
+          chalk.blue('📋 Completion already handled by another worker'),
+        );
+        return;
+      }
+
+      if (shouldComplete === 2) {
+        // Also check for queued jobs in the fetch queue that haven't started yet
+        const queuedJobs = await fetchQ.getJobs(['waiting', 'delayed']);
+        const pendingJobsForThisRoot = queuedJobs.filter(
+          (job) => job.data?.opts?.rootId === rootId,
+        ).length;
+
+        if (pendingJobsForThisRoot === 0) {
+          consola.info('Fetching complete - enqueuing Athena job');
+
+          // Enqueue Athena job instead of running query directly
+          await athenaQ.add('athena:process', {
+            rootId,
             season: 2025,
-          }),
-        }).catch((error) => {
-          consola.error(
-            chalk.red('❌ Failed to generate player silver:'),
-            error,
+            patchMajor: '15',
+          });
+
+          consola.success(chalk.green('🎯 Athena job enqueued successfully!'));
+        } else {
+          // Still have queued jobs, revert the completion state
+          await redis.del(completionKey);
+          await redis.hset(progKey, 'state', 'processing');
+          consola.info(
+            chalk.cyan(
+              `📈 Found ${pendingJobsForThisRoot} queued jobs, continuing...`,
+            ),
           );
-          throw error;
-        });
-
-        consola.success(
-          chalk.green('🎯 Player silver generated successfully!'),
-        );
-
-        consola.success(
-          chalk.green('🎯 All fetching complete - marked as ready!'),
-        );
+        }
       } else {
         consola.info(
           chalk.cyan(
-            `📈 Pages left: ${left}, Fetches pending: ${openFetch}, Queued: ${pendingJobsForThisRoot}`,
+            `📈 Pages left: ${openPages}, Fetches pending: ${openFetch}`,
           ),
         );
       }
@@ -323,13 +357,16 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
       if (jobMapping) {
         try {
           // Find the player's participant data
-          const playerParticipant = m.info.participants.find(p => p.puuid === jobMapping.puuid);
-          
+          const playerParticipant = m.info.participants.find(
+            (p) => p.puuid === jobMapping.puuid,
+          );
+
           if (playerParticipant) {
             // Find opponent in the same lane/role (simplified approach - find enemy team player with same team position)
-            const opponentParticipant = m.info.participants.find(p => 
-              p.teamId !== playerParticipant.teamId && 
-              p.teamPosition === playerParticipant.teamPosition
+            const opponentParticipant = m.info.participants.find(
+              (p) =>
+                p.teamId !== playerParticipant.teamId &&
+                p.teamPosition === playerParticipant.teamPosition,
             );
 
             // Prepare WebSocket message with minimal match information
@@ -342,22 +379,31 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
                 kills: playerParticipant.kills,
                 deaths: playerParticipant.deaths,
                 assists: playerParticipant.assists,
-                win: playerParticipant.win
+                win: playerParticipant.win,
               },
-              opponent: opponentParticipant ? {
-                championId: opponentParticipant.championId
-              } : null
+              opponent: opponentParticipant
+                ? {
+                    championId: opponentParticipant.championId,
+                  }
+                : null,
             };
 
             // Broadcast to all connected WebSocket clients
             broadcastToWebSockets(`rewind:progress:${rootId}`, matchMessage);
-            
+
             consola.info(
-              chalk.blue(`📡 Broadcasted match data: ${playerParticipant.championId} vs ${opponentParticipant?.championId || 'unknown'} - ${playerParticipant.kills}/${playerParticipant.deaths}/${playerParticipant.assists} - ${playerParticipant.win ? 'Win' : 'Loss'}`)
+              chalk.blue(
+                `📡 Broadcasted match data: ${playerParticipant.championId} vs ${opponentParticipant?.championId || 'unknown'} - ${playerParticipant.kills}/${playerParticipant.deaths}/${playerParticipant.assists} - ${playerParticipant.win ? 'Win' : 'Loss'}`,
+              ),
             );
           }
         } catch (wsError) {
-          consola.warn(chalk.yellow(`⚠️ Failed to broadcast WebSocket message for ${matchId}:`), wsError);
+          consola.warn(
+            chalk.yellow(
+              `⚠️ Failed to broadcast WebSocket message for ${matchId}:`,
+            ),
+            wsError,
+          );
         }
       }
 
@@ -398,7 +444,7 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
         if left <= 0 and openPages <= 0 then
           -- Mark as completing to prevent other workers from triggering
           redis.call('SET', completionKey, '1', 'EX', 300) -- 5 min expiry
-          redis.call('HSET', progKey, 'state', 'ready', 'updatedAt', tostring(tonumber(ARGV[1])))
+          redis.call('HSET', progKey, 'state', 'processing', 'updatedAt', tostring(tonumber(ARGV[1])))
           return {left, openPages, 2} -- 2 indicates this worker should trigger completion
         end
         
@@ -433,35 +479,16 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
         ).length;
 
         if (pendingJobsForThisRoot === 0) {
-          consola.info('Fetching complete - marked as ready');
+          consola.info('Fetching complete - enqueuing Athena job');
 
-          consola.info('Running Athena query to generate player silver');
-          await runAthenaQuery({
-            query: GENERATE_PLAYER_SILVER_SQL({
-              patch_major: '15',
-              queues: ALLOWED_QUEUE_IDS.map((id) => id.toString()),
-              puuid: (await getJobMapping(rootId).then(
-                (mapping) => mapping?.puuid,
-              )) as string,
-              season: 2025,
-            }),
-          }).catch(async (error) => {
-            consola.error(
-              chalk.red('❌ Failed to generate player silver:'),
-              error,
-            );
-            // Clean up completion lock on error
-            await redis.del(completionKey);
-            throw error;
+          // Enqueue Athena job instead of running query directly
+          await athenaQ.add('athena:process', {
+            rootId,
+            season: 2025,
+            patchMajor: '15',
           });
 
-          consola.success(
-            chalk.green('🎯 Player silver generated successfully!'),
-          );
-
-          consola.success(
-            chalk.green('🎯 All fetching complete - marked as ready!'),
-          );
+          consola.success(chalk.green('🎯 Athena job enqueued successfully!'));
         } else {
           // Still have queued jobs, revert the completion state
           await redis.del(completionKey);
@@ -486,7 +513,7 @@ export const fetchWorker = new Worker<GetMatchWorkerParams>(
   },
   {
     connection: redis,
-    concurrency: 2, // parallel fetch jobs
-    limiter: { duration: ms('1s'), max: 5 },
+    concurrency: 1, // parallel fetch jobs
+    limiter: { duration: ms('1s'), max: 2 },
   },
 );

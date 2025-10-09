@@ -12,7 +12,8 @@
     "start:api": "pnpm run -r --filter api start",
     "dev:web": "pnpm run -r --filter web dev",
     "build:web": "pnpm run -r --filter web build",
-    "start:web": "pnpm run -r --filter web start"
+    "start:web": "pnpm run -r --filter web start",
+    "dev:stack": "pnpm run -r --filter apps... dev"
   },
   "keywords": [],
   "author": "",
