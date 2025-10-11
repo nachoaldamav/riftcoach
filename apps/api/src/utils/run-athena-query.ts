@@ -116,10 +116,11 @@ export async function runAthenaQuery({
   }
 
   // Check if this is a DML operation that doesn't return meaningful results
-  const isDMLOperation = /^\s*(MERGE|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)\s+/i.test(query.trim());
-  
+  const isDMLOperation =
+    /^\s*(MERGE|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)\s+/i.test(query.trim());
+
   let records: AthenaRecord[] = [];
-  
+
   if (!isDMLOperation) {
     // Only fetch results for SELECT queries
     const allRows: Row[] = [];

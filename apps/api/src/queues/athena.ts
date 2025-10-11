@@ -2,8 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import chalk from 'chalk';
 import { consola } from 'consola';
 import { redis } from '../clients/redis.js';
-import { insertPlayerSilverEntries } from '../queries/insert-player-silver.js';
-import { runAthenaQuery } from '../utils/run-athena-query.js';
+import { processPlayerInBatches } from '../queries/insert-player-silver.js';
 import { getJobMapping } from './rewind.js';
 
 export const athenaQ = new Queue('athena-processing', {
@@ -39,12 +38,7 @@ export const athenaWorker = new Worker<AthenaWorkerParams>(
         chalk.yellow('🏗️ Running Athena query to generate player silver...'),
       );
 
-      await runAthenaQuery({
-        query: insertPlayerSilverEntries(jobMapping.puuid),
-        // Long-running query, so allow more attempts
-        maxAttempts: 1_000,
-        pollIntervalMs: 30_000,
-      });
+      await processPlayerInBatches(jobMapping.puuid);
 
       consola.success(chalk.green('🎯 Player silver generated successfully!'));
 

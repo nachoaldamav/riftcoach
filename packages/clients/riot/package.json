@@ -1,0 +1,21 @@
+{
+    "name": "@riftcoach/clients.riot",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "compile": "tsc"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "typescript": "^5.9.2"
+    },
+    "dependencies": {
+        "@fightmegg/riot-api": "0.0.21",
+        "bottleneck": "^2.19.5"
+    }
+}
