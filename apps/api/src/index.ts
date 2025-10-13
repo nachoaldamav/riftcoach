@@ -5,6 +5,7 @@ import {
 } from '@fightmegg/riot-api';
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
+import { client } from '@riftcoach/clients.mongodb';
 import chalk from 'chalk';
 import { consola } from 'consola';
 import { Hono } from 'hono';
@@ -572,7 +573,8 @@ const server = serve(
     fetch: app.fetch,
     port: 4000,
   },
-  (info) => {
+  async (info) => {
+    await client.connect();
     console.log(`Server is running on http://localhost:${info.port}`);
   },
 );
