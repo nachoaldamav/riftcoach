@@ -27,10 +27,7 @@ import {
 import { fetchQ, listQ } from './queues/scan.js';
 import { getCachedAIBadges } from './services/ai-service.js';
 import { getQueuePosition } from './utils/queue-position.js';
-import {
-  runAthenaQuery,
-  runAthenaQueryWithCache,
-} from './utils/run-athena-query.js';
+import { runAthenaQueryWithCache } from './utils/run-athena-query.js';
 
 const JOB_SCOPE = process.env.JOB_SCOPE ?? 'Y2025';
 

@@ -1,107 +1,20 @@
+import { type RiotAPITypes, regionToCluster } from '@fightmegg/riot-api';
+import { client, collections } from '@riftcoach/clients.mongodb';
 import {
-  type PlatformId,
-  type RiotAPITypes,
-  regionToCluster,
-} from '@fightmegg/riot-api';
-import { riot } from '@riftcoach/clients.riot';
-import { type Job, Queue, Worker, type WorkerOptions } from 'bullmq';
+  monitorQueues,
+  queues,
+  setupQueues,
+  setupWorkers,
+  shutdownWorkers,
+} from '@riftcoach/queues';
 import chalk from 'chalk';
 import { consola } from 'consola';
-import ms from 'ms';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { client } from './clients/mongodb';
-import { connection } from './clients/redis';
 
-const db = client.db('riftcoach');
-
-const matchesCollection =
-  db.collection<RiotAPITypes.MatchV5.MatchDTO>('matches');
-const timelinesCollection =
-  db.collection<RiotAPITypes.MatchV5.MatchTimelineDTO>('timelines');
-
-const queues: Record<RiotAPITypes.Cluster, Queue> = {
-  americas: new Queue('americas', { connection }),
-  europe: new Queue('europe', { connection }),
-  asia: new Queue('asia', { connection }),
-  sea: new Queue('sea', { connection }),
-  esports: new Queue('esports', { connection }),
-};
-
-interface BaseJobOptions {
-  type: string;
-}
-
-interface ListMatchesJobOptions extends BaseJobOptions {
-  type: 'list-matches';
-  puuid: string;
-  start: number;
-  cluster: PlatformId;
-}
-
-interface FetchMatchJobOptions extends BaseJobOptions {
-  type: 'fetch-match';
-  matchId: string;
-  cluster: PlatformId;
-}
-
-interface FetchTimelineJobOptions extends BaseJobOptions {
-  type: 'fetch-timeline';
-  matchId: string;
-  cluster: PlatformId;
-}
-
-const workerFn = async (
-  job: Job<
-    ListMatchesJobOptions | FetchMatchJobOptions | FetchTimelineJobOptions
-  >,
-) => {
-  const { type } = job.data;
-  switch (type) {
-    case 'list-matches': {
-      const { puuid, start, cluster } = job.data;
-      break;
-    }
-    case 'fetch-match': {
-      const { matchId, cluster } = job.data;
-      break;
-    }
-    case 'fetch-timeline': {
-      const { matchId, cluster } = job.data;
-      consola.info(chalk.greenBright(`Fetching timeline for ${matchId}`));
-      const timeline = await riot.getTimeline(cluster, matchId);
-      await timelinesCollection.updateOne(
-        { 'metadata.matchId': matchId },
-        { $set: timeline },
-        { upsert: true },
-      );
-      consola.success(chalk.green(`Timeline for ${matchId} saved`));
-      break;
-    }
-  }
-};
-
-const sharedWorkerOptions: WorkerOptions = {
-  connection,
-  concurrency: 1,
-  limiter: {
-    duration: ms('1m'),
-    max: 50,
-  },
-};
-
-type SharedWorker =
-  | ListMatchesJobOptions
-  | FetchMatchJobOptions
-  | FetchTimelineJobOptions;
-
-const workers: Record<RiotAPITypes.Cluster, Worker<SharedWorker>> = {
-  americas: new Worker<SharedWorker>('americas', workerFn, sharedWorkerOptions),
-  europe: new Worker<SharedWorker>('europe', workerFn, sharedWorkerOptions),
-  asia: new Worker<SharedWorker>('asia', workerFn, sharedWorkerOptions),
-  sea: new Worker<SharedWorker>('sea', workerFn, sharedWorkerOptions),
-  esports: new Worker<SharedWorker>('esports', workerFn, sharedWorkerOptions),
-};
+// Initialize queues and workers at startup
+setupQueues();
+setupWorkers();
 
 async function syncTimelines() {
   consola.info(chalk.yellow('Syncing timelines...'));
@@ -112,7 +25,7 @@ async function syncTimelines() {
   let start = 0;
   while (!isFinished) {
     consola.info(chalk.yellow(`Syncing timelines from ${start}`));
-    const matchesCursor = matchesCollection
+    const matchesCursor = collections.matches
       .find()
       .sort({
         'info.gameCreation': -1,
@@ -128,11 +41,13 @@ async function syncTimelines() {
       const { metadata, info } = match;
       const { matchId } = metadata;
       const { platformId } = info;
-      const region = regionToCluster(platformId.toLowerCase());
+      const region = regionToCluster(
+        platformId.toLowerCase() as RiotAPITypes.LoLRegion,
+      );
       await queues[region].add('fetch-timeline', {
         type: 'fetch-timeline',
         matchId,
-        cluster: region,
+        region: platformId as RiotAPITypes.LoLRegion,
       });
     }
 
@@ -162,9 +77,29 @@ yargs(hideBin(process.argv))
   })
   .command({
     command: 'idle',
-    describe: 'Wait for all workers',
+    describe: 'Wait for all workers to idle',
     handler: async () => {
       consola.info(chalk.yellow('Waiting for all workers to idle...'));
+
+      // Keep the process alive and monitor workers
+      const checkInterval = setInterval(async () => {
+        const { totalWaiting, totalActive } = await monitorQueues();
+
+        if (totalWaiting === 0 && totalActive === 0) {
+          consola.success(chalk.green('All workers are idle!'));
+          clearInterval(checkInterval);
+          process.exit(0);
+        }
+      }, 5000); // Check every 5 seconds
+
+      // Handle graceful shutdown
+      process.on('SIGINT', () => {
+        consola.info(chalk.yellow('Shutting down workers...'));
+        clearInterval(checkInterval);
+        shutdownWorkers().then(() => {
+          process.exit(0);
+        });
+      });
     },
   })
   .demandCommand()

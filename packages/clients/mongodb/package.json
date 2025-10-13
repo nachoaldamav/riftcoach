@@ -1,22 +1,23 @@
 {
-    "name": "@riftcoach/clients.riot",
+    "name": "@riftcoach/clients.mongodb",
     "version": "1.0.0",
     "type": "module",
     "description": "",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "compile": "tsc",
-        "dev": "tsc --watch"
+        "dev": "tsc --watch",
+        "compile": "tsc"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "devDependencies": {
+        "@types/node": "^24.7.2",
         "typescript": "^5.9.2"
     },
     "dependencies": {
         "@fightmegg/riot-api": "0.0.21",
-        "bottleneck": "^2.19.5"
+        "mongodb": "6.20.0"
     }
 }

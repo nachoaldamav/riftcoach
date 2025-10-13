@@ -1,33 +1,31 @@
 {
-    "name": "@riftcoach/apps.sync",
+    "name": "@riftcoach/queues",
     "version": "1.0.0",
     "type": "module",
     "description": "",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "start": "tsx --env-file=.env src/index.ts"
+        "dev": "tsc --watch",
+        "compile": "tsc"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "devDependencies": {
-        "@types/yargs": "^17.0.33",
-        "tsx": "^4.20.5",
+        "@types/node": "^24.7.2",
         "typescript": "^5.9.2"
     },
     "dependencies": {
         "@fightmegg/riot-api": "0.0.21",
         "@riftcoach/clients.riot": "workspace:*",
         "@riftcoach/clients.mongodb": "workspace:*",
-        "@riftcoach/queues": "workspace:*",
         "bullmq": "^5.58.7",
         "chalk": "5.6.2",
         "consola": "3.4.2",
         "ioredis": "^5.8.0",
         "mongodb": "6.20.0",
-        "ms": "^2.1.3",
-        "p-queue": "8.1.1",
-        "yargs": "^18.0.0"
+        "ms": "3.0.0-beta.2",
+        "p-queue": "8.1.1"
     }
 }
