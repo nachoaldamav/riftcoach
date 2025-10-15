@@ -217,6 +217,9 @@ app.post('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
     },
   );
 
+  // Add to visual queue (sorted by enqueue time)
+  await redis.zadd(`rewind:queue:${c.var.cluster}`, Date.now(), rewindId);
+
   return c.json({
     rewindId,
   });
@@ -231,6 +234,10 @@ app.get('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
     redis.get(`rewind:${rewindId}:total`),
     redis.get(`rewind:${rewindId}:processed`),
   ]);
+  // Visual position from Redis zset (cluster-scoped)
+  const queueKey = `rewind:queue:${c.var.cluster}`;
+  const rank = await redis.zrank(queueKey, rewindId);
+  const position = rank !== null ? Number(rank) + 1 : null;
 
   return c.json({
     rewindId,
@@ -239,11 +246,19 @@ app.get('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
     total: Number(total),
     processed: Number(processed),
     status,
+    position,
   });
 });
 
 app.get('/:region/:tagName/:tagLine/stats', accountMiddleware, async (c) => {
   const account = c.var.account;
+  const cacheKey = `cache:stats:${c.var.internalId}`;
+
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+
   const [myStats, enemyStats] = await Promise.all([
     collections.matches.aggregate(statsByRolePUUID(account.puuid)).toArray(),
     collections.matches
@@ -251,10 +266,9 @@ app.get('/:region/:tagName/:tagLine/stats', accountMiddleware, async (c) => {
       .toArray(),
   ]);
 
-  return c.json({
-    myStats,
-    enemyStats,
-  });
+  const payload = { myStats, enemyStats };
+  await redis.set(cacheKey, JSON.stringify(payload), 'EX', ms('1d'));
+  return c.json(payload);
 });
 
 export { app };

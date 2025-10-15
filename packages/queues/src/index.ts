@@ -123,6 +123,10 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
         const matches = await connection.get(`rewind:${rewindId}:matches`);
         if (listing === '0' && matches === '0') {
           await connection.set(`rewind:${rewindId}:status`, 'completed');
+          await connection.del(`cache:stats:${rewindId}`);
+          // Remove from visual queue
+          const cluster = regionToCluster(region);
+          await connection.zrem(`rewind:queue:${cluster}` as string, rewindId);
         }
       }
 
@@ -212,6 +216,12 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
         const matches = await connection.get(`rewind:${rewindId}:matches`);
         if (listing === '0' && matches === '0') {
           await connection.set(`rewind:${rewindId}:status`, 'completed');
+          await connection.del(`cache:stats:${rewindId}`);
+          // Remove from visual queue
+          const targetCluster = isLegacyJob
+            ? (cluster as RiotAPITypes.Cluster)
+            : regionToCluster(region);
+          await connection.zrem(`rewind:queue:${targetCluster}` as string, rewindId);
         }
       }
 

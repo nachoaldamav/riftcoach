@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RewindIdRouteImport } from './routes/rewind/$id'
 import { Route as QueueIdRouteImport } from './routes/queue/$id'
+import { Route as RegionNameTagRouteImport } from './routes/$region/$name/$tag'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,44 @@ const QueueIdRoute = QueueIdRouteImport.update({
   path: '/queue/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RegionNameTagRoute = RegionNameTagRouteImport.update({
+  id: '/$region/$name/$tag',
+  path: '/$region/$name/$tag',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/queue/$id': typeof QueueIdRoute
   '/rewind/$id': typeof RewindIdRoute
+  '/$region/$name/$tag': typeof RegionNameTagRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/queue/$id': typeof QueueIdRoute
   '/rewind/$id': typeof RewindIdRoute
+  '/$region/$name/$tag': typeof RegionNameTagRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/queue/$id': typeof QueueIdRoute
   '/rewind/$id': typeof RewindIdRoute
+  '/$region/$name/$tag': typeof RegionNameTagRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/queue/$id' | '/rewind/$id'
+  fullPaths: '/' | '/queue/$id' | '/rewind/$id' | '/$region/$name/$tag'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/queue/$id' | '/rewind/$id'
-  id: '__root__' | '/' | '/queue/$id' | '/rewind/$id'
+  to: '/' | '/queue/$id' | '/rewind/$id' | '/$region/$name/$tag'
+  id: '__root__' | '/' | '/queue/$id' | '/rewind/$id' | '/$region/$name/$tag'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   QueueIdRoute: typeof QueueIdRoute
   RewindIdRoute: typeof RewindIdRoute
+  RegionNameTagRoute: typeof RegionNameTagRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +92,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QueueIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$region/$name/$tag': {
+      id: '/$region/$name/$tag'
+      path: '/$region/$name/$tag'
+      fullPath: '/$region/$name/$tag'
+      preLoaderRoute: typeof RegionNameTagRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   QueueIdRoute: QueueIdRoute,
   RewindIdRoute: RewindIdRoute,
+  RegionNameTagRoute: RegionNameTagRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

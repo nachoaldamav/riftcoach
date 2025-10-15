@@ -5,6 +5,7 @@ import type React from 'react';
 import { http } from '@/clients/http';
 import { Button, Input, Select, SelectItem } from '@heroui/react';
 import { useNavigate } from '@tanstack/react-router';
+import { useMutation } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import { useState } from 'react';
 
@@ -27,27 +28,48 @@ export function RewindForm() {
   const [region, setRegion] = useState('');
   const [summonerName, setSummonerName] = useState('');
   const [tagline, setTagline] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  interface StartRewindResponse {
+    rewindId: string;
+  }
+
+  const startRewindMutation = useMutation({
+    mutationKey: ['start-rewind', region, summonerName, tagline],
+    mutationFn: async (): Promise<StartRewindResponse> => {
+      if (!region || !summonerName || !tagline) {
+        throw new Error('Region, summoner name and tagline are required');
+      }
+      const res = await http.post<StartRewindResponse>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(summonerName)}/${encodeURIComponent(tagline)}/rewind`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      // Navigate to the status/profile route for this summoner
+      navigate({
+        to: '/$region/$name/$tag',
+        params: {
+          region,
+          name: summonerName,
+          tag: tagline,
+        },
+      });
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(message);
+      console.error('Failed to start rewind:', err);
+    },
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Form submitted:', { region, summonerName, tagline });
-    // Handle form submission
-    const res = await http.post<{ jobId: string; position: number }>(
-      '/rewind/start',
-      {
-        tagName: summonerName,
-        tagLine: tagline,
-        region: region,
-      },
-    );
-    if (res.status === 200) {
-      console.log('Rewind job started:', res.data);
-      navigate({
-        to: '/queue/$id',
-        params: {
-          id: res.data.jobId,
-        },
-      });
+    setError(null);
+    try {
+      await startRewindMutation.mutateAsync();
+    } catch (err) {
+      // Error already handled in onError, but ensure no unhandled rejection
     }
   };
 
@@ -111,14 +133,21 @@ export function RewindForm() {
         </div>
 
         {/* Submit Button */}
-        <Button
-          type="submit"
-          size="lg"
-          className="h-12 flex-shrink-0 bg-slate-700 hover:bg-slate-600 border border-slate-600 hover:border-slate-500 px-8 text-base font-medium text-slate-200 hover:text-white transition-all duration-200 md:w-auto"
-          startContent={<Sparkles className="h-5 w-5" />}
-        >
-          Start Rewind
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button
+            type="submit"
+            size="lg"
+            className="h-12 flex-shrink-0 bg-slate-700 hover:bg-slate-600 border border-slate-600 hover:border-slate-500 px-8 text-base font-medium text-slate-200 hover:text-white transition-all duration-200 md:w-auto"
+            startContent={<Sparkles className="h-5 w-5" />}
+            isDisabled={startRewindMutation.isPending || !region || !summonerName || !tagline}
+            isLoading={startRewindMutation.isPending}
+          >
+            {startRewindMutation.isPending ? 'Starting…' : 'Start Rewind'}
+          </Button>
+          {error && (
+            <div className="text-sm text-red-400">{error}</div>
+          )}
+        </div>
       </div>
     </form>
   );
