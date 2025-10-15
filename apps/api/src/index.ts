@@ -6,6 +6,7 @@ import {
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { client } from '@riftcoach/clients.mongodb';
+import { setupWorkers } from '@riftcoach/queues';
 import chalk from 'chalk';
 import { consola } from 'consola';
 import { Hono } from 'hono';
@@ -26,6 +27,7 @@ import {
   storeJobMapping,
 } from './queues/rewind.js';
 import { fetchQ, listQ } from './queues/scan.js';
+import { app as v1Route } from './routes/v1/index.js';
 import { getCachedAIBadges } from './services/ai-service.js';
 import { getQueuePosition } from './utils/queue-position.js';
 import { runAthenaQueryWithCache } from './utils/run-athena-query.js';
@@ -568,12 +570,16 @@ app.get('/queues', async (c) => {
   });
 });
 
+app.route('/v1', v1Route);
+
 const server = serve(
   {
     fetch: app.fetch,
     port: 4000,
   },
   async (info) => {
+    setupWorkers();
+    setupWorkers();
     await client.connect();
     console.log(`Server is running on http://localhost:${info.port}`);
   },

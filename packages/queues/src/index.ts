@@ -8,8 +8,15 @@ import { consola } from 'consola';
 import ms from 'ms';
 import { connection } from './clients/redis.js';
 
+const priorities = {
+  'list-matches': 100,
+  'fetch-timeline': 500,
+  'fetch-match': 1000,
+};
+
 interface BaseJobOptions {
   type: string;
+  rewindId?: string;
 }
 
 interface ListMatchesJobOptions extends BaseJobOptions {
@@ -45,7 +52,7 @@ export const queues: Record<RiotAPITypes.Cluster, Queue<MergedJobOptions>> = {
 };
 
 const workerFn = async (job: Job<MergedJobOptions>) => {
-  const { type } = job.data;
+  const { type, rewindId } = job.data;
   switch (type) {
     case 'list-matches': {
       const { puuid, start, region } = job.data;
@@ -58,29 +65,101 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
           count: 100,
         },
       );
+
+      if (matches.length === 100) {
+        await queues[regionToCluster(region)].add(
+          `list-matches-${puuid}-${start + 100}`,
+          {
+            type: 'list-matches',
+            puuid,
+            start: start + 100,
+            region,
+            rewindId,
+          },
+          {
+            delay: ms('1s'),
+            priority: priorities['list-matches'],
+          },
+        );
+        await connection.incr(`rewind:${rewindId}:listing`);
+      } else {
+        await connection.set(`rewind:${rewindId}:status`, 'processing');
+      }
+
+      if (rewindId) {
+        await connection.incrby(`rewind:${rewindId}:matches`, matches.length);
+        await connection.incrby(`rewind:${rewindId}:total`, matches.length);
+        await connection.decr(`rewind:${rewindId}:listing`);
+      }
+
+      // Exclude matches that already exist in the database
+      const existingMatches = await collections.matches
+        .find({
+          'metadata.matchId': { $in: matches },
+        })
+        .project({ 'metadata.matchId': 1 })
+        .toArray();
+
+      const missingMatches = matches.filter(
+        (match) =>
+          !existingMatches.map((m) => m.metadata.matchId).includes(match),
+      );
+
+      const alreadyProcessed = existingMatches.map((m) => m.metadata.matchId);
+
+      // Increase processed matches
+      await connection.incrby(
+        `rewind:${rewindId}:processed`,
+        alreadyProcessed.length,
+      );
+      // Decrease pending matches
+      await connection.decrby(
+        `rewind:${rewindId}:matches`,
+        alreadyProcessed.length,
+      );
+
+      if (rewindId) {
+        const listing = await connection.get(`rewind:${rewindId}:listing`);
+        const matches = await connection.get(`rewind:${rewindId}:matches`);
+        if (listing === '0' && matches === '0') {
+          await connection.set(`rewind:${rewindId}:status`, 'completed');
+        }
+      }
+
       await queues[regionToCluster(region)].addBulk(
-        matches.map((match) => ({
+        missingMatches.map((match) => ({
           name: `fetch-match-${match}`,
           data: {
             type: 'fetch-match',
             matchId: match,
             region,
+            rewindId,
           },
-          delay: ms('1s'),
-          jobId: `fetch-match-${match}`,
-          deduplication: {
-            id: `fetch-match-${match}`,
-            replace: false,
+          opts: {
+            delay: ms('1s'),
+            priority: priorities['fetch-match'],
           },
         })),
       );
+
       consola.success(chalk.green(`Matches for ${puuid} added to queue`));
       break;
     }
+
     case 'fetch-match': {
       const { matchId, region } = job.data;
       consola.info(chalk.greenBright(`Fetching match for ${matchId}`));
-      const match = await riot.getMatchById(region, matchId);
+      const match = await riot
+        .getMatchById(regionToCluster(region) as Region, matchId)
+        .catch((error) => {
+          consola.error(error);
+          return null;
+        });
+
+      if (!match) {
+        break;
+      }
+
       await collections.matches.updateOne(
         { 'metadata.matchId': matchId },
         { $set: match },
@@ -94,14 +173,11 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
           type: 'fetch-timeline',
           matchId,
           region,
+          rewindId,
         },
         {
           delay: ms('1s'),
-          jobId: `fetch-timeline-${matchId}`,
-          deduplication: {
-            id: `fetch-timeline-${matchId}`,
-            replace: false,
-          },
+          priority: priorities['fetch-timeline'],
         },
       );
 
@@ -119,7 +195,8 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
         ),
       );
       const timeline = await riot.getTimeline(
-        isLegacyJob ? cluster : region,
+        // @ts-expect-error
+        regionToCluster(isLegacyJob ? cluster : region) as Region,
         matchId,
       );
       await collections.timelines.updateOne(
@@ -127,6 +204,17 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
         { $set: timeline as RiotAPITypes.MatchV5.MatchTimelineDTO },
         { upsert: true },
       );
+
+      if (rewindId) {
+        await connection.incr(`rewind:${rewindId}:processed`);
+        await connection.decr(`rewind:${rewindId}:matches`);
+        const listing = await connection.get(`rewind:${rewindId}:listing`);
+        const matches = await connection.get(`rewind:${rewindId}:matches`);
+        if (listing === '0' && matches === '0') {
+          await connection.set(`rewind:${rewindId}:status`, 'completed');
+        }
+      }
+
       consola.success(
         chalk.green(`Timeline for ${matchId} (${cluster ?? region}) saved`),
       );
@@ -192,6 +280,12 @@ export function setupWorkers() {
       sharedWorkerOptions,
     ),
   };
+
+  for (const [cluster, worker] of Object.entries(workers)) {
+    worker.on('error', (error) => {
+      consola.error(`[${cluster}]`, error);
+    });
+  }
 
   consola.success(chalk.green('Workers setup complete'));
 }
