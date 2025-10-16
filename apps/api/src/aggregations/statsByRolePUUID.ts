@@ -14,9 +14,7 @@ export const statsByRolePUUID = (puuid: string) => [
     $project: {
       _id: 0,
       matchId: '$metadata.matchId',
-      gameDuration: {
-        $divide: ['$info.gameDuration', 60],
-      },
+      gameDuration: { $divide: ['$info.gameDuration', 60] },
       participants: {
         $map: {
           input: '$info.participants',
@@ -25,9 +23,7 @@ export const statsByRolePUUID = (puuid: string) => [
             participantId: '$$p.participantId',
             puuid: '$$p.puuid',
             teamId: '$$p.teamId',
-            teamPosition: {
-              $ifNull: ['$$p.teamPosition', 'UNKNOWN'],
-            },
+            teamPosition: { $ifNull: ['$$p.teamPosition', 'UNKNOWN'] },
             championName: '$$p.championName',
             kills: '$$p.kills',
             deaths: '$$p.deaths',
@@ -54,9 +50,7 @@ export const statsByRolePUUID = (puuid: string) => [
           $filter: {
             input: '$participants',
             as: 'p',
-            cond: {
-              $eq: ['$$p.puuid', puuid],
-            },
+            cond: { $eq: ['$$p.puuid', puuid] },
           },
         },
       },
@@ -69,36 +63,11 @@ export const statsByRolePUUID = (puuid: string) => [
       myRole: {
         $switch: {
           branches: [
-            {
-              case: {
-                $eq: ['$me.teamPosition', 'TOP'],
-              },
-              then: 'TOP',
-            },
-            {
-              case: {
-                $eq: ['$me.teamPosition', 'JUNGLE'],
-              },
-              then: 'JUNGLE',
-            },
-            {
-              case: {
-                $eq: ['$me.teamPosition', 'MIDDLE'],
-              },
-              then: 'MIDDLE',
-            },
-            {
-              case: {
-                $eq: ['$me.teamPosition', 'BOTTOM'],
-              },
-              then: 'BOTTOM',
-            },
-            {
-              case: {
-                $eq: ['$me.teamPosition', 'UTILITY'],
-              },
-              then: 'UTILITY',
-            },
+            { case: { $eq: ['$me.teamPosition', 'TOP'] }, then: 'TOP' },
+            { case: { $eq: ['$me.teamPosition', 'JUNGLE'] }, then: 'JUNGLE' },
+            { case: { $eq: ['$me.teamPosition', 'MIDDLE'] }, then: 'MIDDLE' },
+            { case: { $eq: ['$me.teamPosition', 'BOTTOM'] }, then: 'BOTTOM' },
+            { case: { $eq: ['$me.teamPosition', 'UTILITY'] }, then: 'UTILITY' },
           ],
           default: 'UNKNOWN',
         },
@@ -107,9 +76,7 @@ export const statsByRolePUUID = (puuid: string) => [
   },
   {
     $match: {
-      myRole: {
-        $in: ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'],
-      },
+      myRole: { $in: ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'] },
     },
   },
 
@@ -122,12 +89,7 @@ export const statsByRolePUUID = (puuid: string) => [
       as: 'tl',
     },
   },
-  {
-    $unwind: {
-      path: '$tl',
-      preserveNullAndEmptyArrays: true,
-    },
-  },
+  { $unwind: { path: '$tl', preserveNullAndEmptyArrays: true } },
 
   // 6) Frame extraction helpers + my participant ids
   {
@@ -137,24 +99,14 @@ export const statsByRolePUUID = (puuid: string) => [
           {
             $isArray: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$tl.info',
-                    field: 'frames',
-                  },
-                },
+                { $getField: { input: '$tl.info', field: 'frames' } },
                 [],
               ],
             },
           },
           {
             $ifNull: [
-              {
-                $getField: {
-                  input: '$tl.info',
-                  field: 'frames',
-                },
-              },
+              { $getField: { input: '$tl.info', field: 'frames' } },
               [],
             ],
           },
@@ -298,12 +250,7 @@ export const statsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf10',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf10', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -322,36 +269,15 @@ export const statsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf10',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf10', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf10',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf10', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf10',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf10', field: 'level' } }, 0],
             },
           },
           null,
@@ -365,12 +291,7 @@ export const statsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf15',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf15', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -389,36 +310,15 @@ export const statsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf15',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf15', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf15',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf15', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf15',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf15', field: 'level' } }, 0],
             },
           },
           null,
@@ -432,12 +332,7 @@ export const statsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf20',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf20', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -456,36 +351,15 @@ export const statsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf20',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf20', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf20',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf20', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf20',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf20', field: 'level' } }, 0],
             },
           },
           null,
@@ -499,12 +373,7 @@ export const statsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf30',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf30', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -523,36 +392,15 @@ export const statsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf30',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf30', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf30',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf30', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf30',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf30', field: 'level' } }, 0],
             },
           },
           null,
@@ -561,7 +409,7 @@ export const statsByRolePUUID = (puuid: string) => [
     },
   },
 
-  // 8) Objective participation (for ME)
+  // 8) Flatten events we care about
   {
     $set: {
       _eliteEvents: {
@@ -571,23 +419,52 @@ export const statsByRolePUUID = (puuid: string) => [
               input: '$_frames',
               initialValue: [],
               in: {
-                $concatArrays: [
-                  '$$value',
-                  {
-                    $ifNull: ['$$this.events', []],
-                  },
-                ],
+                $concatArrays: ['$$value', { $ifNull: ['$$this.events', []] }],
               },
             },
           },
           as: 'e',
-          cond: {
-            $eq: ['$$e.type', 'ELITE_MONSTER_KILL'],
+          cond: { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
+        },
+      },
+      _buildingEvents: {
+        $filter: {
+          input: {
+            $reduce: {
+              input: '$_frames',
+              initialValue: [],
+              in: {
+                $concatArrays: ['$$value', { $ifNull: ['$$this.events', []] }],
+              },
+            },
           },
+          as: 'e',
+          cond: { $eq: ['$$e.type', 'BUILDING_KILL'] },
+        },
+      },
+      _plateEvents: {
+        $filter: {
+          input: {
+            $reduce: {
+              input: '$_frames',
+              initialValue: [],
+              in: {
+                $concatArrays: ['$$value', { $ifNull: ['$$this.events', []] }],
+              },
+            },
+          },
+          as: 'e',
+          cond: { $eq: ['$$e.type', 'TURRET_PLATE_DESTROYED'] },
         },
       },
     },
   },
+
+  // 8.1) Compute _oppTeamId in its own stage so it can be used reliably
+  { $set: { _oppTeamId: { $cond: [{ $eq: ['$me.teamId', 100] }, 200, 100] } } },
+
+  // 8.2) Split by monster types (team = my team kills),
+  // and filter towers/plates where victim team is the OPPOSING team
   {
     $set: {
       _drakes: {
@@ -596,12 +473,8 @@ export const statsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$me.teamId'],
-              },
-              {
-                $eq: ['$$e.monsterType', 'DRAGON'],
-              },
+              { $eq: ['$$e.killerTeamId', '$me.teamId'] },
+              { $eq: ['$$e.monsterType', 'DRAGON'] },
             ],
           },
         },
@@ -612,12 +485,8 @@ export const statsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$me.teamId'],
-              },
-              {
-                $in: ['$$e.monsterType', ['VOIDGRUB', 'VOIDGRUBS', 'HORDE']],
-              },
+              { $eq: ['$$e.killerTeamId', '$me.teamId'] },
+              { $in: ['$$e.monsterType', ['VOIDGRUB', 'VOIDGRUBS', 'HORDE']] },
             ],
           },
         },
@@ -628,12 +497,8 @@ export const statsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$me.teamId'],
-              },
-              {
-                $in: ['$$e.monsterType', ['RIFTHERALD', 'RIFT_HERALD']],
-              },
+              { $eq: ['$$e.killerTeamId', '$me.teamId'] },
+              { $in: ['$$e.monsterType', ['RIFTHERALD', 'RIFT_HERALD']] },
             ],
           },
         },
@@ -644,12 +509,8 @@ export const statsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$me.teamId'],
-              },
-              {
-                $in: ['$$e.monsterType', ['BARON_NASHOR', 'NASHOR']],
-              },
+              { $eq: ['$$e.killerTeamId', '$me.teamId'] },
+              { $in: ['$$e.monsterType', ['BARON_NASHOR', 'NASHOR']] },
             ],
           },
         },
@@ -660,18 +521,35 @@ export const statsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$me.teamId'],
-              },
-              {
-                $eq: ['$$e.monsterType', 'ATAKHAN'],
-              },
+              { $eq: ['$$e.killerTeamId', '$me.teamId'] },
+              { $eq: ['$$e.monsterType', 'ATAKHAN'] },
             ],
           },
         },
       },
+      _towers: {
+        $filter: {
+          input: '$_buildingEvents',
+          as: 'e',
+          cond: {
+            $and: [
+              { $eq: ['$$e.buildingType', 'TOWER_BUILDING'] },
+              { $eq: [{ $toInt: '$$e.teamId' }, { $toInt: '$_oppTeamId' }] }, // defender team is the enemy
+            ],
+          },
+        },
+      },
+      _turretPlates: {
+        $filter: {
+          input: '$_plateEvents',
+          as: 'e',
+          cond: { $eq: [{ $toInt: '$$e.teamId' }, { $toInt: '$_oppTeamId' }] }, // plate from enemy turret
+        },
+      },
     },
   },
+
+  // 8.3) Build per-objective team counts and participation (killer/assists)
   {
     $set: {
       obj: {
@@ -687,14 +565,8 @@ export const statsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -715,14 +587,8 @@ export const statsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -743,14 +609,8 @@ export const statsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -771,14 +631,8 @@ export const statsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -799,14 +653,52 @@ export const statsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        towers: {
+          team: { $size: '$_towers' },
+          part: {
+            $size: {
+              $filter: {
+                input: '$_towers',
+                as: 'e',
+                cond: {
+                  $in: [
+                    '$_pidInt',
+                    {
+                      $concatArrays: [
+                        [{ $toInt: { $ifNull: ['$$e.killerId', -1] } }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        turretPlates: {
+          team: { $size: '$_turretPlates' },
+          part: {
+            $size: {
+              $filter: {
+                input: '$_turretPlates',
+                as: 'e',
+                cond: {
+                  $in: [
+                    '$_pidInt',
+                    {
+                      $concatArrays: [
+                        [{ $toInt: { $ifNull: ['$$e.killerId', -1] } }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -825,53 +717,27 @@ export const statsByRolePUUID = (puuid: string) => [
       _id: '$myRole',
       position: { $first: '$myRole' },
       rowsCount: { $sum: 1 },
-      wins: {
-        $sum: { $cond: ['$me.win', 1, 0] },
-      },
+      wins: { $sum: { $cond: ['$me.win', 1, 0] } },
 
-      // per-minute arrays for percentiles/averages
-      killsArr: {
-        $push: {
-          $divide: ['$me.kills', '$gameDuration'],
-        },
-      },
-      deathsArr: {
-        $push: {
-          $divide: ['$me.deaths', '$gameDuration'],
-        },
-      },
-      assistsArr: {
-        $push: {
-          $divide: ['$me.assists', '$gameDuration'],
-        },
-      },
+      killsArr: { $push: { $divide: ['$me.kills', '$gameDuration'] } },
+      deathsArr: { $push: { $divide: ['$me.deaths', '$gameDuration'] } },
+      assistsArr: { $push: { $divide: ['$me.assists', '$gameDuration'] } },
       csArr: {
-        $push: {
-          $divide: ['$me.totalMinionsKilled', '$gameDuration'],
-        },
+        $push: { $divide: ['$me.totalMinionsKilled', '$gameDuration'] },
       },
       damageDealtArr: {
         $push: {
           $divide: ['$me.totalDamageDealtToChampions', '$gameDuration'],
         },
       },
-      goldArr: {
-        $push: {
-          $divide: ['$me.goldEarned', '$gameDuration'],
-        },
-      },
+      goldArr: { $push: { $divide: ['$me.goldEarned', '$gameDuration'] } },
       visionScoreArr: {
-        $push: {
-          $divide: ['$me.visionScore', '$gameDuration'],
-        },
+        $push: { $divide: ['$me.visionScore', '$gameDuration'] },
       },
       damageTakenArr: {
-        $push: {
-          $divide: ['$me.totalDamageTaken', '$gameDuration'],
-        },
+        $push: { $divide: ['$me.totalDamageTaken', '$gameDuration'] },
       },
 
-      // atXmin stats averages
       avgCSAt10: { $avg: '$meAt10.cs' },
       avgGoldAt10: { $avg: '$meAt10.gold' },
       avgXPAt10: { $avg: '$meAt10.xp' },
@@ -903,57 +769,33 @@ export const statsByRolePUUID = (puuid: string) => [
       baronPart: { $sum: '$obj.baron.part' },
       atakhanTeam: { $sum: '$obj.atakhan.team' },
       atakhanPart: { $sum: '$obj.atakhan.part' },
+      towersTeam: { $sum: '$obj.towers.team' },
+      towersPart: { $sum: '$obj.towers.part' },
+      turretPlatesTeam: { $sum: '$obj.turretPlates.team' },
+      turretPlatesPart: { $sum: '$obj.turretPlates.part' },
 
-      myChampions: {
-        $addToSet: '$me.championName',
-      },
+      myChampions: { $addToSet: '$me.championName' },
     },
   },
 
-  // 10) Final projection with per-minute, percentiles, cleaned atXmin, and objectiveParticipation
+  // 10) Final projection
   {
     $project: {
       _id: 0,
       position: 1,
       rowsCount: 1,
       winRate: {
-        $round: [
-          {
-            $multiply: [
-              {
-                $divide: ['$wins', '$rowsCount'],
-              },
-              100,
-            ],
-          },
-          2,
-        ],
+        $round: [{ $multiply: [{ $divide: ['$wins', '$rowsCount'] }, 100] }, 2],
       },
 
-      killsPerMin: {
-        $round: [{ $avg: '$killsArr' }, 2],
-      },
-      deathsPerMin: {
-        $round: [{ $avg: '$deathsArr' }, 2],
-      },
-      assistsPerMin: {
-        $round: [{ $avg: '$assistsArr' }, 2],
-      },
-      csPerMin: {
-        $round: [{ $avg: '$csArr' }, 2],
-      },
-      damageDealtPerMin: {
-        $round: [{ $avg: '$damageDealtArr' }, 0],
-      },
-      goldPerMin: {
-        $round: [{ $avg: '$goldArr' }, 0],
-      },
-      visionScorePerMin: {
-        $round: [{ $avg: '$visionScoreArr' }, 2],
-      },
-      damageTakenPerMin: {
-        $round: [{ $avg: '$damageTakenArr' }, 0],
-      },
+      killsPerMin: { $round: [{ $avg: '$killsArr' }, 2] },
+      deathsPerMin: { $round: [{ $avg: '$deathsArr' }, 2] },
+      assistsPerMin: { $round: [{ $avg: '$assistsArr' }, 2] },
+      csPerMin: { $round: [{ $avg: '$csArr' }, 2] },
+      damageDealtPerMin: { $round: [{ $avg: '$damageDealtArr' }, 0] },
+      goldPerMin: { $round: [{ $avg: '$goldArr' }, 0] },
+      visionScorePerMin: { $round: [{ $avg: '$visionScoreArr' }, 2] },
+      damageTakenPerMin: { $round: [{ $avg: '$damageTakenArr' }, 0] },
 
       percentiles: {
         p50: {
@@ -1169,60 +1011,28 @@ export const statsByRolePUUID = (puuid: string) => [
       },
 
       at10Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt10', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt10', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt10', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt10', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt10', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt10', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt10', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt10', 1] }, 0] },
       },
       at15Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt15', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt15', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt15', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt15', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt15', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt15', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt15', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt15', 1] }, 0] },
       },
       at20Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt20', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt20', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt20', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt20', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt20', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt20', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt20', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt20', 1] }, 0] },
       },
       at30Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt30', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt30', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt30', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt30', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt30', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt30', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt30', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt30', 1] }, 0] },
       },
 
       objectiveParticipation: {
@@ -1236,9 +1046,7 @@ export const statsByRolePUUID = (puuid: string) => [
                 $round: [
                   {
                     $multiply: [
-                      {
-                        $divide: ['$drakesPart', '$drakesTeam'],
-                      },
+                      { $divide: ['$drakesPart', '$drakesTeam'] },
                       100,
                     ],
                   },
@@ -1258,12 +1066,7 @@ export const statsByRolePUUID = (puuid: string) => [
               {
                 $round: [
                   {
-                    $multiply: [
-                      {
-                        $divide: ['$grubsPart', '$grubsTeam'],
-                      },
-                      100,
-                    ],
+                    $multiply: [{ $divide: ['$grubsPart', '$grubsTeam'] }, 100],
                   },
                   1,
                 ],
@@ -1282,9 +1085,7 @@ export const statsByRolePUUID = (puuid: string) => [
                 $round: [
                   {
                     $multiply: [
-                      {
-                        $divide: ['$heraldPart', '$heraldTeam'],
-                      },
+                      { $divide: ['$heraldPart', '$heraldTeam'] },
                       100,
                     ],
                   },
@@ -1304,12 +1105,7 @@ export const statsByRolePUUID = (puuid: string) => [
               {
                 $round: [
                   {
-                    $multiply: [
-                      {
-                        $divide: ['$baronPart', '$baronTeam'],
-                      },
-                      100,
-                    ],
+                    $multiply: [{ $divide: ['$baronPart', '$baronTeam'] }, 100],
                   },
                   1,
                 ],
@@ -1328,9 +1124,49 @@ export const statsByRolePUUID = (puuid: string) => [
                 $round: [
                   {
                     $multiply: [
-                      {
-                        $divide: ['$atakhanPart', '$atakhanTeam'],
-                      },
+                      { $divide: ['$atakhanPart', '$atakhanTeam'] },
+                      100,
+                    ],
+                  },
+                  1,
+                ],
+              },
+              null,
+            ],
+          },
+        },
+        towers: {
+          takes: '$towersTeam',
+          participated: '$towersPart',
+          rate: {
+            $cond: [
+              { $gt: ['$towersTeam', 0] },
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: ['$towersPart', '$towersTeam'] },
+                      100,
+                    ],
+                  },
+                  1,
+                ],
+              },
+              null,
+            ],
+          },
+        },
+        turretPlates: {
+          takes: '$turretPlatesTeam',
+          participated: '$turretPlatesPart',
+          rate: {
+            $cond: [
+              { $gt: ['$turretPlatesTeam', 0] },
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: ['$turretPlatesPart', '$turretPlatesTeam'] },
                       100,
                     ],
                   },

@@ -1,24 +1,16 @@
 export const enemyStatsByRolePUUID = (puuid: string) => [
   // CONFIG — default to enemies only so we have exactly 5 roles per match
-  {
-    $set: { _enemiesOnly: false },
-  },
+  { $set: { _enemiesOnly: false } },
 
   // 1) Only the user's games (INDEXED via info.participants.puuid)
-  {
-    $match: {
-      'info.participants.puuid': puuid,
-    },
-  },
+  { $match: { 'info.participants.puuid': puuid } },
 
   // 2) Project only needed fields and calculate game duration in minutes
   {
     $project: {
       _id: 0,
       matchId: '$metadata.matchId',
-      gameDuration: {
-        $divide: ['$info.gameDuration', 60],
-      },
+      gameDuration: { $divide: ['$info.gameDuration', 60] },
       participants: {
         $map: {
           input: '$info.participants',
@@ -27,9 +19,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
             participantId: '$$p.participantId',
             puuid: '$$p.puuid',
             teamId: '$$p.teamId',
-            teamPosition: {
-              $ifNull: ['$$p.teamPosition', 'UNKNOWN'],
-            },
+            teamPosition: { $ifNull: ['$$p.teamPosition', 'UNKNOWN'] },
             championName: '$$p.championName',
             kills: '$$p.kills',
             deaths: '$$p.deaths',
@@ -56,9 +46,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
           $filter: {
             input: '$participants',
             as: 'p',
-            cond: {
-              $eq: ['$$p.puuid', puuid],
-            },
+            cond: { $eq: ['$$p.puuid', puuid] },
           },
         },
       },
@@ -76,9 +64,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               {
                 $cond: [
                   '$_enemiesOnly',
-                  {
-                    $ne: ['$$p.teamId', '$me.teamId'],
-                  },
+                  { $ne: ['$$p.teamId', '$me.teamId'] },
                   true,
                 ],
               },
@@ -98,34 +84,21 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
       otherRole: {
         $switch: {
           branches: [
+            { case: { $eq: ['$others.teamPosition', 'TOP'] }, then: 'TOP' },
             {
-              case: {
-                $eq: ['$others.teamPosition', 'TOP'],
-              },
-              then: 'TOP',
-            },
-            {
-              case: {
-                $eq: ['$others.teamPosition', 'JUNGLE'],
-              },
+              case: { $eq: ['$others.teamPosition', 'JUNGLE'] },
               then: 'JUNGLE',
             },
             {
-              case: {
-                $eq: ['$others.teamPosition', 'MIDDLE'],
-              },
+              case: { $eq: ['$others.teamPosition', 'MIDDLE'] },
               then: 'MIDDLE',
             },
             {
-              case: {
-                $eq: ['$others.teamPosition', 'BOTTOM'],
-              },
+              case: { $eq: ['$others.teamPosition', 'BOTTOM'] },
               then: 'BOTTOM',
             },
             {
-              case: {
-                $eq: ['$others.teamPosition', 'UTILITY'],
-              },
+              case: { $eq: ['$others.teamPosition', 'UTILITY'] },
               then: 'UTILITY',
             },
           ],
@@ -136,19 +109,14 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
   },
   {
     $match: {
-      otherRole: {
-        $in: ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'],
-      },
+      otherRole: { $in: ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'] },
     },
   },
 
   // 6) Deduplicate: keep at most one opponent per (matchId, role)
   {
     $group: {
-      _id: {
-        matchId: '$matchId',
-        role: '$otherRole',
-      },
+      _id: { matchId: '$matchId', role: '$otherRole' },
       doc: { $first: '$$ROOT' },
     },
   },
@@ -162,11 +130,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
       docs: { $push: '$$ROOT' },
     },
   },
-  {
-    $match: {
-      $expr: { $eq: [{ $size: '$roles' }, 5] },
-    },
-  },
+  { $match: { $expr: { $eq: [{ $size: '$roles' }, 5] } } },
   { $unwind: '$docs' },
   { $replaceRoot: { newRoot: '$docs' } },
 
@@ -179,12 +143,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
       as: 'tl',
     },
   },
-  {
-    $unwind: {
-      path: '$tl',
-      preserveNullAndEmptyArrays: true,
-    },
-  },
+  { $unwind: { path: '$tl', preserveNullAndEmptyArrays: true } },
 
   // 9) Frame extraction helpers
   {
@@ -194,24 +153,14 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
           {
             $isArray: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$tl.info',
-                    field: 'frames',
-                  },
-                },
+                { $getField: { input: '$tl.info', field: 'frames' } },
                 [],
               ],
             },
           },
           {
             $ifNull: [
-              {
-                $getField: {
-                  input: '$tl.info',
-                  field: 'frames',
-                },
-              },
+              { $getField: { input: '$tl.info', field: 'frames' } },
               [],
             ],
           },
@@ -225,7 +174,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
     $set: {
       frame10: {
         $cond: [
-          { $gte: ['_len', 11] },
+          { $gte: ['$_len', 11] },
           { $arrayElemAt: ['$_frames', 10] },
           null,
         ],
@@ -255,13 +204,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
   },
 
   // 10) Snapshot extraction for THIS opponent (others.participantId)
-  {
-    $set: {
-      _pidStr: {
-        $toString: '$others.participantId',
-      },
-    },
-  },
+  { $set: { _pidStr: { $toString: '$others.participantId' } } },
   {
     $set: {
       _pf10: {
@@ -351,12 +294,10 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
     },
   },
 
-  // 10.1) Flatten events and filter ELITE_MONSTER_KILL for the opponent's team
+  // 10.1) Flatten events we care about + pid ints
   {
     $set: {
-      _pidInt: {
-        $toInt: '$others.participantId',
-      },
+      _pidInt: { $toInt: '$others.participantId' },
       _eliteEvents: {
         $filter: {
           input: {
@@ -364,25 +305,55 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               input: '$_frames',
               initialValue: [],
               in: {
-                $concatArrays: [
-                  '$$value',
-                  {
-                    $ifNull: ['$$this.events', []],
-                  },
-                ],
+                $concatArrays: ['$$value', { $ifNull: ['$$this.events', []] }],
               },
             },
           },
           as: 'e',
-          cond: {
-            $eq: ['$$e.type', 'ELITE_MONSTER_KILL'],
+          cond: { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
+        },
+      },
+      _buildingEvents: {
+        $filter: {
+          input: {
+            $reduce: {
+              input: '$_frames',
+              initialValue: [],
+              in: {
+                $concatArrays: ['$$value', { $ifNull: ['$$this.events', []] }],
+              },
+            },
           },
+          as: 'e',
+          cond: { $eq: ['$$e.type', 'BUILDING_KILL'] },
+        },
+      },
+      _plateEvents: {
+        $filter: {
+          input: {
+            $reduce: {
+              input: '$_frames',
+              initialValue: [],
+              in: {
+                $concatArrays: ['$$value', { $ifNull: ['$$this.events', []] }],
+              },
+            },
+          },
+          as: 'e',
+          cond: { $eq: ['$$e.type', 'TURRET_PLATE_DESTROYED'] },
         },
       },
     },
   },
 
-  // 10.2) Slice by monster type (only events taken by the opponent's team)
+  // 10.2) For monsters, keep events taken by the opponent's team.
+  // For towers/plates, filter where the destroyed structure belonged to the OPPOSING team of that opponent.
+  // Compute that opposing team id in its own stage to avoid sibling evaluation issues.
+  {
+    $set: {
+      _oppTeamIdOther: { $cond: [{ $eq: ['$others.teamId', 100] }, 200, 100] },
+    },
+  },
   {
     $set: {
       _drakes: {
@@ -391,12 +362,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$others.teamId'],
-              },
-              {
-                $eq: ['$$e.monsterType', 'DRAGON'],
-              },
+              { $eq: ['$$e.killerTeamId', '$others.teamId'] },
+              { $eq: ['$$e.monsterType', 'DRAGON'] },
             ],
           },
         },
@@ -407,12 +374,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$others.teamId'],
-              },
-              {
-                $in: ['$$e.monsterType', ['VOIDGRUB', 'VOIDGRUBS', 'HORDE']],
-              },
+              { $eq: ['$$e.killerTeamId', '$others.teamId'] },
+              { $in: ['$$e.monsterType', ['VOIDGRUB', 'VOIDGRUBS', 'HORDE']] },
             ],
           },
         },
@@ -423,12 +386,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$others.teamId'],
-              },
-              {
-                $in: ['$$e.monsterType', ['RIFTHERALD', 'RIFT_HERALD']],
-              },
+              { $eq: ['$$e.killerTeamId', '$others.teamId'] },
+              { $in: ['$$e.monsterType', ['RIFTHERALD', 'RIFT_HERALD']] },
             ],
           },
         },
@@ -439,12 +398,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
-              {
-                $eq: ['$$e.killerTeamId', '$others.teamId'],
-              },
-              {
-                $in: ['$$e.monsterType', ['BARON_NASHOR', 'NASHOR']],
-              },
+              { $eq: ['$$e.killerTeamId', '$others.teamId'] },
+              { $in: ['$$e.monsterType', ['BARON_NASHOR', 'NASHOR']] },
             ],
           },
         },
@@ -455,13 +410,33 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
           as: 'e',
           cond: {
             $and: [
+              { $eq: ['$$e.killerTeamId', '$others.teamId'] },
+              { $eq: ['$$e.monsterType', 'ATAKHAN'] },
+            ],
+          },
+        },
+      },
+      _towers: {
+        $filter: {
+          input: '$_buildingEvents',
+          as: 'e',
+          cond: {
+            $and: [
+              { $eq: ['$$e.buildingType', 'TOWER_BUILDING'] },
+              // defender (lost tower) is the opponent's opposing team
               {
-                $eq: ['$$e.killerTeamId', '$others.teamId'],
-              },
-              {
-                $eq: ['$$e.monsterType', 'ATAKHAN'],
+                $eq: [{ $toInt: '$$e.teamId' }, { $toInt: '$_oppTeamIdOther' }],
               },
             ],
+          },
+        },
+      },
+      _turretPlates: {
+        $filter: {
+          input: '$_plateEvents',
+          as: 'e',
+          cond: {
+            $eq: [{ $toInt: '$$e.teamId' }, { $toInt: '$_oppTeamIdOther' }],
           },
         },
       },
@@ -484,14 +459,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -512,14 +481,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -540,14 +503,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -568,14 +525,8 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -596,14 +547,52 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                     '$_pidInt',
                     {
                       $concatArrays: [
-                        [
-                          {
-                            $ifNull: ['$$e.killerId', -1],
-                          },
-                        ],
-                        {
-                          $ifNull: ['$$e.assistingParticipantIds', []],
-                        },
+                        [{ $ifNull: ['$$e.killerId', -1] }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        towers: {
+          team: { $size: '$_towers' },
+          part: {
+            $size: {
+              $filter: {
+                input: '$_towers',
+                as: 'e',
+                cond: {
+                  $in: [
+                    '$_pidInt',
+                    {
+                      $concatArrays: [
+                        [{ $toInt: { $ifNull: ['$$e.killerId', -1] } }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        turretPlates: {
+          team: { $size: '$_turretPlates' },
+          part: {
+            $size: {
+              $filter: {
+                input: '$_turretPlates',
+                as: 'e',
+                cond: {
+                  $in: [
+                    '$_pidInt',
+                    {
+                      $concatArrays: [
+                        [{ $toInt: { $ifNull: ['$$e.killerId', -1] } }],
+                        { $ifNull: ['$$e.assistingParticipantIds', []] },
                       ],
                     },
                   ],
@@ -627,12 +616,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf10',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf10', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -651,36 +635,15 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf10',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf10', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf10',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf10', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf10',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf10', field: 'level' } }, 0],
             },
           },
           null,
@@ -694,12 +657,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf15',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf15', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -718,36 +676,15 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf15',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf15', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf15',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf15', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf15',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf15', field: 'level' } }, 0],
             },
           },
           null,
@@ -761,12 +698,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf20',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf20', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -785,36 +717,15 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf20',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf20', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf20',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf20', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf20',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf20', field: 'level' } }, 0],
             },
           },
           null,
@@ -828,12 +739,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               $add: [
                 {
                   $ifNull: [
-                    {
-                      $getField: {
-                        input: '$_pf30',
-                        field: 'minionsKilled',
-                      },
-                    },
+                    { $getField: { input: '$_pf30', field: 'minionsKilled' } },
                     0,
                   ],
                 },
@@ -852,36 +758,15 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
             },
             gold: {
               $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf30',
-                    field: 'totalGold',
-                  },
-                },
+                { $getField: { input: '$_pf30', field: 'totalGold' } },
                 0,
               ],
             },
             xp: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf30',
-                    field: 'xp',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf30', field: 'xp' } }, 0],
             },
             level: {
-              $ifNull: [
-                {
-                  $getField: {
-                    input: '$_pf30',
-                    field: 'level',
-                  },
-                },
-                0,
-              ],
+              $ifNull: [{ $getField: { input: '$_pf30', field: 'level' } }, 0],
             },
           },
           null,
@@ -896,53 +781,27 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
       _id: '$otherRole',
       position: { $first: '$otherRole' },
       rowsCount: { $sum: 1 },
-      wins: {
-        $sum: { $cond: ['$others.win', 1, 0] },
-      },
+      wins: { $sum: { $cond: ['$others.win', 1, 0] } },
 
-      // per-minute arrays for percentiles/averages
-      killsArr: {
-        $push: {
-          $divide: ['$others.kills', '$gameDuration'],
-        },
-      },
-      deathsArr: {
-        $push: {
-          $divide: ['$others.deaths', '$gameDuration'],
-        },
-      },
-      assistsArr: {
-        $push: {
-          $divide: ['$others.assists', '$gameDuration'],
-        },
-      },
+      killsArr: { $push: { $divide: ['$others.kills', '$gameDuration'] } },
+      deathsArr: { $push: { $divide: ['$others.deaths', '$gameDuration'] } },
+      assistsArr: { $push: { $divide: ['$others.assists', '$gameDuration'] } },
       csArr: {
-        $push: {
-          $divide: ['$others.totalMinionsKilled', '$gameDuration'],
-        },
+        $push: { $divide: ['$others.totalMinionsKilled', '$gameDuration'] },
       },
       damageDealtArr: {
         $push: {
           $divide: ['$others.totalDamageDealtToChampions', '$gameDuration'],
         },
       },
-      goldArr: {
-        $push: {
-          $divide: ['$others.goldEarned', '$gameDuration'],
-        },
-      },
+      goldArr: { $push: { $divide: ['$others.goldEarned', '$gameDuration'] } },
       visionScoreArr: {
-        $push: {
-          $divide: ['$others.visionScore', '$gameDuration'],
-        },
+        $push: { $divide: ['$others.visionScore', '$gameDuration'] },
       },
       damageTakenArr: {
-        $push: {
-          $divide: ['$others.totalDamageTaken', '$gameDuration'],
-        },
+        $push: { $divide: ['$others.totalDamageTaken', '$gameDuration'] },
       },
 
-      // atXmin stats averages
       avgCSAt10: { $avg: '$otherAt10.cs' },
       avgGoldAt10: { $avg: '$otherAt10.gold' },
       avgXPAt10: { $avg: '$otherAt10.xp' },
@@ -963,7 +822,6 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
       avgXPAt30: { $avg: '$otherAt30.xp' },
       avgLevelAt30: { $avg: '$otherAt30.level' },
 
-      // NEW: objective participation totals
       drakesTeam: { $sum: '$obj.drakes.team' },
       drakesPart: { $sum: '$obj.drakes.part' },
       grubsTeam: { $sum: '$obj.grubs.team' },
@@ -974,57 +832,33 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
       baronPart: { $sum: '$obj.baron.part' },
       atakhanTeam: { $sum: '$obj.atakhan.team' },
       atakhanPart: { $sum: '$obj.atakhan.part' },
+      towersTeam: { $sum: '$obj.towers.team' },
+      towersPart: { $sum: '$obj.towers.part' },
+      turretPlatesTeam: { $sum: '$obj.turretPlates.team' },
+      turretPlatesPart: { $sum: '$obj.turretPlates.part' },
 
-      otherChampions: {
-        $addToSet: '$others.championName',
-      },
+      otherChampions: { $addToSet: '$others.championName' },
     },
   },
 
-  // 12) Final projection with per-minute, percentiles, cleaned atXmin, and objectiveParticipation
+  // 12) Final projection
   {
     $project: {
       _id: 0,
       position: 1,
       rowsCount: 1,
       winRate: {
-        $round: [
-          {
-            $multiply: [
-              {
-                $divide: ['$wins', '$rowsCount'],
-              },
-              100,
-            ],
-          },
-          2,
-        ],
+        $round: [{ $multiply: [{ $divide: ['$wins', '$rowsCount'] }, 100] }, 2],
       },
 
-      killsPerMin: {
-        $round: [{ $avg: '$killsArr' }, 2],
-      },
-      deathsPerMin: {
-        $round: [{ $avg: '$deathsArr' }, 2],
-      },
-      assistsPerMin: {
-        $round: [{ $avg: '$assistsArr' }, 2],
-      },
-      csPerMin: {
-        $round: [{ $avg: '$csArr' }, 2],
-      },
-      damageDealtPerMin: {
-        $round: [{ $avg: '$damageDealtArr' }, 0],
-      },
-      goldPerMin: {
-        $round: [{ $avg: '$goldArr' }, 0],
-      },
-      visionScorePerMin: {
-        $round: [{ $avg: '$visionScoreArr' }, 2],
-      },
-      damageTakenPerMin: {
-        $round: [{ $avg: '$damageTakenArr' }, 0],
-      },
+      killsPerMin: { $round: [{ $avg: '$killsArr' }, 2] },
+      deathsPerMin: { $round: [{ $avg: '$deathsArr' }, 2] },
+      assistsPerMin: { $round: [{ $avg: '$assistsArr' }, 2] },
+      csPerMin: { $round: [{ $avg: '$csArr' }, 2] },
+      damageDealtPerMin: { $round: [{ $avg: '$damageDealtArr' }, 0] },
+      goldPerMin: { $round: [{ $avg: '$goldArr' }, 0] },
+      visionScorePerMin: { $round: [{ $avg: '$visionScoreArr' }, 2] },
+      damageTakenPerMin: { $round: [{ $avg: '$damageTakenArr' }, 0] },
 
       percentiles: {
         p50: {
@@ -1240,60 +1074,28 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
       },
 
       at10Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt10', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt10', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt10', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt10', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt10', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt10', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt10', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt10', 1] }, 0] },
       },
       at15Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt15', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt15', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt15', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt15', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt15', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt15', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt15', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt15', 1] }, 0] },
       },
       at20Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt20', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt20', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt20', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt20', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt20', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt20', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt20', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt20', 1] }, 0] },
       },
       at30Min: {
-        cs: {
-          $ifNull: [{ $round: ['$avgCSAt30', 1] }, 0],
-        },
-        gold: {
-          $ifNull: [{ $round: ['$avgGoldAt30', 0] }, 0],
-        },
-        xp: {
-          $ifNull: [{ $round: ['$avgXPAt30', 0] }, 0],
-        },
-        level: {
-          $ifNull: [{ $round: ['$avgLevelAt30', 1] }, 0],
-        },
+        cs: { $ifNull: [{ $round: ['$avgCSAt30', 1] }, 0] },
+        gold: { $ifNull: [{ $round: ['$avgGoldAt30', 0] }, 0] },
+        xp: { $ifNull: [{ $round: ['$avgXPAt30', 0] }, 0] },
+        level: { $ifNull: [{ $round: ['$avgLevelAt30', 1] }, 0] },
       },
 
       objectiveParticipation: {
@@ -1307,9 +1109,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                 $round: [
                   {
                     $multiply: [
-                      {
-                        $divide: ['$drakesPart', '$drakesTeam'],
-                      },
+                      { $divide: ['$drakesPart', '$drakesTeam'] },
                       100,
                     ],
                   },
@@ -1329,12 +1129,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               {
                 $round: [
                   {
-                    $multiply: [
-                      {
-                        $divide: ['$grubsPart', '$grubsTeam'],
-                      },
-                      100,
-                    ],
+                    $multiply: [{ $divide: ['$grubsPart', '$grubsTeam'] }, 100],
                   },
                   1,
                 ],
@@ -1353,9 +1148,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                 $round: [
                   {
                     $multiply: [
-                      {
-                        $divide: ['$heraldPart', '$heraldTeam'],
-                      },
+                      { $divide: ['$heraldPart', '$heraldTeam'] },
                       100,
                     ],
                   },
@@ -1375,12 +1168,7 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
               {
                 $round: [
                   {
-                    $multiply: [
-                      {
-                        $divide: ['$baronPart', '$baronTeam'],
-                      },
-                      100,
-                    ],
+                    $multiply: [{ $divide: ['$baronPart', '$baronTeam'] }, 100],
                   },
                   1,
                 ],
@@ -1399,9 +1187,49 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
                 $round: [
                   {
                     $multiply: [
-                      {
-                        $divide: ['$atakhanPart', '$atakhanTeam'],
-                      },
+                      { $divide: ['$atakhanPart', '$atakhanTeam'] },
+                      100,
+                    ],
+                  },
+                  1,
+                ],
+              },
+              null,
+            ],
+          },
+        },
+        towers: {
+          takes: '$towersTeam',
+          participated: '$towersPart',
+          rate: {
+            $cond: [
+              { $gt: ['$towersTeam', 0] },
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: ['$towersPart', '$towersTeam'] },
+                      100,
+                    ],
+                  },
+                  1,
+                ],
+              },
+              null,
+            ],
+          },
+        },
+        turretPlates: {
+          takes: '$turretPlatesTeam',
+          participated: '$turretPlatesPart',
+          rate: {
+            $cond: [
+              { $gt: ['$turretPlatesTeam', 0] },
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: ['$turretPlatesPart', '$turretPlatesTeam'] },
                       100,
                     ],
                   },
