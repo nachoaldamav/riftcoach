@@ -199,14 +199,19 @@ function HeatmapCard() {
   // Calculate the most played role based on roleGames
   const mostPlayedRole = useMemo(() => {
     if (!roleGames || Object.keys(roleGames).length === 0) return 'BOTTOM';
-    return Object.entries(roleGames).reduce((max, [role, games]) => 
-      games > (roleGames[max] || 0) ? role : max, 'BOTTOM'
+    return Object.entries(roleGames).reduce(
+      (max, [role, games]) => (games > (roleGames[max] || 0) ? role : max),
+      'BOTTOM',
     );
   }, [roleGames]);
 
   // Update selected role when most played role changes (only if user hasn't manually selected a role)
   useEffect(() => {
-    if (!hasUserSelectedRole && mostPlayedRole !== 'BOTTOM' && !disabledRoleKeys.includes(mostPlayedRole)) {
+    if (
+      !hasUserSelectedRole &&
+      mostPlayedRole !== 'BOTTOM' &&
+      !disabledRoleKeys.includes(mostPlayedRole)
+    ) {
       setSelectedRole(mostPlayedRole);
     }
   }, [mostPlayedRole, hasUserSelectedRole, disabledRoleKeys]);
@@ -438,23 +443,24 @@ function RouteComponent() {
   }
   const isIdle =
     !!status && status.status !== 'processing' && status.status !== 'listing';
-  const { data: badgesData, isLoading: isBadgesLoading } = useQuery<AIBadgesResponse>({
-    queryKey: ['v1-badges', region, name, tag],
-    queryFn: async () => {
-      const res = await http.get<AIBadgesResponse>(
-        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/badges`,
-        {
-          timeout: 120000, // 2 minutes for AI processing
-        },
-      );
-      return res.data;
-    },
-    enabled: isIdle,
-    staleTime: 1000 * 60 * 60 * 12, // 12h
-    gcTime: 1000 * 60 * 60 * 24, // 24h
-    retry: 3, // Increased retries for AI requests
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Increased max delay to 30s
-  });
+  const { data: badgesData, isLoading: isBadgesLoading } =
+    useQuery<AIBadgesResponse>({
+      queryKey: ['v1-badges', region, name, tag],
+      queryFn: async () => {
+        const res = await http.get<AIBadgesResponse>(
+          `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/badges`,
+          {
+            timeout: 120000, // 2 minutes for AI processing
+          },
+        );
+        return res.data;
+      },
+      enabled: isIdle,
+      staleTime: 1000 * 60 * 60 * 12, // 12h
+      gcTime: 1000 * 60 * 60 * 24, // 24h
+      retry: 3, // Increased retries for AI requests
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Increased max delay to 30s
+    });
 
   const [processedMatches, setProcessedMatches] = useState<ProcessedMatch[]>(
     [],
@@ -467,7 +473,8 @@ function RouteComponent() {
     if (!apiBaseUrl || !status?.rewindId) return;
 
     const wsUrl = apiBaseUrl
-      .replace(/^https?:\/\//, 'ws://')
+      .replace(/^http:/, 'ws:')
+      .replace(/^https:/, 'wss:')
       .replace(/\/$/, '');
     const ws = new WebSocket(`${wsUrl}/ws`);
     wsRef.current = ws;
