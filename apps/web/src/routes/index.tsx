@@ -1,4 +1,5 @@
 import { RewindForm } from '@/components/rewind-form';
+import { Navbar } from '@/components/navbar';
 import { Card, CardBody, CardHeader } from '@heroui/react';
 import { createFileRoute } from '@tanstack/react-router';
 
@@ -8,7 +9,7 @@ export const Route = createFileRoute('/')({
 
 function App() {
   return (
-    <div className="dark min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative">
+    <div className="dark min-h-screen bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 relative">
       {/* Subtle dotted background pattern */}
       <div
         className="absolute inset-0 opacity-20"
@@ -18,37 +19,7 @@ function App() {
           backgroundSize: '20px 20px',
         }}
       />
-      {/* Navigation Header */}
-      <nav className="relative z-50 border-b border-slate-700/50 bg-slate-800/80 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-600" />
-              <span className="text-xl font-bold text-white">Riftcoach</span>
-            </div>
-            <div className="hidden md:flex items-center space-x-8">
-              <a
-                href="/"
-                className="text-sm font-medium text-slate-300 hover:text-white transition-colors"
-              >
-                Home
-              </a>
-              <a
-                href="#features"
-                className="text-sm font-medium text-slate-300 hover:text-white transition-colors"
-              >
-                Features
-              </a>
-              <a
-                href="#about"
-                className="text-sm font-medium text-slate-300 hover:text-white transition-colors"
-              >
-                About
-              </a>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <Navbar />
 
       {/* Hero Section */}
       <section className="relative overflow-hidden min-h-[70vh]">
@@ -68,11 +39,11 @@ function App() {
 
         <div className="relative z-10 mx-auto max-w-7xl px-4 py-24 sm:px-6 sm:py-32 lg:px-8">
           <div className="text-center">
-            <h1 className="text-6xl font-bold text-white">Riftcoach</h1>
-            <p className="text-xl text-slate-300 max-w-2xl mx-auto">
+            <h1 className="text-6xl font-bold text-neutral-50">Riftcoach</h1>
+            <p className="text-xl text-neutral-300 max-w-2xl mx-auto">
               Your League of Legends Year in Review
             </p>
-            <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl">
+            <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-neutral-300 sm:text-xl">
               Discover your journey on the Rift. Analyze your performance,
               celebrate your victories, and unlock insights to dominate the next
               season.
@@ -91,28 +62,28 @@ function App() {
       {/* Footer */}
       <footer
         id="about"
-        className="border-t border-slate-700/50 bg-slate-800/80 backdrop-blur-md"
+        className="border-t border-neutral-700/50 bg-neutral-900/80 backdrop-blur-md"
       >
         <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center space-x-2">
-                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-600" />
-                <span className="text-xl font-bold text-white">Riftcoach</span>
+                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-accent-blue-500 to-accent-blue-600" />
+                <span className="text-xl font-bold text-neutral-50">Riftcoach</span>
               </div>
-              <p className="mt-4 text-sm text-slate-300 max-w-md">
+              <p className="mt-4 text-sm text-neutral-300 max-w-md">
                 Your ultimate companion for League of Legends performance
                 analysis. Built for the hackathon with cutting-edge AWS AI
                 technology.
               </p>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white">Features</h3>
+              <h3 className="text-sm font-semibold text-neutral-50">Features</h3>
               <ul className="mt-4 space-y-2">
                 <li>
                   <a
                     href="#features"
-                    className="text-sm text-slate-300 hover:text-white transition-colors"
+                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
                   >
                     Year Review
                   </a>
@@ -120,7 +91,7 @@ function App() {
                 <li>
                   <a
                     href="#features"
-                    className="text-sm text-slate-300 hover:text-white transition-colors"
+                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
                   >
                     Match Analysis
                   </a>
@@ -128,7 +99,7 @@ function App() {
                 <li>
                   <a
                     href="#features"
-                    className="text-sm text-slate-300 hover:text-white transition-colors"
+                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
                   >
                     AI Insights
                   </a>
@@ -136,12 +107,12 @@ function App() {
               </ul>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white">Support</h3>
+              <h3 className="text-sm font-semibold text-neutral-50">Support</h3>
               <ul className="mt-4 space-y-2">
                 <li>
                   <a
                     href="#about"
-                    className="text-sm text-slate-300 hover:text-white transition-colors"
+                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
                   >
                     Documentation
                   </a>
@@ -149,7 +120,7 @@ function App() {
                 <li>
                   <a
                     href="#about"
-                    className="text-sm text-slate-300 hover:text-white transition-colors"
+                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
                   >
                     Contact
                   </a>
@@ -157,7 +128,7 @@ function App() {
                 <li>
                   <a
                     href="#about"
-                    className="text-sm text-slate-300 hover:text-white transition-colors"
+                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
                   >
                     Status
                   </a>
@@ -165,8 +136,8 @@ function App() {
               </ul>
             </div>
           </div>
-          <div className="mt-8 border-t border-slate-700/50 pt-8">
-            <p className="text-center text-sm text-slate-300">
+          <div className="mt-8 border-t border-neutral-700/50 pt-8">
+            <p className="text-center text-sm text-neutral-300">
               © 2024 Riftcoach. Built for the hackathon with ❤️ and AWS AI.
             </p>
           </div>

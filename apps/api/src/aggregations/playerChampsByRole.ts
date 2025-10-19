@@ -1,3 +1,5 @@
+import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
+
 export const playerChampsByRole = (puuid: string) => [
   // 1) Only matches where this summoner participated (fast when indexed)
   {
@@ -5,6 +7,9 @@ export const playerChampsByRole = (puuid: string) => [
       'info.participants.puuid': puuid,
     },
   },
+
+  // Only allowed queues
+  { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS as number[] } } },
 
   // 2) Keep only participants to shrink the document
   {

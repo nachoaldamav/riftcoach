@@ -1,3 +1,5 @@
+import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
+
 export const statsByRolePUUID = (puuid: string) => [
   // CONFIG — self stats only
   { $set: { _enemiesOnly: false } },
@@ -8,6 +10,9 @@ export const statsByRolePUUID = (puuid: string) => [
       'info.participants.puuid': puuid,
     },
   },
+
+  // Only allowed queues
+  { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS as number[] } } },
 
   // 2) Project only needed fields and calculate game duration in minutes
   {

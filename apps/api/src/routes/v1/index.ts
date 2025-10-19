@@ -18,9 +18,12 @@ import { HTTPException } from 'hono/http-exception';
 import ms from 'ms';
 import { v5 } from 'uuid';
 import z from 'zod';
+import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
+import { playerOverview } from '../../aggregations/playerOverview.js';
+import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
 import { BADGES_PROMPT } from '../../prompts/badges.js';
@@ -676,5 +679,71 @@ app.get('/:region/:tagName/:tagLine/heatmap', accountMiddleware, async (c) => {
     .toArray();
   return c.json(heatmap);
 });
+
+app.get('/:region/:tagName/:tagLine/overview', accountMiddleware, async (c) => {
+  const puuid = c.var.account.puuid;
+  const cacheKey = `cache:overview:${c.var.internalId}`;
+
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+
+  const overview = await collections.matches
+    .aggregate(playerOverview(puuid))
+    .toArray();
+
+  const result = overview[0] || null;
+  await redis.set(cacheKey, JSON.stringify(result), 'EX', ms('1h'));
+  return c.json(result);
+});
+
+app.get(
+  '/:region/:tagName/:tagLine/recent-matches',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+    const { limit } = c.req.query();
+    const matchLimit = limit ? Number(limit) : 10;
+
+    const cacheKey = `cache:recent-matches:${c.var.internalId}:${matchLimit}`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return c.json(JSON.parse(cached));
+    }
+
+    const matches = await collections.matches
+      .aggregate(recentMatches(puuid, matchLimit))
+      .toArray();
+
+    await redis.set(cacheKey, JSON.stringify(matches), 'EX', ms('10m'));
+    return c.json(matches);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/champion-mastery',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+    const { limit } = c.req.query();
+    const champLimit = limit ? Number(limit) : 5;
+
+    const cacheKey = `cache:champion-mastery:${c.var.internalId}:${champLimit}`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return c.json(JSON.parse(cached));
+    }
+
+    const mastery = await collections.matches
+      .aggregate(championMastery(puuid, champLimit))
+      .toArray();
+
+    await redis.set(cacheKey, JSON.stringify(mastery), 'EX', ms('1h'));
+    return c.json(mastery);
+  },
+);
 
 export { app };

@@ -1,6 +1,13 @@
 import { http, HttpError } from '@/clients/http';
+import { BentoGrid, BentoItem } from '@/components/bento/BentoGrid';
+import { ChampionInsightsCard } from '@/components/bento/ChampionInsightsCard';
+import { ChampionMasteryCard } from '@/components/bento/ChampionMasteryCard';
+import { OverviewCard } from '@/components/bento/OverviewCard';
+import { RecentMatchesCard } from '@/components/bento/RecentMatchesCard';
 import { ChampionImage } from '@/components/champion-image';
 import { HeatmapOverlay } from '@/components/heatmap-overlay';
+import { HeatmapIcon } from '@/components/icons/CustomIcons';
+import { Navbar } from '@/components/navbar';
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import {
   Card,
@@ -94,16 +101,16 @@ function HeatmapCard() {
 
   // Static role and mode lists
   const roles = [
-    { key: 'TOP', label: 'Top' },
-    { key: 'JUNGLE', label: 'Jungle' },
-    { key: 'MIDDLE', label: 'Middle' },
-    { key: 'BOTTOM', label: 'Bottom' },
-    { key: 'UTILITY', label: 'Support' },
+    { key: 'TOP', label: 'Top', icon: '⚔️' },
+    { key: 'JUNGLE', label: 'Jungle', icon: '🌲' },
+    { key: 'MIDDLE', label: 'Middle', icon: '🏰' },
+    { key: 'BOTTOM', label: 'Bottom', icon: '🏹' },
+    { key: 'UTILITY', label: 'Support', icon: '🛡️' },
   ];
 
   const modes = [
-    { key: 'kills', label: 'Kills' },
-    { key: 'deaths', label: 'Deaths' },
+    { key: 'kills', label: 'Kills', icon: '⚔️', color: 'success' },
+    { key: 'deaths', label: 'Deaths', icon: '💀', color: 'danger' },
   ];
 
   const [selectedRole, setSelectedRole] = useState('BOTTOM');
@@ -268,14 +275,33 @@ function HeatmapCard() {
   }, [selectedChampion, championList]);
 
   return (
-    <Card className="bg-slate-800/90 backdrop-blur-sm border-slate-700 shadow-xl">
+    <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
       <CardBody className="p-8 space-y-6">
-        <h2 className="text-xl font-bold text-white">Player Heatmap</h2>
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-gradient-to-br from-accent-purple-900/30 to-accent-blue-900/30 rounded-xl">
+            <HeatmapIcon className="w-6 h-6 text-accent-purple-400" />
+          </div>
+          <div>
+            <h3 className="text-xl font-display font-bold text-neutral-50">
+              Heatmap Analysis
+            </h3>
+            <p className="text-sm text-neutral-400">
+              Positional gameplay patterns
+            </p>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Select
+            size="sm"
+            variant="bordered"
             label="Role"
             selectedKeys={[selectedRole]}
             disabledKeys={disabledRoleKeys}
+            className="bg-neutral-800/50"
+            classNames={{
+              trigger: 'border-neutral-700 hover:border-accent-blue-600',
+              value: 'text-neutral-100 font-medium',
+            }}
             renderValue={() => {
               const role = roles.find((r) => r.key === selectedRole);
               if (!role) return null;
@@ -325,8 +351,16 @@ function HeatmapCard() {
             ))}
           </Select>
           <Select
+            size="sm"
+            variant="bordered"
             label="Champion"
             selectedKeys={selectedChampion ? [String(selectedChampion)] : []}
+            className="bg-neutral-800/50"
+            classNames={{
+              trigger:
+                'border-neutral-700 hover:border-accent-blue-600 bg-neutral-800/50',
+              value: 'text-neutral-100 font-medium',
+            }}
             renderValue={() => {
               if (!selectedChampionData) return null;
               const games = selectedChampion
@@ -373,33 +407,54 @@ function HeatmapCard() {
             ))}
           </Select>
           <Select
+            size="sm"
+            variant="bordered"
             label="Mode"
             selectedKeys={[selectedMode]}
+            className="bg-neutral-800/50"
+            classNames={{
+              trigger: 'border-neutral-700 hover:border-accent-blue-600',
+              value: 'text-neutral-100 font-medium',
+            }}
             onSelectionChange={(keys) => {
               const selected = Array.from(keys)[0] as 'kills' | 'deaths';
               setSelectedMode(selected);
             }}
           >
             {modes.map((mode) => (
-              <SelectItem key={mode.key}>{mode.label}</SelectItem>
+              <SelectItem key={mode.key} textValue={mode.label}>
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">{mode.icon}</span>
+                  <span className="font-medium">{mode.label}</span>
+                </div>
+              </SelectItem>
             ))}
           </Select>
         </div>
 
-        <div className="relative w-full aspect-square">
+        <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
           <img
             src="/map.svg"
             alt="Summoner's Rift Map"
-            className="w-full h-full opacity-40 contrast-90"
+            className="w-full h-full opacity-60 contrast-90 filter brightness-75"
           />
           {isHeatmapLoading && (
-            <div className="absolute inset-0 bg-slate-800/50 flex items-center justify-center">
-              <Loader2 className="w-12 h-12 text-cyan-400 animate-spin" />
+            <div className="absolute inset-0 bg-neutral-950/70 flex items-center justify-center backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-4">
+                <Loader2 className="w-12 h-12 text-accent-blue-500 animate-spin" />
+                <p className="text-sm font-medium text-white">
+                  Analyzing gameplay patterns...
+                </p>
+              </div>
             </div>
           )}
           {heatmapData && (
             <HeatmapOverlay data={heatmapData} mode={selectedMode} />
           )}
+
+          {/* Subtle corner decoration */}
+          <div className="absolute top-4 right-4 w-2 h-2 bg-accent-blue-400 rounded-full opacity-60" />
+          <div className="absolute bottom-4 left-4 w-1 h-1 bg-accent-purple-400 rounded-full opacity-40" />
         </div>
       </CardBody>
     </Card>
@@ -565,56 +620,75 @@ function RouteComponent() {
   if (status.status === 'completed' && summoner) {
     const iconUrl = getProfileIconUrl(summoner.profileIconId);
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark relative">
-        <div className="container mx-auto px-4 py-8">
-          <div className="max-w-3xl mx-auto space-y-8">
-            <div className="flex items-center gap-4">
-              <img
-                src={iconUrl}
-                alt={summoner.name}
-                className="w-16 h-16 rounded-full border border-slate-600"
-              />
+      <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-800 relative">
+        <Navbar />
+        <div className="container mx-auto px-6 py-12 max-w-7xl">
+          <div className="space-y-16">
+            {/* Enhanced Header Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="flex items-center gap-8 p-10 rounded-3xl bg-neutral-900/80 backdrop-blur-sm border border-neutral-700/50 shadow-soft-lg"
+            >
+              <div className="relative">
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <img
+                    src={iconUrl}
+                    alt={summoner.name}
+                    className="w-24 h-24 rounded-2xl border-2 border-neutral-700 shadow-soft"
+                  />
+                  <div className="absolute -bottom-1 -right-1 bg-accent-blue-500 text-white text-sm font-medium px-3 py-1 rounded-lg shadow-soft">
+                    {summoner.summonerLevel}
+                  </div>
+                </motion.div>
+              </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-start gap-3 flex-wrap flex-col">
-                  <h1 className="text-2xl font-bold text-white truncate">
-                    {name}
-                    <span className="text-slate-400">#{tag}</span>
-                  </h1>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-300">
-                      Level {summoner.summonerLevel}
-                    </span>
+                <div className="space-y-4">
+                  <div>
+                    <h1 className="text-4xl font-display font-bold text-neutral-50 tracking-tight">
+                      {name}
+                    </h1>
+                    <p className="text-xl text-neutral-400 font-medium">
+                      #{tag}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4 flex-wrap">
                     {isBadgesLoading && isIdle ? (
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
-                        <span className="text-xs text-cyan-300">
+                      <div className="flex items-center gap-3 px-4 py-2 bg-accent-blue-50 dark:bg-accent-blue-900/20 rounded-full border border-accent-blue-200 dark:border-accent-blue-800">
+                        <Loader2 className="w-4 h-4 text-accent-blue-600 dark:text-accent-blue-400 animate-spin" />
+                        <span className="text-sm font-medium text-accent-blue-700 dark:text-accent-blue-300">
                           AI is analyzing your playstyle...
                         </span>
                       </div>
                     ) : badgesData?.badges?.length ? (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-3">
                         {badgesData.badges.map((b, idx) => (
                           <Tooltip
                             key={`${b.title}-hdr-${idx}`}
                             content={
-                              <div className="max-w-xs text-left">
-                                <p className="text-sm font-semibold text-white mb-1">
+                              <div className="max-w-xs text-left p-3">
+                                <p className="text-sm font-semibold text-neutral-100 mb-2">
                                   {b.title}
                                 </p>
-                                <p className="text-xs text-slate-300">
+                                <p className="text-xs text-neutral-300 leading-relaxed">
                                   {b.reason}
                                 </p>
                               </div>
                             }
                             placement="top"
-                            className="bg-slate-800 text-slate-200 border border-slate-700"
+                            className="bg-black/70 backdrop-blur-md border border-white/10 shadow-soft-lg"
                           >
                             <Chip
-                              variant="bordered"
+                              variant="flat"
                               color="primary"
-                              className="text-cyan-300 text-xs cursor-default"
+                              size="md"
+                              className="bg-accent-blue-100 dark:bg-accent-blue-900/30 text-accent-blue-700 dark:text-accent-blue-300 border border-accent-blue-200 dark:border-accent-blue-700 font-semibold hover:bg-accent-blue-200 dark:hover:bg-accent-blue-800/40 transition-colors duration-150 cursor-default px-4 py-2"
                             >
-                              {b.title.replace('The ', '')}
+                              {b.title}
                             </Chip>
                           </Tooltip>
                         ))}
@@ -623,11 +697,30 @@ function RouteComponent() {
                   </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            <HeatmapCard />
-
-            {/* Removed standalone Playstyle Badges card in favor of header chips */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              className="space-y-8"
+            >
+              <BentoGrid className="max-w-none">
+                <BentoItem span="md">
+                  <OverviewCard region={region} name={name} tag={tag} />
+                </BentoItem>
+                <BentoItem span="md">
+                  <ChampionMasteryCard region={region} name={name} tag={tag} />
+                  <ChampionInsightsCard region={region} name={name} tag={tag} />
+                </BentoItem>
+                <BentoItem span="md">
+                  <HeatmapCard />
+                </BentoItem>
+                <BentoItem span="md">
+                  <RecentMatchesCard region={region} name={name} tag={tag} />
+                </BentoItem>
+              </BentoGrid>
+            </motion.div>
           </div>
         </div>
       </div>
@@ -657,7 +750,8 @@ function RouteComponent() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark relative">
+    <div className="min-h-screen bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 dark relative">
+      <Navbar />
       <div
         className="absolute inset-0 opacity-20"
         style={{
@@ -682,25 +776,25 @@ function RouteComponent() {
                 {wsConnected ? 'Live updates active' : 'Analyzing your matches'}
               </span>
             </div>
-            <h1 className="text-4xl md:text-5xl font-bold text-balance text-white">
+            <h1 className="text-4xl md:text-5xl font-bold text-balance text-neutral-50">
               League of Legends
               <span className="block text-cyan-400">Rewind</span>
             </h1>
-            <p className="text-lg text-slate-300 max-w-2xl mx-auto text-pretty">
+            <p className="text-lg text-neutral-300 max-w-2xl mx-auto text-pretty">
               We're gathering all your matches from {region.toUpperCase()} to
               create your personalized rewind
             </p>
           </motion.div>
 
           <motion.div variants={itemVariants}>
-            <Card className="bg-slate-800/90 backdrop-blur-sm border-slate-700 shadow-xl">
+            <Card className="bg-neutral-800/90 backdrop-blur-sm border-neutral-700 shadow-xl">
               <CardBody className="p-8">
                 <div className="space-y-6">
                   <div className="text-center space-y-2">
-                    <h2 className="text-3xl font-bold text-white">
+                    <h2 className="text-3xl font-bold text-neutral-50">
                       {Math.round(progressPercentage)}%
                     </h2>
-                    <p className="text-slate-300">
+                    <p className="text-neutral-300">
                       {status.processed} of {status.total} matches processed
                     </p>
                   </div>
@@ -713,7 +807,7 @@ function RouteComponent() {
                       size="lg"
                       aria-label="Progress bar"
                     />
-                    <div className="flex justify-between text-sm text-slate-300">
+                    <div className="flex justify-between text-sm text-neutral-300">
                       <span>Listing: {status.listing ? 'Yes' : 'No'}</span>
                       <span className="capitalize">{status.status}</span>
                     </div>
@@ -724,26 +818,30 @@ function RouteComponent() {
           </motion.div>
 
           <motion.div variants={itemVariants}>
-            <Card className="bg-slate-700/80 backdrop-blur-sm border-slate-600 shadow-xl">
+            <Card className="bg-neutral-700/80 backdrop-blur-sm border-neutral-600 shadow-xl">
               <CardBody className="p-6">
                 <div className="grid grid-cols-3 gap-6">
                   <div className="text-center">
                     <div className="text-2xl font-bold text-cyan-400 mb-1">
                       {status.total}
                     </div>
-                    <div className="text-sm text-slate-300">Matches Found</div>
+                    <div className="text-sm text-neutral-300">
+                      Matches Found
+                    </div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-cyan-400 mb-1">
                       {status.processed}
                     </div>
-                    <div className="text-sm text-slate-300">Processed</div>
+                    <div className="text-sm text-neutral-300">Processed</div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-cyan-400 mb-1">
                       {status.position ?? '-'}
                     </div>
-                    <div className="text-sm text-slate-300">Queue Position</div>
+                    <div className="text-sm text-neutral-300">
+                      Queue Position
+                    </div>
                   </div>
                 </div>
               </CardBody>
@@ -751,14 +849,14 @@ function RouteComponent() {
           </motion.div>
 
           <motion.div variants={itemVariants}>
-            <Card className="bg-slate-600/70 backdrop-blur-sm border-slate-500 shadow-xl">
+            <Card className="bg-neutral-600/70 backdrop-blur-sm border-neutral-500 shadow-xl">
               <CardBody className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-white mb-2">
+                    <h3 className="text-lg font-semibold text-neutral-50 mb-2">
                       Analyzing {region.toUpperCase()} Region
                     </h3>
-                    <p className="text-sm text-slate-300">
+                    <p className="text-sm text-neutral-300">
                       Searching through Ranked queues for the complete picture
                     </p>
                   </div>

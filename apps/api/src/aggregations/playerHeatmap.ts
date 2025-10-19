@@ -1,4 +1,5 @@
 import type { Document } from 'mongodb';
+import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
 
 export const playerHeatmap = (params: {
   puuid: string;
@@ -45,6 +46,9 @@ export const playerHeatmap = (params: {
   const pipeline: Document[] = [
     // 1) Prefilter by PUUID only (do NOT filter by role here)
     { $match: { 'info.participants.puuid': puuid } },
+
+    // Only allowed queues
+    { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS as number[] } } },
 
     // 2) Resolve subject strictly by PUUID (ensures we always have participantId)
     {
