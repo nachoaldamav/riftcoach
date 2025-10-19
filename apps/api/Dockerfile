@@ -1,5 +1,5 @@
 # Use Node.js Alpine as the base image
-FROM node:24-alpine AS base
+FROM node:22-alpine AS base
 
 # Install wget and other required packages
 RUN apk add --no-cache wget
@@ -38,7 +38,7 @@ RUN pnpm compile
 RUN cd apps/api && pnpm run build
 
 # Production stage
-FROM node:24-alpine AS production
+FROM node:22-alpine AS production
 
 # Install wget in production image
 RUN apk add --no-cache wget
