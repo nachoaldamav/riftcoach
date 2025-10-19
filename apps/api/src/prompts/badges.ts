@@ -1,14 +1,15 @@
 export const BADGES_PROMPT = `
 **IMPORTANT BADGE DISTRIBUTION RULES:**
-- Each player should receive 2-4 badges maximum to maintain exclusivity and meaning
-- Prioritize badges that represent the player's most distinctive strengths
+- Each player should receive 1-5 badges maximum to maintain exclusivity and meaning
+- Prioritize badges that represent the player's most distinctive strengths and the most actionable improvements
 - Avoid awarding badges for marginal statistical differences
 - Consider the player's role when evaluating badge criteria
 - If multiple badges could apply, choose the ones with the strongest statistical evidence
+- When explaining badge reasons, include explicit numeric values ONLY from the metrics that define the selected badge. Cite numbers strictly from that badge’s AI instructions; do NOT pull in unrelated stats (e.g., gold/XP/timepoint metrics) unless the badge explicitly references them. Example: for "Objective Neglect", use \`avg_grubs_participation\` and \`avg_herald_participation\` diffs (e.g., -0.12, -0.15). If you cannot cite qualifying numbers for a badge, do not award it.
 
 ### **1. Objective Master**
 *   **Description:** You exhibit masterful control over the map's most important objectives, consistently out-pacing your opponents where it matters most. Epic monsters and key objectives belong to your team when you're on the rift.
-*   **AI instructions:** Award this badge if the player's \`objectiveParticipation\` rate for \`drakes\`, \`herald\`, and \`baron\` is consistently positive (e.g., \`rate\` > 5 for all three). Player must have HIGHER participation rates than opponents. This badge can be awarded to any role that demonstrates exceptional objective control.
+*   **AI instructions:** Award this badge if the player's per-match participation rate diffs are SIGNIFICANTLY POSITIVE versus opponents for \`drakes\`, \`herald\`, and \`baron\` (e.g., diff ≥ 0.1 for all three). Use per-match rates to avoid raw-count inflation from many games.
 
 ### **2. Vision Expert**
 *   **Description:** You understand that knowledge is power. In your primary role, you consistently establish superior map awareness, providing more vision for your team and leaving your opponents to walk in the dark.
@@ -28,7 +29,7 @@ export const BADGES_PROMPT = `
 
 ### **6. Tower Destroyer**
 *   **Description:** You hear the call of stone and steel. Your relentless focus on structures helps your team crack open the map, consistently taking more turret plates and towers than your lane opponent.
-*   **AI instructions:** Award this badge if, for the player's most-weighted role, the \`avg_turret_plates_participation\` and \`avg_towers_participation\` shows the player has HIGHER participation than opponents (e.g., player > opponent by 0.1+ for both).
+*   **AI instructions:** Award this badge if, for the player's most-weighted role, the per-match participation rate diffs \`avg_turret_plates_participation\` and \`avg_towers_participation\` are POSITIVE and SIGNIFICANT (e.g., diff ≥ 0.1 for both). Use rates, not raw counts.
 
 ### **7. Damage Dealer**
 *   **Description:** You don't just participate in fights; you end them. You consistently output significantly more damage per minute than your direct opponent, acting as the primary offensive engine for your team.
@@ -44,7 +45,7 @@ export const BADGES_PROMPT = `
 
 ### **10. Void Hunter**
 *   **Description:** You prioritize the early game power of the Void. By securing Voidgrubs and Rift Heralds more often than your opponents, you grant your team devastating pushing power in the early-to-mid game.
-*   **AI instructions:** Award this badge if the \`avg_grubs_participation\` and \`avg_herald_participation\` show the player has HIGHER participation than opponents (e.g., player > opponent by 0.1+ for both).
+*   **AI instructions:** Award this badge if the per-match participation rate diffs \`avg_grubs_participation\` and \`avg_herald_participation\` are POSITIVE and SIGNIFICANT (e.g., diff ≥ 0.1 for both). Use rates, not raw counts.
 
 ### **11. Team Player**
 *   **Description:** You are the ultimate team player. Regardless of your role, you are constantly setting up plays and securing kills for your teammates, boasting a higher assist rate than your direct counterpart.
@@ -84,4 +85,56 @@ export const BADGES_PROMPT = `
 
 ### **20. Versatile Champion Pool**
 *   **Description:** Adaptation is your strength. You have demonstrated proficiency across multiple champions, making you unpredictable and difficult to ban out or counter.
-*   **AI instructions:** Award this badge if the \`champions\` data shows the player has played 5+ different champions with relatively balanced play rates (no single champion >40% of games) and maintains good performance across multiple picks. This badge rewards champion diversity and adaptability.`;
+*   **AI instructions:** Award this badge if the \`champions\` data shows the player has played 5+ different champions with relatively balanced play rates (no single champion >40% of games) and maintains good performance across multiple picks. This badge rewards champion diversity and adaptability.
+
+### **21. Vision Improvement Needed**
+*   **Description:** Your teams can benefit from more consistent vision control. Increasing warding and denial will unlock safer paths and better objective setups.
+*   **AI instructions:** Award if the player's most-weighted role shows LOWER \`visionScorePerMin\` than opponents by ≥0.35 for non-UTILITY roles or ≥0.5 for UTILITY.
+
+### **22. Early Game Struggles**
+*   **Description:** Your lane phase often starts on the back foot. Tightening early CS, trades, and wave control will set up stronger mid games.
+*   **AI instructions:** For the most-weighted role (exclude UTILITY): \`avg_cs_at10\` ≤ opponent by 15+ AND \`avg_gold_at10\` ≤ opponent by 400+.
+
+### **23. Objective Neglect**
+*   **Description:** Neutral objectives swing games. Improving early rotations and setups around Voidgrubs and Herald can shift map pressure.
+*   **AI instructions:** per-match participation rate diffs \`avg_grubs_participation\` and \`avg_herald_participation\` are NEGATIVE and SIGNIFICANT (e.g., diff ≤ -0.1 for both). Use rates, not raw counts.
+
+### **24. Damage Output Gap**
+*   **Description:** Teamfights need a stronger contribution. Look for better target selection, uptime, and itemization to raise your output.
+*   **AI instructions:** For the most-weighted role: \`avg_dpm\` ≤ opponent by 100+.
+
+### **25. Farm Efficiency Gap**
+*   **Description:** Small CS and gold deficits compound over time. Focus on last-hitting consistency and efficient pathing to convert time into gold.
+*   **AI instructions:** For the most-weighted role: \`avg_cs_total\` ≤ opponent by 10+ AND \`avg_gpm\` ≤ opponent by 25+.
+
+### **26. Tower Pressure Gap**
+*   **Description:** Early plate and tower pressure is low relative to lane opponents. Sharpen wave control and rotation timing to crack structures.
+*   **AI instructions:** per-match participation rate diffs \`avg_turret_plates_participation\` and \`avg_towers_participation\` are NEGATIVE and SIGNIFICANT (e.g., diff ≤ -0.1 for both). Use rates, not raw counts.
+
+### **27. Death Discipline**
+*   **Description:** Too many deaths are stalling your impact and resets. Improve risk assessment, vision usage, and disengage timing.
+*   **AI instructions:** For the most-weighted role: \`avg_deaths\` ≥ opponent by 0.7+.
+
+### **28. Positioning Cleanup**
+*   **Description:** Deaths are happening without soaking meaningful pressure. Work on spacing and fight selection to die less for more value.
+*   **AI instructions:** \`avg_deaths\` ≥ opponent by 0.5+ AND \`avg_dmg_taken_per_min\` ≤ opponent by +20 (i.e., not significantly higher damage taken).
+
+### **29. Mid Game Dip**
+*   **Description:** Momentum slips between 15–20 minutes. Strengthen rotations, objective trading, and tempo to convert early setups.
+*   **AI instructions:** \`avg_gold_at15\` within ±150 of opponents AND \`avg_gold_at20\` ≤ opponent by 300+.
+
+### **30. Scaling Issues**
+*   **Description:** Late-game economy and CS trail opponents. Refine wave assignment and side-lane timings to scale reliably.
+*   **AI instructions:** \`avg_gold_at30\` ≤ opponent by 400+ OR \`avg_cs_at30\` ≤ opponent by 25+; additionally, early game not severely losing (\`avg_gold_at10\` > -200 AND \`avg_cs_at10\` > -10).
+
+### **31. Team Contribution Gap**
+*   **Description:** Skirmishes resolve without your consistent setup or follow-up. Look for higher assist participation and safer play.
+*   **AI instructions:** \`avg_assists\` ≤ opponent by 2.0+ AND \`avg_deaths\` ≥ opponent by 0.3+ (prioritize non-UTILITY roles).
+
+### **32. Level Tempo Lag**
+*   **Description:** Hitting key levels behind opponents limits fight readiness. Improve farm uptime and deathless windows to keep pace.
+*   **AI instructions:** \`avg_level_at15\` ≤ opponent by 1.0+ AND \`avg_level_at20\` ≤ opponent by 1.0+.
+
+### **33. Experience Gap**
+*   **Description:** XP deficits delay spikes and objectives. Emphasize efficient farming patterns and proactive map movements.
+*   **AI instructions:** \`avg_xp_at15\` ≤ opponent by 500+ AND \`avg_xp_at20\` ≤ opponent by 700+.`;

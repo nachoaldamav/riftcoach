@@ -8,7 +8,11 @@ export const enemyStatsByRolePUUID = (puuid: string) => [
   { $match: { 'info.participants.puuid': puuid } },
 
   // Only allowed queues
-  { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS as number[] } } },
+  { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS } } },
+
+  // Sort by most recent matches and limit to 50
+  { $sort: { 'info.gameCreation': -1 } },
+  { $limit: 50 },
 
   // 2) Project only needed fields and calculate game duration in minutes
   {

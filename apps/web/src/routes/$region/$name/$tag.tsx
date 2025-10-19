@@ -492,6 +492,7 @@ function RouteComponent() {
     title: string;
     description: string;
     reason: string;
+    polarity?: 'good' | 'bad' | 'neutral';
   }
   interface AIBadgesResponse {
     badges: AIBadgeItem[];
@@ -680,13 +681,19 @@ function RouteComponent() {
                               </div>
                             }
                             placement="top"
-                            className="bg-black/70 backdrop-blur-md border border-white/10 shadow-soft-lg"
+                            className="bg-black/95 border border-white/10 shadow-soft-lg"
                           >
                             <Chip
                               variant="flat"
-                              color="primary"
+                              color="default"
                               size="md"
-                              className="bg-accent-blue-100 dark:bg-accent-blue-900/30 text-accent-blue-700 dark:text-accent-blue-300 border border-accent-blue-200 dark:border-accent-blue-700 font-semibold hover:bg-accent-blue-200 dark:hover:bg-accent-blue-800/40 transition-colors duration-150 cursor-default px-4 py-2"
+                              className={`${
+                                (b.polarity ?? 'neutral') === 'good'
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-800/40'
+                                  : (b.polarity ?? 'neutral') === 'bad'
+                                    ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800/40'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700/40'
+                              } font-semibold transition-colors duration-150 cursor-default px-4 py-2`}
                             >
                               {b.title}
                             </Chip>

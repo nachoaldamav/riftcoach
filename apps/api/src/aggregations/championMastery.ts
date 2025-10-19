@@ -26,7 +26,7 @@ export const championMastery = (puuid: string, limit = 5) => [
     },
   },
 
-  // Filter only ranked games
+  // Filter only allowed queues
   {
     $match: {
       queueId: { $in: ALLOWED_QUEUE_IDS },
@@ -44,6 +44,45 @@ export const championMastery = (puuid: string, limit = 5) => [
       wins: {
         $sum: {
           $cond: ['$player.win', 1, 0],
+        },
+      },
+      // Recency counters (last 30 days)
+      recentGames: {
+        $sum: {
+          $cond: [
+            {
+              $gte: [
+                '$gameCreation',
+                { $subtract: [new Date().getTime(), 30 * 24 * 60 * 60 * 1000] },
+              ],
+            },
+            1,
+            0,
+          ],
+        },
+      },
+      recentWins: {
+        $sum: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $gte: [
+                    '$gameCreation',
+                    {
+                      $subtract: [
+                        new Date().getTime(),
+                        30 * 24 * 60 * 60 * 1000,
+                      ],
+                    },
+                  ],
+                },
+                '$player.win',
+              ],
+            },
+            1,
+            0,
+          ],
         },
       },
       totalKills: { $sum: '$player.kills' },
@@ -74,11 +113,27 @@ export const championMastery = (puuid: string, limit = 5) => [
       championName: '$_id.championName',
       gamesPlayed: 1,
       wins: 1,
+      // Expose recency counters
+      recentGames: 1,
+      recentWins: 1,
       losses: { $subtract: ['$gamesPlayed', '$wins'] },
       winRate: {
         $round: [
           {
             $multiply: [{ $divide: ['$wins', '$gamesPlayed'] }, 100],
+          },
+          1,
+        ],
+      },
+      // Recent win rate percentage
+      recentWinRate: {
+        $round: [
+          {
+            $cond: [
+              { $eq: ['$recentGames', 0] },
+              0,
+              { $multiply: [{ $divide: ['$recentWins', '$recentGames'] }, 100] },
+            ],
           },
           1,
         ],
@@ -129,15 +184,30 @@ export const championMastery = (puuid: string, limit = 5) => [
       },
       largestKillingSpree: 1,
       lastPlayed: 1,
+      // Days since last played
+      daysSinceLastPlayed: {
+        $round: [
+          {
+            $divide: [
+              { $subtract: [new Date().getTime(), '$lastPlayed'] },
+              86400000,
+            ],
+          },
+          0,
+        ],
+      },
+      // Enhanced mastery score:
+      // sqrt(games) * (winRate + KDA/10 + bounded trend) * recency * multikill
       masteryScore: {
-        // Custom mastery score based on games played, win rate, and KDA
         $round: [
           {
             $multiply: [
-              '$gamesPlayed',
+              // volume smoothing
+              { $sqrt: '$gamesPlayed' },
+              // performance core (win rate + normalized KDA + trend bonus)
               {
                 $add: [
-                  { $divide: ['$wins', '$gamesPlayed'] }, // Win rate factor
+                  { $divide: ['$wins', '$gamesPlayed'] },
                   {
                     $divide: [
                       {
@@ -152,7 +222,82 @@ export const championMastery = (puuid: string, limit = 5) => [
                           },
                         ],
                       },
-                      10, // KDA factor (normalized)
+                      10,
+                    ],
+                  },
+                  // recent trend bonus bounded to [-0.05, 0.05]
+                  {
+                    $cond: [
+                      { $eq: ['$recentGames', 0] },
+                      0,
+                      {
+                        $max: [
+                          -0.05,
+                          {
+                            $min: [
+                              0.05,
+                              {
+                                $subtract: [
+                                  { $divide: ['$recentWins', '$recentGames'] },
+                                  { $divide: ['$wins', '$gamesPlayed'] },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              // recency weight: favors recently played, floors at 0.6
+              {
+                $max: [
+                  0.6,
+                  {
+                    $divide: [
+                      30,
+                      {
+                        $add: [
+                          30,
+                          {
+                            $divide: [
+                              { $subtract: [new Date().getTime(), '$lastPlayed'] },
+                              86400000,
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              // multikill factor capped at +0.3
+              {
+                $min: [
+                  1.3,
+                  {
+                    $add: [
+                      1,
+                      {
+                        $cond: [
+                          { $eq: ['$gamesPlayed', 0] },
+                          0,
+                          {
+                            $divide: [
+                              {
+                                $add: [
+                                  { $multiply: ['$pentaKills', 3] },
+                                  { $multiply: ['$quadraKills', 2] },
+                                  '$tripleKills',
+                                  { $multiply: ['$doubleKills', 0.5] },
+                                ],
+                              },
+                              '$gamesPlayed',
+                            ],
+                          },
+                        ],
+                      },
                     ],
                   },
                 ],
@@ -165,7 +310,7 @@ export const championMastery = (puuid: string, limit = 5) => [
     },
   },
 
-  // Sort by mastery score (games played * performance)
+  // Sort by mastery score (games played * performance * recency)
   { $sort: { masteryScore: -1 } },
 
   // Limit results

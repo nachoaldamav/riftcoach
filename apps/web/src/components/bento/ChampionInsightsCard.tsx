@@ -2,7 +2,7 @@ import { http } from '@/clients/http';
 import { Card, CardBody } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Brain, TrendingUp, Target, Sparkles } from 'lucide-react';
+import { Brain, Sparkles, Target, TrendingUp } from 'lucide-react';
 
 interface ChampionInsightsCardProps {
   region: string;
@@ -10,11 +10,43 @@ interface ChampionInsightsCardProps {
   tag: string;
 }
 
-interface ChampionInsight {
-  type: 'trend' | 'recommendation' | 'strength' | 'improvement';
+interface ChampionData {
+  championId: number;
+  championName: string;
+  totalGames: number;
+  winRate: number;
+  recentWinRate: number;
+  avgKda: number;
+  consistencyScore: number;
+  performanceTrend: unknown;
+  roles: string[];
+  daysSinceLastPlayed: number;
+}
+
+interface AIInsight {
   title: string;
   description: string;
+  type: 'trend' | 'recommendation' | 'strength' | 'improvement';
   confidence: number;
+}
+
+interface ChampionInsightsResponse {
+  championData: ChampionData[];
+  aiInsights: {
+    summary: string;
+    trends: Array<{
+      type: string;
+      metric: string;
+      description: string;
+      confidence: number;
+    }>;
+    recommendations: Array<{
+      category: string;
+      title: string;
+      description: string;
+      priority: string;
+    }>;
+  };
 }
 
 export function ChampionInsightsCard({
@@ -22,41 +54,55 @@ export function ChampionInsightsCard({
   name,
   tag,
 }: ChampionInsightsCardProps) {
-  const { data: insights, isLoading } = useQuery({
+  const {
+    data: insightsData,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['champion-insights', region, name, tag],
-    queryFn: async (): Promise<ChampionInsight[]> => {
-      // For now, return mock data - will integrate with AWS Bedrock later
-      return [
-        {
-          type: 'trend',
-          title: 'Rising Performance',
-          description: 'Your ADC performance has improved 23% over the last month, particularly with scaling champions.',
-          confidence: 87
-        },
-        {
-          type: 'recommendation',
-          title: 'Champion Pool Expansion',
-          description: 'Consider adding Jinx or Aphelios to complement your current champion pool strengths.',
-          confidence: 92
-        },
-        {
-          type: 'strength',
-          title: 'Late Game Excellence',
-          description: 'You excel in games lasting 30+ minutes with a 68% win rate in extended matches.',
-          confidence: 95
-        },
-        {
-          type: 'improvement',
-          title: 'Early Game Focus',
-          description: 'Improving early game aggression could increase your overall win rate by an estimated 8%.',
-          confidence: 78
-        }
-      ];
+    queryFn: async (): Promise<ChampionInsightsResponse> => {
+      const response = await http.get(
+        `/v1/${region}/${name}/${tag}/champion-insights`,
+      );
+      return response.data as ChampionInsightsResponse;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 2,
   });
 
-  const getInsightIcon = (type: ChampionInsight['type']) => {
+  // Transform AI insights into the format expected by the UI
+  const insights: AIInsight[] = [];
+
+  if (insightsData?.aiInsights) {
+    // Add trends
+    for (const trend of insightsData.aiInsights.trends || []) {
+      insights.push({
+        title: trend.metric || 'Performance Trend',
+        description: trend.description,
+        type:
+          trend.type === 'improvement'
+            ? 'improvement'
+            : trend.type === 'decline'
+              ? 'strength'
+              : trend.type === 'stable'
+                ? 'trend'
+                : 'trend',
+        confidence: trend.confidence || 85,
+      });
+    }
+
+    // Add recommendations
+    for (const rec of insightsData.aiInsights.recommendations || []) {
+      insights.push({
+        title: rec.title,
+        description: rec.description,
+        type: 'recommendation',
+        confidence: 80, // Default confidence for recommendations
+      });
+    }
+  }
+
+  const getInsightIcon = (type: AIInsight['type']) => {
     switch (type) {
       case 'trend':
         return <TrendingUp className="w-4 h-4" />;
@@ -69,7 +115,7 @@ export function ChampionInsightsCard({
     }
   };
 
-  const getInsightColor = (type: ChampionInsight['type']) => {
+  const getInsightColor = (type: AIInsight['type']) => {
     switch (type) {
       case 'trend':
         return 'text-blue-400';
@@ -112,7 +158,7 @@ export function ChampionInsightsCard({
                 </p>
               </div>
             </div>
-            
+
             <div className="space-y-4 flex-1">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="animate-pulse">
@@ -165,7 +211,9 @@ export function ChampionInsightsCard({
                       <h4 className="text-sm font-semibold text-neutral-200 truncate">
                         {insight.title}
                       </h4>
-                      <span className={`text-xs font-medium ${getConfidenceColor(insight.confidence)}`}>
+                      <span
+                        className={`text-xs font-medium ${getConfidenceColor(insight.confidence)}`}
+                      >
                         {insight.confidence}%
                       </span>
                     </div>
@@ -180,12 +228,8 @@ export function ChampionInsightsCard({
 
           <div className="mt-4 pt-4 border-t border-neutral-700/50 shrink-0">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-neutral-500">
-                Powered by AWS Bedrock
-              </span>
-              <span className="text-neutral-500">
-                Updated 2 min ago
-              </span>
+              <span className="text-neutral-500">Powered by AWS Bedrock</span>
+              <span className="text-neutral-500">Updated 2 min ago</span>
             </div>
           </div>
         </CardBody>

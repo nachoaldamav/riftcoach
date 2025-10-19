@@ -1,9 +1,11 @@
-import { Card, CardBody, Chip, Progress } from '@heroui/react';
-import { motion } from 'framer-motion';
-import { TrendingUp, Target, Zap, Trophy, Coins, Swords } from 'lucide-react';
-import { AnalyticsIcon } from '@/components/icons/CustomIcons';
-import { useQuery } from '@tanstack/react-query';
 import { http } from '@/clients/http';
+import { SpiderChart } from '@/components/charts/SpiderChart';
+import { AnalyticsIcon } from '@/components/icons/CustomIcons';
+import { Card, CardBody, Chip, Select, SelectItem } from '@heroui/react';
+import { useQuery } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
+import { Target } from 'lucide-react';
+import { useState } from 'react';
 
 interface OverviewData {
   totalGames: number;
@@ -31,6 +33,14 @@ interface OverviewData {
     largestKillingSpree: number;
     largestMultiKill: number;
   };
+  spiderChartData: Array<{
+    metric: string;
+    player: number;
+    opponent: number;
+    playerActual: number;
+    opponentActual: number;
+    fullMark: number;
+  }>;
 }
 
 interface OverviewCardProps {
@@ -40,30 +50,108 @@ interface OverviewCardProps {
 }
 
 export function OverviewCard({ region, name, tag }: OverviewCardProps) {
+  // Position state and roles configuration
+  const [selectedPosition, setSelectedPosition] = useState<string>('ALL');
+
+  const roles = [
+    { key: 'ALL', label: 'All', icon: '🎯' },
+    { key: 'TOP', label: 'Top', icon: '⚔️' },
+    { key: 'JUNGLE', label: 'Jungle', icon: '🌲' },
+    { key: 'MIDDLE', label: 'Middle', icon: '🏰' },
+    { key: 'BOTTOM', label: 'Bottom', icon: '🏹' },
+    { key: 'UTILITY', label: 'Support', icon: '🛡️' },
+  ];
+
+  // Role icon from Community Dragon (neutral icon)
+  const getRoleIconUrl = (roleKey: string) => {
+    // unselected
+    if (roleKey === 'ALL')
+      return 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-fill.png';
+    return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-${roleKey.toLowerCase()}.png`;
+  };
+
   const { data, isLoading } = useQuery({
-    queryKey: ['player-overview', region, name, tag],
+    queryKey: ['player-overview', region, name, tag, selectedPosition],
     queryFn: async () => {
-      const res = await http.get<OverviewData>(
-        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/overview`,
-      );
+      const params = new URLSearchParams();
+      if (selectedPosition !== 'ALL') {
+        params.set('position', selectedPosition);
+      }
+      const queryString = params.toString();
+      const url = `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/overview${queryString ? `?${queryString}` : ''}`;
+
+      const res = await http.get<OverviewData>(url);
       return res.data;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
   if (isLoading || !data) {
     return (
-      <Card className="h-full">
-        <CardBody className="p-6">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-gray-300 rounded w-3/4" />
-            <div className="space-y-2">
-              <div className="h-4 bg-gray-300 rounded" />
-              <div className="h-4 bg-gray-300 rounded w-5/6" />
-              <div className="h-4 bg-gray-300 rounded w-4/6" />
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="h-full"
+      >
+        <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+          <CardBody className="p-8">
+            <div className="animate-pulse">
+              {/* Header section */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-neutral-700 rounded-xl" />
+                  <div>
+                    <div className="h-6 bg-neutral-700 rounded w-40 mb-2" />
+                    <div className="h-4 bg-neutral-700 rounded w-24" />
+                  </div>
+                </div>
+                <div className="w-32 h-8 bg-neutral-700 rounded" />
+              </div>
+
+              {/* Win/Loss grid */}
+              <div className="grid grid-cols-2 gap-6 mb-8">
+                <div className="text-center p-4 bg-neutral-800/50 rounded-xl">
+                  <div className="h-8 bg-neutral-700 rounded w-12 mx-auto mb-1" />
+                  <div className="h-4 bg-neutral-700 rounded w-8 mx-auto" />
+                </div>
+                <div className="text-center p-4 bg-neutral-800/50 rounded-xl">
+                  <div className="h-8 bg-neutral-700 rounded w-12 mx-auto mb-1" />
+                  <div className="h-4 bg-neutral-700 rounded w-12 mx-auto" />
+                </div>
+              </div>
+
+              {/* Statistics list */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
+                  <div className="h-4 bg-neutral-700 rounded w-16" />
+                  <div className="h-6 bg-neutral-700 rounded w-12" />
+                </div>
+                <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
+                  <div className="h-4 bg-neutral-700 rounded w-20" />
+                  <div className="h-6 bg-neutral-700 rounded w-10" />
+                </div>
+                <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
+                  <div className="h-4 bg-neutral-700 rounded w-12" />
+                  <div className="h-4 bg-neutral-700 rounded w-8" />
+                </div>
+                <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
+                  <div className="h-4 bg-neutral-700 rounded w-16" />
+                  <div className="h-4 bg-neutral-700 rounded w-12" />
+                </div>
+              </div>
+
+              {/* Opponent Comparison section */}
+              <div className="mt-6 pt-6 border-t border-neutral-700">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-neutral-700 rounded-lg" />
+                  <div className="h-4 bg-neutral-700 rounded w-32" />
+                </div>
+                <div className="h-64 bg-neutral-800/50 rounded-lg" />
+              </div>
             </div>
-          </div>
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      </motion.div>
     );
   }
 
@@ -88,75 +176,158 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
     >
       <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
         <CardBody className="p-8">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="p-3 bg-gradient-to-br from-accent-blue-900/30 to-accent-emerald-900/30 rounded-xl">
-              <AnalyticsIcon className="w-6 h-6 text-accent-blue-400" />
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gradient-to-br from-accent-blue-900/30 to-accent-emerald-900/30 rounded-xl">
+                <AnalyticsIcon className="w-6 h-6 text-accent-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-display font-bold text-neutral-50">
+                  Performance Overview
+                </h3>
+                <p className="text-sm text-neutral-400">Season statistics</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xl font-display font-bold text-neutral-50">Performance Overview</h3>
-              <p className="text-sm text-neutral-400">Season statistics</p>
-            </div>
+
+            {/* Position Select */}
+            <Select
+              size="sm"
+              variant="bordered"
+              selectedKeys={[selectedPosition]}
+              className="w-32 bg-neutral-800/50"
+              classNames={{
+                trigger:
+                  'border-neutral-700 hover:border-accent-blue-600 min-h-8',
+                value: 'text-neutral-100 font-medium',
+              }}
+              renderValue={() => {
+                const role = roles.find((r) => r.key === selectedPosition);
+                if (!role) return null;
+                const iconUrl = getRoleIconUrl(role.key);
+                return (
+                  <div className="flex items-center justify-center">
+                    {iconUrl ? (
+                      <img src={iconUrl} alt={role.label} className="w-4 h-4" />
+                    ) : (
+                      <span className="text-sm">{role.icon}</span>
+                    )}
+                  </div>
+                );
+              }}
+              onSelectionChange={(keys) => {
+                const selected = Array.from(keys)[0] as string;
+                setSelectedPosition(selected);
+              }}
+            >
+              {roles.map((role) => {
+                const iconUrl = getRoleIconUrl(role.key);
+                return (
+                  <SelectItem
+                    key={role.key}
+                    textValue={role.label}
+                    startContent={
+                      iconUrl ? (
+                        <img
+                          src={iconUrl}
+                          alt={role.label}
+                          className="w-4 h-4"
+                        />
+                      ) : (
+                        <span className="text-sm">{role.icon}</span>
+                      )
+                    }
+                  >
+                    <span>{role.label}</span>
+                  </SelectItem>
+                );
+              })}
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-6 mb-8">
             <div className="text-center p-4 bg-accent-emerald-950/20 rounded-xl border border-accent-emerald-800">
-              <div className="text-3xl font-bold text-accent-emerald-400 mb-1">{data.wins}</div>
+              <div className="text-3xl font-bold text-accent-emerald-400 mb-1">
+                {data.wins}
+              </div>
               <div className="text-sm font-medium text-neutral-400">Wins</div>
             </div>
             <div className="text-center p-4 bg-red-950/20 rounded-xl border border-red-800">
-              <div className="text-3xl font-bold text-red-400 mb-1">{data.losses}</div>
+              <div className="text-3xl font-bold text-red-400 mb-1">
+                {data.losses}
+              </div>
               <div className="text-sm font-medium text-neutral-400">Losses</div>
             </div>
           </div>
 
           <div className="space-y-4">
             <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
-              <span className="text-sm font-medium text-neutral-300">Win Rate</span>
-              <Chip color={getWinRateColor(data.winRate)} variant="flat" size="sm" className="font-semibold">
+              <span className="text-sm font-medium text-neutral-300">
+                Win Rate
+              </span>
+              <Chip
+                color={getWinRateColor(data.winRate)}
+                variant="flat"
+                size="sm"
+                className="font-semibold"
+              >
                 {data.winRate}%
               </Chip>
             </div>
 
             <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
-              <span className="text-sm font-medium text-neutral-300">Average KDA</span>
-              <Chip color={getKdaColor(data.avgKda)} variant="flat" size="sm" className="font-semibold">
+              <span className="text-sm font-medium text-neutral-300">
+                Average KDA
+              </span>
+              <Chip
+                color={getKdaColor(data.avgKda)}
+                variant="flat"
+                size="sm"
+                className="font-semibold"
+              >
                 {data.avgKda}
               </Chip>
             </div>
 
             <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
-              <span className="text-sm font-medium text-neutral-300">CS/min</span>
-              <span className="text-sm font-bold text-neutral-100">{data.avgCsPerMin}</span>
+              <span className="text-sm font-medium text-neutral-300">
+                CS/min
+              </span>
+              <span className="text-sm font-bold text-neutral-100">
+                {data.avgCsPerMin}
+              </span>
             </div>
 
             <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
-              <span className="text-sm font-medium text-neutral-300">Gold/min</span>
-              <span className="text-sm font-bold text-neutral-100">{data.avgGoldPerMin.toLocaleString()}</span>
+              <span className="text-sm font-medium text-neutral-300">
+                Gold/min
+              </span>
+              <span className="text-sm font-bold text-neutral-100">
+                {data.avgGoldPerMin.toLocaleString()}
+              </span>
             </div>
           </div>
 
-          {(data.multikills.pentaKills > 0 || data.multikills.quadraKills > 0) && (
-            <div className="mt-6 pt-6 border-t border-neutral-700">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-accent-purple-900/30 rounded-lg">
-                  <Zap className="w-4 h-4 text-accent-purple-400" />
-                </div>
-                <span className="text-sm font-semibold text-neutral-300">Multikills</span>
+          {/* Opponent Comparison */}
+          <div className="mt-6 pt-6 border-t border-neutral-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-accent-purple-900/30 rounded-lg">
+                <Target className="w-4 h-4 text-accent-purple-400" />
               </div>
-              <div className="flex gap-2 flex-wrap">
-                {data.multikills.pentaKills > 0 && (
-                  <Chip color="danger" variant="flat" size="sm" className="font-medium">
-                    {data.multikills.pentaKills} Penta
-                  </Chip>
-                )}
-                {data.multikills.quadraKills > 0 && (
-                  <Chip color="warning" variant="flat" size="sm" className="font-medium">
-                    {data.multikills.quadraKills} Quadra
-                  </Chip>
-                )}
-              </div>
+              <span className="text-sm font-semibold text-neutral-300">
+                vs Direct Opponents
+              </span>
             </div>
-          )}
+
+            {data.spiderChartData && data.spiderChartData.length > 0 ? (
+              <div className="h-64">
+                <SpiderChart data={data.spiderChartData} />
+              </div>
+            ) : (
+              <div className="text-xs text-neutral-500 text-center py-8">
+                No opponent comparison data available
+              </div>
+            )}
+          </div>
         </CardBody>
       </Card>
     </motion.div>

@@ -18,11 +18,13 @@ import { HTTPException } from 'hono/http-exception';
 import ms from 'ms';
 import { v5 } from 'uuid';
 import z from 'zod';
+import { championInsights } from '../../aggregations/championInsights.js';
 import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { playerOverview } from '../../aggregations/playerOverview.js';
+import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
 import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
@@ -30,6 +32,80 @@ import { BADGES_PROMPT } from '../../prompts/badges.js';
 import compareRoleStats from '../../utils/compare-role-stats.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
+
+// Normalize any AI response shape into the required { badges: [{ title, description, reason, polarity }] }
+function normalizeBadgesResponse(input: unknown): {
+  badges: Array<{
+    title: string;
+    description: string;
+    reason: string;
+    polarity: 'good' | 'bad' | 'neutral';
+  }>;
+} {
+  const out: {
+    badges: Array<{
+      title: string;
+      description: string;
+      reason: string;
+      polarity: 'good' | 'bad' | 'neutral';
+    }>;
+  } = { badges: [] };
+  if (!input || typeof input !== 'object') return out;
+  const anyObj = input as Record<string, unknown>;
+  const badgesRaw = anyObj.badges;
+  if (!Array.isArray(badgesRaw)) return out;
+
+  const negativeTitles = new Set([
+    'Vision Improvement Needed',
+    'Early Game Struggles',
+    'Objective Neglect',
+    'Damage Output Gap',
+    'Farm Efficiency Gap',
+    'Tower Pressure Gap',
+    'Death Discipline',
+    'Positioning Cleanup',
+    'Mid Game Dip',
+    'Scaling Issues',
+    'Team Contribution Gap',
+    'Level Tempo Lag',
+    'Experience Gap',
+  ]);
+
+  const normalizePolarity = (
+    title: string,
+    val: unknown,
+  ): 'good' | 'bad' | 'neutral' => {
+    const s = String(val ?? '')
+      .toLowerCase()
+      .trim();
+    if (s === 'good' || s === 'bad' || s === 'neutral') return s as any;
+    return negativeTitles.has(title) ? 'bad' : 'good';
+  };
+
+  const mapped = badgesRaw
+    .map((b: unknown) => {
+      const obj = (b ?? {}) as Record<string, unknown>;
+      const title = String(obj.title ?? obj.name ?? '').trim();
+      const description = String(obj.description ?? '').trim();
+      const reason = String(obj.reason ?? obj.reasoning ?? '').trim();
+      const polarity = normalizePolarity(title, obj.polarity);
+      if (!title && !description && !reason) return null;
+      return {
+        title: title || 'Badge',
+        description: description || '',
+        reason: reason || '',
+        polarity,
+      };
+    })
+    .filter(Boolean) as Array<{
+    title: string;
+    description: string;
+    reason: string;
+    polarity: 'good' | 'bad' | 'neutral';
+  }>;
+  out.badges = mapped;
+  return out;
+}
 
 const accountMiddleware = createMiddleware<{
   Variables: {
@@ -183,10 +259,10 @@ function buildBadgesPromptFromStats(
   const comparisons = compareRoleStats(myStats, enemyStats);
 
   const header =
-    "You are RiftCoach's League of Legends badge generator. Analyze the player's per-role performance versus direct opponents and award 2–4 badges that best fit their playstyle.";
+    "You are RiftCoach's League of Legends badge generator. Analyze the player's per-role performance versus direct opponents and award 1–5 badges that best fit their playstyle.";
 
   const rules =
-    "Rules:\n- Use the following badge catalog and instructions.\n- Treat the player's most-weighted role strictly as the provided 'Primary Role'. Do NOT infer or vary it.\n- You may award badges for other roles if evidence is strong, but never call other roles 'most-weighted'.\n- Prioritize badges only when stats clearly support them; avoid contradictory picks.\n- Output MUST be ONLY valid JSON with one top-level key: badges.\n- badges must be an array of 2–4 objects.\n- Each badge object MUST have keys exactly: title, description, reason.\n- Use the catalog 'name' as the badge title.\n- CRITICAL REASONING STYLE: Write the 'reason' field in a conversational, engaging tone that feels like a coach talking to the player. Avoid robotic statistical reporting.\n- Include specific numbers but weave them into natural language that celebrates achievements or explains performance patterns.\n- GOOD reasoning example: 'You consistently outfarmed your lane opponents, with a +6.3 CS advantage at 10 minutes - that extra farming translates to real gold advantages that fuel your item spikes.'\n- BAD reasoning example: 'Player avgCSAt10 is 71.7 vs opponents 65.4 showing higher CS advantage.'\n- Make it personal and motivational while being factually accurate with the statistics.\n- CRITICAL: When stating comparisons, ensure logical consistency - if player has LOWER values in positive metrics (CS, gold, etc.), they are performing WORSE, not better.";
+    "Rules:\n- Use the following badge catalog and instructions.\n- Treat the player's most-weighted role strictly as the provided 'Primary Role'. Do NOT infer or vary it.\n- You may award badges for other roles if evidence is strong, but never call other roles 'most-weighted'.\n- Prioritize badges only when stats clearly support them; avoid contradictory picks.\n- Output MUST be ONLY valid JSON with one top-level key: badges.\n- badges must be an array of 1–5 objects.\n- Each badge object MUST have keys exactly: title, description, reason, polarity.\n- polarity must be one of: good | bad | neutral\n- For each badge, the 'reason' MUST include at least one explicit numeric value from the metrics that define the selected badge. Cite numbers strictly from that badge’s AI instructions; do NOT pull in unrelated stats (e.g., gold/XP/timepoint metrics) unless the badge explicitly references them. Avoid generic words like 'higher' or 'lower' without numbers.\n- Use the catalog 'name' as the badge title.\n- CRITICAL REASONING STYLE: Write the 'reason' field in a conversational, engaging tone that feels like a coach talking to the player. Avoid robotic statistical reporting.\n- Include specific numbers but weave them into natural language that celebrates achievements or explains performance patterns.\n- GOOD reasoning example: 'You consistently outfarmed your lane opponents, with a +6.3 CS advantage at 10 minutes - that extra farming translates to real gold advantages that fuel your item spikes.'\n- BAD reasoning example: 'Player avgCSAt10 is 71.7 vs opponents 65.4 showing higher CS advantage.'\n- Make it personal and motivational while being factually accurate with the statistics.\n- CRITICAL: When stating comparisons, ensure logical consistency - if player has LOWER values in positive metrics (CS, gold, etc.), they are performing WORSE, not better.";
 
   const formatHint =
     "Input data format:\n- statComparisons: Pre-computed differences between player and opponent stats by role. Each role contains nested stats where numeric values represent the difference (player - opponent).\n- POSITIVE differences mean player is BETTER, NEGATIVE differences mean player is WORSE\n- Use these pre-computed differences directly - DO NOT manually calculate differences from raw stats\n- Example: if avgCSAt10 shows +6.3, the player averages 6.3 more CS at 10 minutes than opponents\n- Example: if avgGoldAt10 shows +265, the player averages 265 more gold at 10 minutes than opponents\n- Example: if deathsPerMin shows -0.05, the player dies 0.05 less per minute than opponents (BETTER)\n\nREASONING TONE GUIDELINES:\n- Address the player directly using 'you' and 'your'\n- Use encouraging language that highlights their strengths\n- Transform dry statistics into meaningful insights about their playstyle\n- Example transformations:\n  * 'avgCSAt10: +6.3' → 'You consistently outfarm your opponents early, securing an extra 6.3 CS by 10 minutes'\n  * 'goldPerMin: +0.45' → 'Your efficient farming translates to an extra 45 gold per minute advantage'\n  * 'visionScorePerMin: +0.4' → 'You light up the map with 40% more vision than your opponents'\n- Focus on what the numbers mean for their gameplay impact, not just the raw comparison.";
@@ -194,7 +270,7 @@ function buildBadgesPromptFromStats(
   const catalog = BADGES_PROMPT;
 
   const jsonOnly =
-    'CRITICAL OUTPUT FORMAT:\n- Respond with ONLY valid JSON\n- NO reasoning chains, NO <reasoning> tags, NO explanations\n- NO markdown formatting, NO code blocks\n- Start immediately with \'{\' and end with \'}\'\n- Structure: { "badges": [{"title": "...", "description": "...", "reason": "..."}] }\n- Must contain exactly 4-5 badge objects\n- Each badge must have all three fields: title, description, reason';
+    'CRITICAL OUTPUT FORMAT:\n- Respond with ONLY valid JSON\n- NO reasoning chains, NO <reasoning> tags, NO explanations\n- NO markdown formatting, NO code blocks\n- Start immediately with \'{\' and end with \'}\'\n- Structure: { "badges": [{"title": "...", "description": "...", "reason": "...", "polarity": "good|bad|neutral"}] }\n- Must contain 1-5 badge objects\n- Each badge must have all four fields: title, description, reason, polarity';
 
   const weightsAndPrimary = computeRoleWeights(myStats);
   const roleWeights = weightsAndPrimary.weights;
@@ -229,6 +305,7 @@ async function invokeBadgesModel(prompt: string): Promise<{
     description?: string;
     reason?: string;
     reasoning?: string;
+    polarity?: string;
   }>;
 }> {
   // Mistral instruct models provide optimal results when
@@ -275,8 +352,8 @@ async function invokeBadgesModel(prompt: string): Promise<{
     if (
       parsed.badges &&
       Array.isArray(parsed.badges) &&
-      parsed.badges.length >= 2 &&
-      parsed.badges.length <= 4
+      parsed.badges.length >= 1 &&
+      parsed.badges.length <= 5
     ) {
       return parsed;
     }
@@ -293,48 +370,208 @@ async function invokeBadgesModel(prompt: string): Promise<{
           title: 'Consistent Player',
           description: 'Shows steady performance across matches',
           reason: 'Fallback badge due to AI generation failure',
+          polarity: 'neutral',
         },
         {
           title: 'Team Player',
           description: 'Contributes effectively to team objectives',
           reason: 'Fallback badge due to AI generation failure',
+          polarity: 'neutral',
         },
       ],
     };
   }
 }
 
-// Normalize any AI response shape into the required { badges: [{ title, description, reason }] }
-function normalizeBadgesResponse(input: unknown): {
-  badges: Array<{ title: string; description: string; reason: string }>;
-} {
-  const out: {
-    badges: Array<{ title: string; description: string; reason: string }>;
-  } = { badges: [] };
-  if (!input || typeof input !== 'object') return out;
-  const anyObj = input as Record<string, unknown>;
-  const badgesRaw = anyObj.badges;
-  if (!Array.isArray(badgesRaw)) return out;
-  const mapped = badgesRaw
-    .map((b) => {
-      const obj = (b ?? {}) as Record<string, unknown>;
-      const title = String(obj.title ?? obj.name ?? '').trim();
-      const description = String(obj.description ?? '').trim();
-      const reason = String(obj.reason ?? obj.reasoning ?? '').trim();
-      if (!title && !description && !reason) return null;
-      return {
-        title: title || 'Badge',
-        description: description || '',
-        reason: reason || '',
-      };
-    })
-    .filter(Boolean) as Array<{
+// AI Insights Generation Function
+async function generateChampionInsights(
+  championData: Array<{
+    championId: number;
+    championName: string;
+    totalGames: number;
+    winRate: number;
+    recentWinRate: number;
+    avgKda: number;
+    consistencyScore: number;
+    performanceTrend: unknown;
+    roles: string[];
+    daysSinceLastPlayed: number;
+  }>,
+): Promise<{
+  summary: string;
+  trends: Array<{
+    type: 'improvement' | 'decline' | 'stable';
+    metric: string;
+    description: string;
+    confidence: number;
+  }>;
+  recommendations: Array<{
+    category: 'champion_pool' | 'playstyle' | 'focus_areas';
     title: string;
     description: string;
-    reason: string;
+    priority: 'high' | 'medium' | 'low';
   }>;
-  out.badges = mapped;
-  return out;
+  confidence: number;
+}> {
+  // Prepare data for AI analysis
+  const topChampions = championData.slice(0, 5);
+  const analysisData = {
+    totalChampions: championData.length,
+    topPerformers: topChampions.map((champ) => ({
+      name: champ.championName,
+      games: champ.totalGames,
+      winRate: champ.winRate,
+      recentWinRate: champ.recentWinRate,
+      avgKda: champ.avgKda,
+      consistencyScore: champ.consistencyScore,
+      trends: champ.performanceTrend,
+      roles: champ.roles,
+      daysSinceLastPlayed: champ.daysSinceLastPlayed,
+    })),
+    overallStats: {
+      totalGames: championData.reduce(
+        (sum, champ) => sum + champ.totalGames,
+        0,
+      ),
+      avgWinRate:
+        championData.reduce(
+          (sum, champ) => sum + champ.winRate * champ.totalGames,
+          0,
+        ) / championData.reduce((sum, champ) => sum + champ.totalGames, 0),
+      avgKda:
+        championData.reduce(
+          (sum, champ) => sum + champ.avgKda * champ.totalGames,
+          0,
+        ) / championData.reduce((sum, champ) => sum + champ.totalGames, 0),
+    },
+  };
+
+  const prompt = `Analyze this League of Legends player's champion performance data and provide insights:
+
+${JSON.stringify(analysisData, null, 2)}
+
+Based on this data, provide a JSON response with:
+1. A brief summary of the player's champion performance
+2. Performance trends (improvement/decline/stable) for key metrics
+3. Actionable recommendations for champion pool, playstyle, and focus areas
+4. Overall confidence score (0-100)
+
+Focus on:
+- Recent performance trends vs overall performance
+- Champion diversity and specialization
+- Consistency across different champions
+- Areas for improvement based on the data
+
+Respond with valid JSON only in this exact format:
+{
+  "summary": "Brief overview of player's champion performance",
+  "trends": [
+    {
+      "type": "improvement|decline|stable",
+      "metric": "metric name",
+      "description": "trend description",
+      "confidence": 85
+    }
+  ],
+  "recommendations": [
+    {
+      "category": "champion_pool|playstyle|focus_areas",
+      "title": "recommendation title",
+      "description": "detailed recommendation",
+      "priority": "high|medium|low"
+    }
+  ],
+  "confidence": 85
+}`;
+
+  const instruction = `<s>[INST] ${prompt} [/INST]`;
+
+  const payload = {
+    prompt: instruction,
+    max_tokens: 2000,
+    temperature: 0.3,
+    top_p: 0.9,
+    top_k: 50,
+  };
+
+  const command = new InvokeModelCommand({
+    modelId: 'mistral.mixtral-8x7b-instruct-v0:1',
+    contentType: 'application/json',
+    body: JSON.stringify(payload),
+  });
+
+  const response = await bedrockClient.send(command);
+  if (!response.body) throw new Error('No response body from Bedrock');
+
+  const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+  const aiText = responseBody.outputs?.[0]?.text || '{}';
+
+  // Clean and parse the response
+  let cleanedText = aiText;
+
+  // Remove any text before the first { and after the last }
+  const firstBrace = cleanedText.indexOf('{');
+  const lastBrace = cleanedText.lastIndexOf('}');
+
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleanedText = cleanedText.slice(firstBrace, lastBrace + 1);
+  }
+
+  try {
+    const parsed = JSON.parse(cleanedText);
+
+    // Validate and normalize the response
+    return {
+      summary: parsed.summary || 'Analysis of champion performance completed.',
+      trends: Array.isArray(parsed.trends) ? parsed.trends.slice(0, 5) : [],
+      recommendations: Array.isArray(parsed.recommendations)
+        ? parsed.recommendations.slice(0, 4)
+        : [],
+      confidence: Math.min(Math.max(parsed.confidence || 75, 0), 100),
+    };
+  } catch (error) {
+    consola.error('Error parsing AI insights response:', error);
+
+    // Fallback response based on data analysis
+    const fallbackInsights = generateFallbackInsights(championData);
+    return fallbackInsights;
+  }
+}
+
+// Fallback insights generation when AI fails
+function generateFallbackInsights(
+  championData: Array<{
+    championName: string;
+    totalGames: number;
+    winRate: number;
+    daysSinceLastPlayed: number;
+  }>,
+) {
+  const topChamp = championData[0];
+  const recentlyPlayed = championData.filter(
+    (champ) => champ.daysSinceLastPlayed <= 7,
+  );
+
+  return {
+    summary: `Analysis of ${championData.length} champions shows ${topChamp?.championName || 'your top champion'} as your strongest performer with ${topChamp?.winRate || 0}% win rate.`,
+    trends: [
+      {
+        type: 'stable' as const,
+        metric: 'Champion Performance',
+        description: 'Consistent performance across your champion pool',
+        confidence: 70,
+      },
+    ],
+    recommendations: [
+      {
+        category: 'champion_pool' as const,
+        title: 'Focus on Main Champions',
+        description: `Continue playing ${topChamp?.championName || 'your best champions'} to maintain your current performance level.`,
+        priority: 'medium' as const,
+      },
+    ],
+    confidence: 70,
+  };
 }
 
 const regionSchema = z.object({
@@ -544,8 +781,330 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
           title: b.title,
           description: fixText(b.description),
           reason: fixText(b.reason),
+          polarity: b.polarity || 'neutral',
         })),
       };
+    }
+
+    // Ensure each reason includes explicit numbers; otherwise append top diffs for primary role
+    try {
+      const comparisons = compareRoleStats(myStats, enemyStats);
+      const roleKey = pr ? String(pr) : null;
+      const roleEntry = roleKey
+        ? (comparisons as any[]).find((c) => c.position === roleKey)
+        : (comparisons as any[])[0];
+      if (roleEntry && roleEntry.stats) {
+        const flattenNumericDiffs = (
+          obj: Record<string, unknown>,
+          prefix = '',
+        ): Array<{ path: string; diff: number }> => {
+          const out: Array<{ path: string; diff: number }> = [];
+          for (const [key, val] of Object.entries(obj)) {
+            const path = prefix ? `${prefix}.${key}` : key;
+            if (typeof val === 'number' && Number.isFinite(val)) {
+              out.push({ path, diff: val });
+            } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+              out.push(
+                ...flattenNumericDiffs(val as Record<string, unknown>, path),
+              );
+            }
+          }
+          return out;
+        };
+        const getPath = (root: any, path: string): unknown =>
+          path
+            .split('.')
+            .reduce(
+              (acc: any, key: string) =>
+                acc && typeof acc === 'object' ? (acc as any)[key] : undefined,
+              root,
+            );
+        const getDiff = (paths: string[]): number | null => {
+          for (const p of paths) {
+            const v = getPath(roleEntry.stats, p);
+            if (typeof v === 'number' && Number.isFinite(v)) return v as number;
+          }
+          return null;
+        };
+
+        // Apply threshold checks to prevent trivial or contradictory badges
+        const primaryRole = pr ? String(pr) : 'UNKNOWN';
+        const checks: Record<string, () => boolean> = {
+          'Vision Expert': () => {
+            const d = getDiff(['visionScorePerMin', 'vision_score_per_min']);
+            if (d == null) return true;
+            return (
+              (primaryRole !== 'UTILITY' && d >= 0.35) ||
+              (primaryRole === 'UTILITY' && d >= 0.5)
+            );
+          },
+          'Vision Improvement Needed': () => {
+            const d = getDiff(['visionScorePerMin', 'vision_score_per_min']);
+            if (d == null) return true;
+            return (
+              (primaryRole !== 'UTILITY' && d <= -0.35) ||
+              (primaryRole === 'UTILITY' && d <= -0.5)
+            );
+          },
+          'Early Game Dominator': () => {
+            if (primaryRole === 'UTILITY') return false;
+            const cs = getDiff(['avg_cs_at10', 'avgCSAt10']);
+            const gold = getDiff(['avg_gold_at10', 'avgGoldAt10']);
+            if (cs == null || gold == null) return true;
+            return cs >= 20 && gold >= 500;
+          },
+          'Early Game Struggles': () => {
+            if (primaryRole === 'UTILITY') return false;
+            const cs = getDiff(['avg_cs_at10', 'avgCSAt10']);
+            const gold = getDiff(['avg_gold_at10', 'avgGoldAt10']);
+            if (cs == null || gold == null) return true;
+            return cs <= -15 && gold <= -400;
+          },
+          'Tower Destroyer': () => {
+            const plates = getDiff(['avg_turret_plates_participation']);
+            const towers = getDiff(['avg_towers_participation']);
+            if (plates == null || towers == null) return true;
+            return plates >= 0.1 && towers >= 0.1;
+          },
+          'Tower Pressure Gap': () => {
+            const plates = getDiff(['avg_turret_plates_participation']);
+            const towers = getDiff(['avg_towers_participation']);
+            if (plates == null || towers == null) return true;
+            return plates <= -0.1 && towers <= -0.1;
+          },
+          'Void Hunter': () => {
+            const grubs = getDiff(['avg_grubs_participation']);
+            const herald = getDiff(['avg_herald_participation']);
+            if (grubs == null || herald == null) return true;
+            return grubs >= 0.1 && herald >= 0.1;
+          },
+          'Objective Neglect': () => {
+            const grubs = getDiff(['avg_grubs_participation']);
+            const herald = getDiff(['avg_herald_participation']);
+            if (grubs == null || herald == null) return true;
+            return grubs <= -0.1 && herald <= -0.1;
+          },
+          'Damage Dealer': () => {
+            const dpm = getDiff(['avg_dpm', 'avgDpm']);
+            if (dpm == null) return true;
+            return dpm >= 100;
+          },
+          'Damage Output Gap': () => {
+            const dpm = getDiff(['avg_dpm', 'avgDpm']);
+            if (dpm == null) return true;
+            return dpm <= -100;
+          },
+          'Gold Farmer': () => {
+            const cs = getDiff(['avg_cs_total', 'avgCSTotal']);
+            const gpm = getDiff(['avg_gpm', 'avgGpm']);
+            if (cs == null || gpm == null) return true;
+            return cs >= 10 && gpm >= 25;
+          },
+          'Farm Efficiency Gap': () => {
+            const cs = getDiff(['avg_cs_total', 'avgCSTotal']);
+            const gpm = getDiff(['avg_gpm', 'avgGpm']);
+            if (cs == null || gpm == null) return true;
+            return cs <= -10 && gpm <= -25;
+          },
+          'Team Player': () => {
+            const assists = getDiff(['avg_assists', 'avgAssists']);
+            const deaths = getDiff(['avg_deaths', 'avgDeaths']);
+            if (assists == null || deaths == null) return true;
+            return assists >= 2.0 && deaths <= -0.5;
+          },
+          'Team Contribution Gap': () => {
+            const assists = getDiff(['avg_assists', 'avgAssists']);
+            const deaths = getDiff(['avg_deaths', 'avgDeaths']);
+            if (assists == null || deaths == null) return true;
+            return assists <= -2.0 && deaths >= 0.3;
+          },
+          'Level Advantage': () => {
+            const l15 = getDiff(['avg_level_at15', 'avgLevelAt15']);
+            const l20 = getDiff(['avg_level_at20', 'avgLevelAt20']);
+            if (l15 == null || l20 == null) return true;
+            return l15 >= 1.0 && l20 >= 1.0;
+          },
+          'Level Tempo Lag': () => {
+            const l15 = getDiff(['avg_level_at15', 'avgLevelAt15']);
+            const l20 = getDiff(['avg_level_at20', 'avgLevelAt20']);
+            if (l15 == null || l20 == null) return true;
+            return l15 <= -1.0 && l20 <= -1.0;
+          },
+          'Experience Hoarder': () => {
+            const x15 = getDiff(['avg_xp_at15', 'avgXPAt15']);
+            const x20 = getDiff(['avg_xp_at20', 'avgXPAt20']);
+            if (x15 == null || x20 == null) return true;
+            return x15 >= 500 && x20 >= 700;
+          },
+          'Experience Gap': () => {
+            const x15 = getDiff(['avg_xp_at15', 'avgXPAt15']);
+            const x20 = getDiff(['avg_xp_at20', 'avgXPAt20']);
+            if (x15 == null || x20 == null) return true;
+            return x15 <= -500 && x20 <= -700;
+          },
+          'Tank Specialist': () => {
+            const deaths = getDiff(['avg_deaths', 'avgDeaths']);
+            const dmgTaken = getDiff([
+              'avg_dmg_taken_per_min',
+              'avgDmgTakenPerMin',
+            ]);
+            if (deaths == null && dmgTaken == null) return true;
+            return (
+              (deaths != null && deaths <= -0.5) ||
+              (dmgTaken != null && dmgTaken >= 40)
+            );
+          },
+          'Positioning Cleanup': () => {
+            const deaths = getDiff(['avg_deaths', 'avgDeaths']);
+            const dmgTaken = getDiff([
+              'avg_dmg_taken_per_min',
+              'avgDmgTakenPerMin',
+            ]);
+            if (deaths == null || dmgTaken == null) return true;
+            return deaths >= 0.5 && dmgTaken <= 20;
+          },
+          'Mid Game Specialist': () => {
+            const g15 = getDiff(['avg_gold_at15', 'avgGoldAt15']);
+            const g20 = getDiff(['avg_gold_at20', 'avgGoldAt20']);
+            if (g15 == null || g20 == null) return true;
+            return Math.abs(g15) <= 200 && g20 >= 400;
+          },
+          'Mid Game Dip': () => {
+            const g15 = getDiff(['avg_gold_at15', 'avgGoldAt15']);
+            const g20 = getDiff(['avg_gold_at20', 'avgGoldAt20']);
+            if (g15 == null || g20 == null) return true;
+            return Math.abs(g15) <= 150 && g20 <= -300;
+          },
+          'Late Game Carry': () => {
+            const g30 = getDiff(['avg_gold_at30', 'avgGoldAt30']);
+            if (g30 == null) return true;
+            return g30 >= 200;
+          },
+          'Scaling Monster': () => {
+            const g30 = getDiff(['avg_gold_at30', 'avgGoldAt30']);
+            const cs30 = getDiff(['avg_cs_at30', 'avgCSAt30']);
+            if (g30 == null || cs30 == null) return true;
+            return g30 >= 500 && cs30 >= 30;
+          },
+        };
+
+        const filtered = {
+          badges: normalized.badges.filter((b) => {
+            const fn = checks[b.title];
+            return fn ? fn() : true;
+          }),
+        };
+        if (filtered.badges.length > 0) {
+          normalized = filtered;
+        }
+
+        // Append only badge-relevant numbers; skip unrelated metrics entirely
+        const metricAliases: Record<string, string[]> = {
+          visionScorePerMin: ['visionScorePerMin', 'vision_score_per_min'],
+          avg_cs_at10: ['avg_cs_at10', 'avgCSAt10'],
+          avg_gold_at10: ['avg_gold_at10', 'avgGoldAt10'],
+          avg_turret_plates_participation: ['avg_turret_plates_participation'],
+          avg_towers_participation: ['avg_towers_participation'],
+          avg_grubs_participation: ['avg_grubs_participation'],
+          avg_herald_participation: ['avg_herald_participation'],
+          avg_drakes_participation: ['avg_drakes_participation'],
+          avg_baron_participation: ['avg_baron_participation'],
+          avg_atakhan_participation: ['avg_atakhan_participation'],
+          avg_dpm: ['avg_dpm', 'avgDpm'],
+          avg_cs_total: ['avg_cs_total', 'avgCSTotal'],
+          avg_gpm: ['avg_gpm', 'avgGpm'],
+          avg_assists: ['avg_assists', 'avgAssists'],
+          avg_kills: ['avg_kills', 'avgKills'],
+          avg_deaths: ['avg_deaths', 'avgDeaths'],
+          avg_level_at15: ['avg_level_at15', 'avgLevelAt15'],
+          avg_level_at20: ['avg_level_at20', 'avgLevelAt20'],
+          avg_xp_at15: ['avg_xp_at15', 'avgXPAt15'],
+          avg_xp_at20: ['avg_xp_at20', 'avgXPAt20'],
+          avg_dmg_taken_per_min: ['avg_dmg_taken_per_min', 'avgDmgTakenPerMin'],
+          avg_gold_at15: ['avg_gold_at15', 'avgGoldAt15'],
+          avg_gold_at20: ['avg_gold_at20', 'avgGoldAt20'],
+          avg_gold_at30: ['avg_gold_at30', 'avgGoldAt30'],
+          avg_cs_at30: ['avg_cs_at30', 'avgCSAt30'],
+        };
+        const allowedMetricsByTitle: Record<string, string[]> = {
+          'Vision Expert': ['visionScorePerMin'],
+          'Vision Improvement Needed': ['visionScorePerMin'],
+          'Early Game Dominator': ['avg_cs_at10', 'avg_gold_at10'],
+          'Early Game Struggles': ['avg_cs_at10', 'avg_gold_at10'],
+          'Tower Destroyer': [
+            'avg_turret_plates_participation',
+            'avg_towers_participation',
+          ],
+          'Tower Pressure Gap': [
+            'avg_turret_plates_participation',
+            'avg_towers_participation',
+          ],
+          'Objective Master': [
+            'avg_drakes_participation',
+            'avg_herald_participation',
+            'avg_baron_participation',
+          ],
+          'Void Hunter': [
+            'avg_grubs_participation',
+            'avg_herald_participation',
+          ],
+          'Objective Neglect': [
+            'avg_grubs_participation',
+            'avg_herald_participation',
+          ],
+          'Atakhan Slayer': ['avg_atakhan_participation'],
+          'Damage Dealer': ['avg_dpm'],
+          'Damage Output Gap': ['avg_dpm'],
+          'Gold Farmer': ['avg_cs_total', 'avg_gpm'],
+          'Farm Efficiency Gap': ['avg_cs_total', 'avg_gpm'],
+          'Kill Specialist': ['avg_kills', 'avg_deaths'],
+          'Team Player': ['avg_assists', 'avg_deaths'],
+          'Team Contribution Gap': ['avg_assists', 'avg_deaths'],
+          'Level Advantage': ['avg_level_at15', 'avg_level_at20'],
+          'Level Tempo Lag': ['avg_level_at15', 'avg_level_at20'],
+          'Experience Hoarder': ['avg_xp_at15', 'avg_xp_at20'],
+          'Experience Gap': ['avg_xp_at15', 'avg_xp_at20'],
+          'Tank Specialist': ['avg_deaths', 'avg_dmg_taken_per_min'],
+          'Positioning Cleanup': ['avg_deaths', 'avg_dmg_taken_per_min'],
+          'Mid Game Specialist': [
+            'avg_gold_at15',
+            'avg_gold_at20',
+            'avg_level_at15',
+            'avg_level_at20',
+          ],
+          'Mid Game Dip': ['avg_gold_at15', 'avg_gold_at20'],
+          'Late Game Carry': ['avg_gold_at30', 'avg_cs_at30'],
+          'Scaling Monster': ['avg_gold_at30', 'avg_cs_at30'],
+        };
+        function format(val: number): string {
+          const sign = val > 0 ? '+' : '';
+          return `${sign}${Math.round(val * 100) / 100}`;
+        }
+        normalized = {
+          badges: normalized.badges.map((b) => {
+            const allowed = allowedMetricsByTitle[b.title] || [];
+            if (allowed.length === 0) return b;
+            const numbers: string[] = [];
+            for (const canonical of allowed) {
+              const aliases = metricAliases[canonical] || [canonical];
+              const d = getDiff(aliases);
+              if (d != null) {
+                numbers.push(`${format(d)} ${canonical}`);
+              }
+            }
+            if (numbers.length === 0) return b;
+            const hasNumber = /\d/.test(b.reason);
+            return hasNumber
+              ? b
+              : {
+                  ...b,
+                  reason: `${b.reason ? `${b.reason} ` : ''}Key numbers: ${numbers.join(', ')}`,
+                };
+          }),
+        };
+      }
+    } catch {
+      // ignore enrichment errors
     }
     await redis.set(aiCacheKey, JSON.stringify(normalized), 'EX', ms('12h'));
     return c.json(normalized);
@@ -619,6 +1178,7 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
       title: string;
       description: string;
       reason: string;
+      polarity: 'good' | 'bad' | 'neutral';
     }> = [];
     if (topPos) {
       badges.push({
@@ -626,6 +1186,7 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
         description:
           'Largest positive diffs versus lane opponents across key metrics',
         reason: buildRoleReason(topPos.role, topPos.stats),
+        polarity: 'good',
       });
     }
     if (topNeg && (!topPos || topNeg.role !== topPos.role)) {
@@ -634,6 +1195,7 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
         description:
           'Largest negative diffs versus lane opponents indicate improvement opportunities',
         reason: buildRoleReason(topNeg.role, topNeg.stats),
+        polarity: 'bad',
       });
     }
     if (badges.length === 0) {
@@ -642,6 +1204,7 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
         description:
           'AI generation failed; returning numerical role comparison overview',
         reason: 'No diffs detected to highlight',
+        polarity: 'neutral',
       });
     }
     return c.json({ badges });
@@ -682,7 +1245,8 @@ app.get('/:region/:tagName/:tagLine/heatmap', accountMiddleware, async (c) => {
 
 app.get('/:region/:tagName/:tagLine/overview', accountMiddleware, async (c) => {
   const puuid = c.var.account.puuid;
-  const cacheKey = `cache:overview:${c.var.internalId}`;
+  const { position } = c.req.query();
+  const cacheKey = `cache:overview:${c.var.internalId}:${position || 'all'}`;
 
   const cached = await redis.get(cacheKey);
   if (cached) {
@@ -690,7 +1254,7 @@ app.get('/:region/:tagName/:tagLine/overview', accountMiddleware, async (c) => {
   }
 
   const overview = await collections.matches
-    .aggregate(playerOverview(puuid))
+    .aggregate(playerOverviewWithOpponents(puuid, position?.toUpperCase()))
     .toArray();
 
   const result = overview[0] || null;
@@ -723,6 +1287,82 @@ app.get(
 );
 
 app.get(
+  '/:region/:tagName/:tagLine/champion-insights',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+
+    const cacheKey = `cache:champion-insights:${c.var.internalId}`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return c.json(JSON.parse(cached));
+    }
+
+    const insights = (await collections.matches
+      .aggregate(championInsights(puuid))
+      .toArray()) as Array<{
+      championId: number;
+      championName: string;
+      totalGames: number;
+      winRate: number;
+      recentWinRate: number;
+      avgKda: number;
+      consistencyScore: number;
+      performanceTrend: unknown;
+      roles: string[];
+      daysSinceLastPlayed: number;
+    }>;
+
+    // Filter out champions with insufficient data or invalid values
+    const validInsights = insights.filter((champion) => {
+      // Require at least 3 games for meaningful insights
+      if (champion.totalGames < 3) return false;
+
+      // Filter out champions with invalid or NaN values
+      if (
+        Number.isNaN(champion.winRate) ||
+        Number.isNaN(champion.avgKda) ||
+        Number.isNaN(champion.consistencyScore) ||
+        champion.winRate < 0 ||
+        champion.winRate > 100 ||
+        champion.avgKda < 0 ||
+        champion.consistencyScore < 0 ||
+        champion.consistencyScore > 100
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    // Generate AI insights using AWS Bedrock
+    let aiInsights = null;
+    if (validInsights.length > 0) {
+      try {
+        aiInsights = await generateChampionInsights(validInsights);
+      } catch (error) {
+        consola.error('Error generating AI insights:', error);
+        // Continue without AI insights if generation fails
+      }
+    }
+
+    const result = {
+      championData: validInsights,
+      aiInsights: aiInsights || {
+        summary: 'Unable to generate AI insights at this time.',
+        trends: [],
+        recommendations: [],
+        confidence: 0,
+      },
+    };
+
+    await redis.set(cacheKey, JSON.stringify(result), 'EX', ms('30m'));
+    return c.json(result);
+  },
+);
+
+app.get(
   '/:region/:tagName/:tagLine/champion-mastery',
   accountMiddleware,
   async (c) => {
@@ -730,7 +1370,7 @@ app.get(
     const { limit } = c.req.query();
     const champLimit = limit ? Number(limit) : 5;
 
-    const cacheKey = `cache:champion-mastery:${c.var.internalId}:${champLimit}`;
+    const cacheKey = `cache:champion-mastery:v2:${c.var.internalId}:${champLimit}`;
 
     const cached = await redis.get(cacheKey);
     if (cached) {
