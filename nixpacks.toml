@@ -1,0 +1,28 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+cmds = [
+  "corepack enable",
+  "corepack prepare pnpm@10.14.0 --activate"
+]
+
+[phases.install]
+cmds = [
+  "pnpm install --frozen-lockfile"
+]
+
+[phases.build]
+cmds = [
+  "pnpm run build:web"
+]
+
+[start]
+cmd = "cd apps/web && node .output/server/index.mjs"
+
+[variables]
+NODE_ENV = "production"
+PORT = "3000"
+
+[staticAssets]
+# TanStack Start generates static assets during build
+"apps/web/public" = "/"
+"apps/web/.output/public" = "/"
