@@ -1,0 +1,24 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "pnpm"]
+
+[phases.install]
+cmds = [
+  "pnpm install --frozen-lockfile"
+]
+
+[phases.build]
+cmds = [
+  "pnpm run build"
+]
+
+[start]
+cmd = "node .output/server/index.mjs"
+
+[variables]
+NODE_ENV = "production"
+PORT = "3000"
+
+[staticAssets]
+# TanStack Start generates static assets during build
+"public" = "/"
+".output/public" = "/"

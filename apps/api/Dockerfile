@@ -1,5 +1,5 @@
 # Use Node.js Alpine as the base image
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 
 # Install wget and other required packages
 RUN apk add --no-cache wget
@@ -18,6 +18,7 @@ COPY pnpm-lock.yaml ./
 # Copy package.json files for all workspace packages to leverage Docker layer caching
 COPY packages/shared/constants/package.json ./packages/shared/constants/
 COPY packages/shared/lol-types/package.json ./packages/shared/lol-types/
+COPY packages/queues/package.json ./packages/queues/
 COPY apps/api/package.json ./apps/api/
 
 # Install dependencies (this layer will be cached if package.json files don't change)
@@ -37,7 +38,7 @@ RUN pnpm compile
 RUN cd apps/api && pnpm run build
 
 # Production stage
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 
 # Install wget in production image
 RUN apk add --no-cache wget
