@@ -221,7 +221,10 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
           const targetCluster = isLegacyJob
             ? (cluster as RiotAPITypes.Cluster)
             : regionToCluster(region);
-          await connection.zrem(`rewind:queue:${targetCluster}` as string, rewindId);
+          await connection.zrem(
+            `rewind:queue:${targetCluster}` as string,
+            rewindId,
+          );
         }
       }
 
@@ -237,8 +240,8 @@ const sharedWorkerOptions: WorkerOptions = {
   connection,
   concurrency: 1,
   limiter: {
-    duration: ms('1m'),
-    max: 50,
+    duration: ms('10s'),
+    max: 10,
   },
 };
 

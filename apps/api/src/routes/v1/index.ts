@@ -14,10 +14,13 @@ import chalk from 'chalk';
 import consola from 'consola';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
+import { HTTPException } from 'hono/http-exception';
 import ms from 'ms';
 import { v5 } from 'uuid';
 import z from 'zod';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
+import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
+import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
 import { BADGES_PROMPT } from '../../prompts/badges.js';
@@ -173,21 +176,22 @@ function buildBadgesPromptFromStats(
   myStats: Array<Record<string, unknown>>,
   enemyStats: Array<Record<string, unknown>>,
 ): string {
-  // Note: Stats objects are grouped by role under `position` and include per-minute metrics,
-  // early/late snapshots, and objective participation. The model should compute diffs itself.
+  // Compute the differences using compareRoleStats for accurate comparisons
+  const comparisons = compareRoleStats(myStats, enemyStats);
+
   const header =
     "You are RiftCoach's League of Legends badge generator. Analyze the player's per-role performance versus direct opponents and award 2–4 badges that best fit their playstyle.";
 
   const rules =
-    "Rules:\n- Use the following badge catalog and instructions.\n- Treat the player's most-weighted role strictly as the provided 'Primary Role'. Do NOT infer or vary it.\n- You may award badges for other roles if evidence is strong, but never call other roles 'most-weighted'.\n- Prioritize badges only when stats clearly support them; avoid contradictory picks.\n- Output MUST be ONLY valid JSON with one top-level key: badges.\n- badges must be an array of 2–4 objects.\n- Each badge object MUST have keys exactly: title, description, reason.\n- Use the catalog 'name' as the badge title.\n- CRITICAL REASONING STYLE: Write the 'reason' field in a conversational, engaging tone that feels like a coach talking to the player. Avoid robotic statistical reporting.\n- Include specific numbers but weave them into natural language that celebrates achievements or explains performance patterns.\n- GOOD reasoning example: 'You consistently outfarmed your lane opponents, averaging 71.7 CS at 10 minutes compared to their 65.4 - that extra 6+ minions per game translates to real gold advantages that fuel your item spikes.'\n- BAD reasoning example: 'Player avgCSAt10 is 71.7 vs opponents 65.4 showing higher CS advantage.'\n- Make it personal and motivational while being factually accurate with the statistics.\n- CRITICAL: When stating comparisons, ensure logical consistency - if player has LOWER values in positive metrics (CS, gold, etc.), they are performing WORSE, not better.";
+    "Rules:\n- Use the following badge catalog and instructions.\n- Treat the player's most-weighted role strictly as the provided 'Primary Role'. Do NOT infer or vary it.\n- You may award badges for other roles if evidence is strong, but never call other roles 'most-weighted'.\n- Prioritize badges only when stats clearly support them; avoid contradictory picks.\n- Output MUST be ONLY valid JSON with one top-level key: badges.\n- badges must be an array of 2–4 objects.\n- Each badge object MUST have keys exactly: title, description, reason.\n- Use the catalog 'name' as the badge title.\n- CRITICAL REASONING STYLE: Write the 'reason' field in a conversational, engaging tone that feels like a coach talking to the player. Avoid robotic statistical reporting.\n- Include specific numbers but weave them into natural language that celebrates achievements or explains performance patterns.\n- GOOD reasoning example: 'You consistently outfarmed your lane opponents, with a +6.3 CS advantage at 10 minutes - that extra farming translates to real gold advantages that fuel your item spikes.'\n- BAD reasoning example: 'Player avgCSAt10 is 71.7 vs opponents 65.4 showing higher CS advantage.'\n- Make it personal and motivational while being factually accurate with the statistics.\n- CRITICAL: When stating comparisons, ensure logical consistency - if player has LOWER values in positive metrics (CS, gold, etc.), they are performing WORSE, not better.";
 
   const formatHint =
-    "Input data format:\n- myStats: array of role aggregates for the player (fields like kills/deaths/assists per minute, cs/gold/vision per minute, damage taken, CS@10, Gold@10, XP@10, late-game @30 snapshots, objective participation for dragons/herald/baron/towers/plates, etc.).\n- enemyStats: same structure for opponents in lane/role.\n\nCRITICAL COMPARISON RULES:\n- HIGHER is BETTER for: kills, assists, cs, gold, vision, damage dealt, objective participation rates, CS@10/15/20/30, Gold@10/15/20/30, XP@10/15/20/30\n- LOWER is BETTER for: deaths, damage taken\n- When comparing player vs opponent stats, calculate: (player_value - opponent_value)\n- Positive differences mean player is BETTER, negative differences mean player is WORSE\n- Example: Player CS/min=1.02, Opponent CS/min=1.55 → Difference = 1.02-1.55 = -0.53 (player is WORSE at CS)\n\nREASONING TONE GUIDELINES:\n- Address the player directly using 'you' and 'your'\n- Use encouraging language that highlights their strengths\n- Transform dry statistics into meaningful insights about their playstyle\n- Example transformations:\n  * 'avgCSAt10: 71.7 vs 65.4' → 'You consistently outfarm your opponents early, securing 71.7 CS by 10 minutes while they only manage 65.4'\n  * 'goldPerMin: +45 advantage' → 'Your efficient farming translates to an extra 45 gold per minute, giving you faster item completions'\n  * 'visionScorePerMin: 1.2 vs 0.8' → 'You light up the map with 50% more vision than your opponents, giving your team crucial information advantages'\n- Focus on what the numbers mean for their gameplay impact, not just the raw comparison.";
+    "Input data format:\n- statComparisons: Pre-computed differences between player and opponent stats by role. Each role contains nested stats where numeric values represent the difference (player - opponent).\n- POSITIVE differences mean player is BETTER, NEGATIVE differences mean player is WORSE\n- Use these pre-computed differences directly - DO NOT manually calculate differences from raw stats\n- Example: if avgCSAt10 shows +6.3, the player averages 6.3 more CS at 10 minutes than opponents\n- Example: if avgGoldAt10 shows +265, the player averages 265 more gold at 10 minutes than opponents\n- Example: if deathsPerMin shows -0.05, the player dies 0.05 less per minute than opponents (BETTER)\n\nREASONING TONE GUIDELINES:\n- Address the player directly using 'you' and 'your'\n- Use encouraging language that highlights their strengths\n- Transform dry statistics into meaningful insights about their playstyle\n- Example transformations:\n  * 'avgCSAt10: +6.3' → 'You consistently outfarm your opponents early, securing an extra 6.3 CS by 10 minutes'\n  * 'goldPerMin: +0.45' → 'Your efficient farming translates to an extra 45 gold per minute advantage'\n  * 'visionScorePerMin: +0.4' → 'You light up the map with 40% more vision than your opponents'\n- Focus on what the numbers mean for their gameplay impact, not just the raw comparison.";
 
   const catalog = BADGES_PROMPT;
 
   const jsonOnly =
-    'CRITICAL OUTPUT FORMAT:\n- Respond with ONLY valid JSON\n- NO reasoning chains, NO <reasoning> tags, NO explanations\n- NO markdown formatting, NO code blocks\n- Start immediately with \'{\' and end with \'}\'\n- Structure: { "badges": [{"title": "...", "description": "...", "reason": "..."}] }\n- Must contain exactly 2-4 badge objects\n- Each badge must have all three fields: title, description, reason';
+    'CRITICAL OUTPUT FORMAT:\n- Respond with ONLY valid JSON\n- NO reasoning chains, NO <reasoning> tags, NO explanations\n- NO markdown formatting, NO code blocks\n- Start immediately with \'{\' and end with \'}\'\n- Structure: { "badges": [{"title": "...", "description": "...", "reason": "..."}] }\n- Must contain exactly 4-5 badge objects\n- Each badge must have all three fields: title, description, reason';
 
   const weightsAndPrimary = computeRoleWeights(myStats);
   const roleWeights = weightsAndPrimary.weights;
@@ -210,11 +214,8 @@ function buildBadgesPromptFromStats(
     '',
     jsonOnly,
     '',
-    'Player Data (myStats):',
-    JSON.stringify(myStats),
-    '',
-    'Opponent Data (enemyStats):',
-    JSON.stringify(enemyStats),
+    'Statistical Comparisons (Player vs Opponents - Pre-computed Differences):',
+    JSON.stringify(comparisons, null, 2),
   ].join('\n');
 }
 
@@ -518,57 +519,6 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
     );
     const aiJson = await invokeBadgesModel(prompt);
     let normalized = normalizeBadgesResponse(aiJson);
-    // Ensure reasons include numeric evidence; if missing, enrich from comparisons
-    const comparisonsForEvidence = compareRoleStats(myStats, enemyStats);
-    function flattenAllComparisons(
-      cs: typeof comparisonsForEvidence,
-    ): Array<{ path: string; diff: number }> {
-      const out: Array<{ path: string; diff: number }> = [];
-      for (const cmp of cs) {
-        const stats = cmp.stats as Record<string, unknown>;
-        const stack: Array<{ prefix: string; obj: Record<string, unknown> }> = [
-          { prefix: cmp.position, obj: stats },
-        ];
-        while (stack.length) {
-          const { prefix, obj } = stack.pop() as {
-            prefix: string;
-            obj: Record<string, unknown>;
-          };
-          for (const [k, v] of Object.entries(obj)) {
-            const path = `${prefix}.${k}`;
-            if (typeof v === 'number' && Number.isFinite(v)) {
-              out.push({ path, diff: v });
-            } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-              stack.push({ prefix: path, obj: v as Record<string, unknown> });
-            }
-          }
-        }
-      }
-      return out;
-    }
-    const diffsAll = flattenAllComparisons(comparisonsForEvidence).sort(
-      (a, b) => Math.abs(b.diff) - Math.abs(a.diff),
-    );
-    const evidence = diffsAll
-      .slice(0, 3)
-      .map(
-        (d) =>
-          `${d.diff > 0 ? '+' : ''}${Math.round(d.diff * 100) / 100} ${d.path}`,
-      )
-      .join(', ');
-    if (evidence) {
-      normalized = {
-        badges: normalized.badges.map((b) => {
-          const hasNumber = /\d/.test(b.reason ?? '');
-          const newReason = hasNumber
-            ? b.reason
-            : b.reason
-              ? `${b.reason} | evidence: ${evidence}`
-              : `evidence: ${evidence}`;
-          return { ...b, reason: newReason };
-        }),
-      };
-    }
     // Correct any AI text that mislabels the most-weighted role
     const pr = computeRoleWeights(myStats).primaryRole;
     if (pr) {
@@ -693,6 +643,38 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
     }
     return c.json({ badges });
   }
+});
+
+app.get(
+  '/:region/:tagName/:tagLine/champions',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+    const champs = await collections.matches
+      .aggregate(playerChampsByRole(puuid))
+      .toArray();
+    return c.json(champs);
+  },
+);
+
+app.get('/:region/:tagName/:tagLine/heatmap', accountMiddleware, async (c) => {
+  const puuid = c.var.account.puuid;
+  const { role, championId, mode } = c.req.query();
+  if (!role) {
+    throw new HTTPException(400, { message: 'role is required', cause: role });
+  }
+  const aggregation = playerHeatmap({
+    puuid,
+    role: role.toUpperCase() || 'BOTTOM',
+    championId: championId ? Number(championId) : null,
+    mode: mode as 'kills' | 'deaths' | undefined,
+  });
+  const heatmap = await collections.matches
+    .aggregate(aggregation, {
+      allowDiskUse: true,
+    })
+    .toArray();
+  return c.json(heatmap);
 });
 
 export { app };

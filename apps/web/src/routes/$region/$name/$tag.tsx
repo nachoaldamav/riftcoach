@@ -1,12 +1,21 @@
 import { http, HttpError } from '@/clients/http';
 import { ChampionImage } from '@/components/champion-image';
+import { HeatmapOverlay } from '@/components/heatmap-overlay';
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import { Card, CardBody, Chip, Progress, Tooltip } from '@heroui/react';
+import {
+  Card,
+  CardBody,
+  Chip,
+  Progress,
+  Select,
+  SelectItem,
+  Tooltip,
+} from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
 import { Loader2, Swords } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface RewindStatusResponse {
   rewindId: string;
@@ -23,6 +32,13 @@ export interface SummonerSummary {
   name: string;
   profileIconId: number;
   summonerLevel: number;
+}
+
+export interface HeatmapData {
+  xBin: number;
+  yBin: number;
+  count: number;
+  grid: number;
 }
 
 export const Route = createFileRoute('/$region/$name/$tag')({
@@ -72,6 +88,319 @@ interface ProcessedMatch {
   timestamp: number;
 }
 
+function HeatmapCard() {
+  const { region, name, tag } = Route.useParams();
+  const { champions } = useDataDragon();
+
+  // Static role and mode lists
+  const roles = [
+    { key: 'TOP', label: 'Top' },
+    { key: 'JUNGLE', label: 'Jungle' },
+    { key: 'MIDDLE', label: 'Middle' },
+    { key: 'BOTTOM', label: 'Bottom' },
+    { key: 'UTILITY', label: 'Support' },
+  ];
+
+  const modes = [
+    { key: 'kills', label: 'Kills' },
+    { key: 'deaths', label: 'Deaths' },
+  ];
+
+  const [selectedRole, setSelectedRole] = useState('BOTTOM');
+  const [selectedChampion, setSelectedChampion] = useState<number | null>(null);
+  const [selectedMode, setSelectedMode] = useState<'kills' | 'deaths'>('kills');
+  const [hasUserSelectedRole, setHasUserSelectedRole] = useState(false);
+
+  // Champion list from Data Dragon, sorted by name
+  const championList = useMemo(
+    () =>
+      champions
+        ? Object.values(champions).sort((a, b) => a.name.localeCompare(b.name))
+        : [],
+    [champions],
+  );
+
+  const { data: heatmapData, isLoading: isHeatmapLoading } = useQuery<
+    HeatmapData[]
+  >({
+    queryKey: [
+      'v1-heatmap',
+      region,
+      name,
+      tag,
+      selectedRole,
+      selectedChampion,
+      selectedMode,
+    ],
+    queryFn: async () => {
+      const params: Record<string, string | number | boolean> = {
+        role: selectedRole,
+        mode: selectedMode,
+      };
+      if (selectedChampion !== null) {
+        params.championId = selectedChampion;
+      }
+      const res = await http.get<HeatmapData[]>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/heatmap`,
+        {
+          params,
+        },
+      );
+      return res.data;
+    },
+    enabled: !!selectedRole,
+  });
+
+  // Fetch champions stats for counts per role/champion
+  interface RoleChampStats {
+    _id: string; // role key, e.g., 'MIDDLE'
+    champs: Array<{
+      championId: number;
+      championName: string;
+      games: number;
+      wins: number;
+      losses: number;
+      winRate: number;
+    }>;
+  }
+
+  const { data: champsStats } = useQuery<RoleChampStats[]>({
+    queryKey: ['v1-champions-stats', region, name, tag],
+    queryFn: async () => {
+      const res = await http.get<RoleChampStats[]>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/champions`,
+      );
+      return res.data;
+    },
+    staleTime: 1000 * 60 * 60 * 12,
+    gcTime: 1000 * 60 * 60 * 24,
+    retry: 2,
+  });
+
+  // Compute total games per role
+  const roleGames = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const group of champsStats || []) {
+      let total = 0;
+      for (const c of group.champs) {
+        total += c.games || 0;
+      }
+      map[group._id] = total;
+    }
+    return map;
+  }, [champsStats]);
+
+  // Disable roles with zero games
+  const disabledRoleKeys = useMemo(() => {
+    if (!champsStats) return [];
+    return roles.filter((r) => (roleGames[r.key] || 0) === 0).map((r) => r.key);
+  }, [champsStats, roleGames]);
+
+  // Calculate the most played role based on roleGames
+  const mostPlayedRole = useMemo(() => {
+    if (!roleGames || Object.keys(roleGames).length === 0) return 'BOTTOM';
+    return Object.entries(roleGames).reduce((max, [role, games]) => 
+      games > (roleGames[max] || 0) ? role : max, 'BOTTOM'
+    );
+  }, [roleGames]);
+
+  // Update selected role when most played role changes (only if user hasn't manually selected a role)
+  useEffect(() => {
+    if (!hasUserSelectedRole && mostPlayedRole !== 'BOTTOM' && !disabledRoleKeys.includes(mostPlayedRole)) {
+      setSelectedRole(mostPlayedRole);
+    }
+  }, [mostPlayedRole, hasUserSelectedRole, disabledRoleKeys]);
+
+  // Champion games for currently selected role
+  const championGamesBySelectedRole = useMemo(() => {
+    const map: Record<number, number> = {};
+    const entry = (champsStats || []).find((g) => g._id === selectedRole);
+    if (entry) {
+      for (const c of entry.champs) {
+        map[c.championId] = c.games || 0;
+      }
+    }
+    return map;
+  }, [champsStats, selectedRole]);
+
+  // Only show champions with games > 0 for the selected role (show all until stats loaded)
+  const visibleChampions = useMemo(() => {
+    const hasCounts = Object.keys(championGamesBySelectedRole).length > 0;
+    if (!hasCounts) return championList;
+    return championList.filter(
+      (c) => (championGamesBySelectedRole[Number(c.key)] || 0) > 0,
+    );
+  }, [championList, championGamesBySelectedRole]);
+
+  // If current role becomes disabled, pick the first available role with games
+  useEffect(() => {
+    if (disabledRoleKeys.includes(selectedRole)) {
+      const fallback = roles.find((r) => !disabledRoleKeys.includes(r.key));
+      if (fallback && fallback.key !== selectedRole) {
+        setSelectedRole(fallback.key);
+        setHasUserSelectedRole(true); // Mark as user selected since we're forcing a change
+      }
+    }
+  }, [disabledRoleKeys, selectedRole]);
+
+  // If selected champion has zero games for current role, reset it
+  useEffect(() => {
+    if (
+      selectedChampion !== null &&
+      (championGamesBySelectedRole[Number(selectedChampion)] || 0) === 0
+    ) {
+      setSelectedChampion(null);
+    }
+  }, [selectedChampion, championGamesBySelectedRole]);
+
+  // Role icon from Community Dragon (neutral icon)
+  const getRoleIconUrl = (roleKey: string) =>
+    `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-${roleKey.toLowerCase()}.png`;
+
+  const selectedChampionData = useMemo(() => {
+    if (!selectedChampion) return null;
+    return championList.find((c) => c.key === String(selectedChampion)) ?? null;
+  }, [selectedChampion, championList]);
+
+  return (
+    <Card className="bg-slate-800/90 backdrop-blur-sm border-slate-700 shadow-xl">
+      <CardBody className="p-8 space-y-6">
+        <h2 className="text-xl font-bold text-white">Player Heatmap</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Select
+            label="Role"
+            selectedKeys={[selectedRole]}
+            disabledKeys={disabledRoleKeys}
+            renderValue={() => {
+              const role = roles.find((r) => r.key === selectedRole);
+              if (!role) return null;
+              const games = roleGames[role.key] || 0;
+              return (
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <img
+                      src={getRoleIconUrl(role.key)}
+                      alt={role.label}
+                      className="w-5 h-5"
+                    />
+                    <span>{role.label}</span>
+                  </div>
+                  <span className="text-xs text-slate-300">{games}</span>
+                </div>
+              );
+            }}
+            onSelectionChange={(keys) => {
+              const selected = Array.from(keys)[0] as string;
+              // Prevent selecting disabled roles
+              if (!disabledRoleKeys.includes(selected)) {
+                setSelectedRole(selected);
+                setHasUserSelectedRole(true);
+              }
+            }}
+          >
+            {roles.map((role) => (
+              <SelectItem
+                key={role.key}
+                textValue={role.label}
+                startContent={
+                  <img
+                    src={getRoleIconUrl(role.key)}
+                    alt={role.label}
+                    className="w-5 h-5"
+                  />
+                }
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span>{role.label}</span>
+                  <span className="text-xs text-slate-300">
+                    {roleGames[role.key] || 0}
+                  </span>
+                </div>
+              </SelectItem>
+            ))}
+          </Select>
+          <Select
+            label="Champion"
+            selectedKeys={selectedChampion ? [String(selectedChampion)] : []}
+            renderValue={() => {
+              if (!selectedChampionData) return null;
+              const games = selectedChampion
+                ? championGamesBySelectedRole[Number(selectedChampion)] || 0
+                : 0;
+              return (
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <ChampionImage
+                      championId={selectedChampionData.id}
+                      size="sm"
+                      showName={false}
+                    />
+                    <span>{selectedChampionData.name}</span>
+                  </div>
+                  <span className="text-xs text-slate-300">{games}</span>
+                </div>
+              );
+            }}
+            onSelectionChange={(keys) => {
+              const selected = Array.from(keys)[0] as string | undefined;
+              setSelectedChampion(selected ? Number(selected) : null);
+            }}
+          >
+            {visibleChampions.map((champion) => (
+              <SelectItem
+                key={champion.key}
+                textValue={champion.name}
+                startContent={
+                  <ChampionImage
+                    championId={champion.id}
+                    size="sm"
+                    showName={false}
+                  />
+                }
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span>{champion.name}</span>
+                  <span className="text-xs text-slate-300">
+                    {championGamesBySelectedRole[Number(champion.key)] || 0}
+                  </span>
+                </div>
+              </SelectItem>
+            ))}
+          </Select>
+          <Select
+            label="Mode"
+            selectedKeys={[selectedMode]}
+            onSelectionChange={(keys) => {
+              const selected = Array.from(keys)[0] as 'kills' | 'deaths';
+              setSelectedMode(selected);
+            }}
+          >
+            {modes.map((mode) => (
+              <SelectItem key={mode.key}>{mode.label}</SelectItem>
+            ))}
+          </Select>
+        </div>
+
+        <div className="relative w-full aspect-square">
+          <img
+            src="/map.svg"
+            alt="Summoner's Rift Map"
+            className="w-full h-full opacity-40 contrast-90"
+          />
+          {isHeatmapLoading && (
+            <div className="absolute inset-0 bg-slate-800/50 flex items-center justify-center">
+              <Loader2 className="w-12 h-12 text-cyan-400 animate-spin" />
+            </div>
+          )}
+          {heatmapData && (
+            <HeatmapOverlay data={heatmapData} mode={selectedMode} />
+          )}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 function RouteComponent() {
   const { region, name, tag, initialStatus, summoner, error } =
     Route.useLoaderData() as {
@@ -109,7 +438,7 @@ function RouteComponent() {
   }
   const isIdle =
     !!status && status.status !== 'processing' && status.status !== 'listing';
-  const { data: badgesData } = useQuery<AIBadgesResponse>({
+  const { data: badgesData, isLoading: isBadgesLoading } = useQuery<AIBadgesResponse>({
     queryKey: ['v1-badges', region, name, tag],
     queryFn: async () => {
       const res = await http.get<AIBadgesResponse>(
@@ -248,7 +577,14 @@ function RouteComponent() {
                     <span className="text-slate-300">
                       Level {summoner.summonerLevel}
                     </span>
-                    {badgesData?.badges?.length ? (
+                    {isBadgesLoading && isIdle ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                        <span className="text-xs text-cyan-300">
+                          AI is analyzing your playstyle...
+                        </span>
+                      </div>
+                    ) : badgesData?.badges?.length ? (
                       <div className="flex flex-wrap gap-2">
                         {badgesData.badges.map((b, idx) => (
                           <Tooltip
@@ -281,12 +617,8 @@ function RouteComponent() {
                 </div>
               </div>
             </div>
-            {/* Future profile sections will be added here */}
-            <Card className="bg-slate-800/90 backdrop-blur-sm border-slate-700 shadow-xl">
-              <CardBody className="p-8">
-                <p className="text-slate-300">Profile content coming soon…</p>
-              </CardBody>
-            </Card>
+
+            <HeatmapCard />
 
             {/* Removed standalone Playstyle Badges card in favor of header chips */}
           </div>
