@@ -23,13 +23,14 @@ import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
-import { playerOverview } from '../../aggregations/playerOverview.js';
 import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
 import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
 import { BADGES_PROMPT } from '../../prompts/badges.js';
-import compareRoleStats from '../../utils/compare-role-stats.js';
+import compareRoleStats, {
+  type RoleComparison,
+} from '../../utils/compare-role-stats.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
@@ -78,7 +79,8 @@ function normalizeBadgesResponse(input: unknown): {
     const s = String(val ?? '')
       .toLowerCase()
       .trim();
-    if (s === 'good' || s === 'bad' || s === 'neutral') return s as any;
+    if (s === 'good' || s === 'bad' || s === 'neutral')
+      return s as unknown as 'good' | 'bad' | 'neutral';
     return negativeTitles.has(title) ? 'bad' : 'good';
   };
 
@@ -788,12 +790,15 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
 
     // Ensure each reason includes explicit numbers; otherwise append top diffs for primary role
     try {
-      const comparisons = compareRoleStats(myStats, enemyStats);
+      const comparisons: RoleComparison[] = compareRoleStats(
+        myStats,
+        enemyStats,
+      );
       const roleKey = pr ? String(pr) : null;
-      const roleEntry = roleKey
-        ? (comparisons as any[]).find((c) => c.position === roleKey)
-        : (comparisons as any[])[0];
-      if (roleEntry && roleEntry.stats) {
+      const roleEntry: RoleComparison | undefined = roleKey
+        ? comparisons.find((c) => c.position === roleKey)
+        : comparisons[0];
+      if (roleEntry?.stats) {
         const flattenNumericDiffs = (
           obj: Record<string, unknown>,
           prefix = '',
@@ -811,14 +816,25 @@ app.get('/:region/:tagName/:tagLine/badges', accountMiddleware, async (c) => {
           }
           return out;
         };
-        const getPath = (root: any, path: string): unknown =>
-          path
-            .split('.')
-            .reduce(
-              (acc: any, key: string) =>
-                acc && typeof acc === 'object' ? (acc as any)[key] : undefined,
-              root,
-            );
+        const getPath = (
+          root: Record<string, unknown>,
+          path: string,
+        ): unknown => {
+          let acc: unknown = root;
+          for (const key of path.split('.')) {
+            if (
+              acc &&
+              typeof acc === 'object' &&
+              !Array.isArray(acc) &&
+              key in (acc as Record<string, unknown>)
+            ) {
+              acc = (acc as Record<string, unknown>)[key];
+            } else {
+              return undefined;
+            }
+          }
+          return acc;
+        };
         const getDiff = (paths: string[]): number | null => {
           for (const p of paths) {
             const v = getPath(roleEntry.stats, p);

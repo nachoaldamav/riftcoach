@@ -11,9 +11,8 @@ export const playerChampsByRole = (puuid: string) => [
   // Only allowed queues
   { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS } } },
 
-  // Sort by most recent matches and limit to 50
+  // Sort by most recent matches
   { $sort: { 'info.gameCreation': -1 } },
-  { $limit: 50 },
 
   // 2) Keep only participants to shrink the document
   {
