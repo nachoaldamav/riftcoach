@@ -24,9 +24,18 @@ interface ProfileHeaderProps {
   badges?: BadgeItem[];
   isBadgesLoading?: boolean;
   isIdle?: boolean;
+  isBadgesFetching?: boolean;
 }
 
-export function ProfileHeader({ summoner, region, name, tag, badges, isBadgesLoading, isIdle }: ProfileHeaderProps) {
+export function ProfileHeader({
+  summoner,
+  name,
+  tag,
+  badges,
+  isBadgesLoading,
+  isIdle,
+  isBadgesFetching,
+}: ProfileHeaderProps) {
   const { getProfileIconUrl } = useDataDragon();
 
   return (
@@ -57,9 +66,7 @@ export function ProfileHeader({ summoner, region, name, tag, badges, isBadgesLoa
                 <h1 className="text-3xl font-display font-bold text-neutral-50">
                   {name}
                 </h1>
-                <span className="text-xl text-neutral-400">
-                  #{tag}
-                </span>
+                <span className="text-xl text-neutral-400">#{tag}</span>
               </div>
               {/* Badges row (replacing region/level row) */}
               {isBadgesLoading && isIdle ? (
@@ -76,26 +83,36 @@ export function ProfileHeader({ summoner, region, name, tag, badges, isBadgesLoa
                       key={`${b.title}-hdr-${idx}`}
                       content={
                         <div className="max-w-xs text-left p-3">
-                          <p className="text-sm font-semibold text-neutral-100 mb-2">{b.title}</p>
-                          <p className="text-xs text-neutral-300 leading-relaxed">{b.reason}</p>
+                          <p className="text-sm font-semibold text-neutral-100 mb-2">
+                            {b.title}
+                          </p>
+                          <p className="text-xs text-neutral-300 leading-relaxed">
+                            {b.reason}
+                          </p>
                         </div>
                       }
                       placement="top"
                       className="bg-black/95 border border-white/10 shadow-soft-lg"
                     >
-                      <Chip
-                        variant="flat"
-                        color="default"
-                        size="md"
-                        className={`${(b.polarity ?? 'neutral') === 'good'
-                          ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-800/40'
-                          : (b.polarity ?? 'neutral') === 'bad'
-                            ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800/40'
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700/40'
-                        } font-semibold transition-colors duration-150 cursor-default px-4 py-2`}
-                      >
-                        {b.title}
-                      </Chip>
+                      <div className="relative overflow-hidden rounded-full">
+                        <Chip
+                          variant="flat"
+                          color="default"
+                          size="md"
+                          className={`${
+                            (b.polarity ?? 'neutral') === 'good'
+                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-800/40'
+                              : (b.polarity ?? 'neutral') === 'bad'
+                                ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800/40'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700/40'
+                          } font-semibold transition-colors duration-150 cursor-default px-4 py-2 relative`}
+                        >
+                          {b.title}
+                        </Chip>
+                        {isBadgesFetching && (
+                          <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                        )}
+                      </div>
                     </Tooltip>
                   ))}
                 </div>

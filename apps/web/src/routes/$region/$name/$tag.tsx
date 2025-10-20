@@ -1,9 +1,9 @@
 import { http, HttpError } from '@/clients/http';
+import { ProcessingLayout } from '@/components/layouts/ProcessingLayout';
+import { ProfileLayout } from '@/components/layouts/ProfileLayout';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { ProcessingLayout } from '@/components/layouts/ProcessingLayout';
-import { ProfileLayout } from '@/components/layouts/ProfileLayout';
 
 export interface RewindStatusResponse {
   rewindId: string;
@@ -114,16 +114,33 @@ function RouteComponent() {
         (previousStatus === 'processing' || previousStatus === 'listing') &&
         status.status === 'completed'
       ) {
-        queryClient.invalidateQueries({ queryKey: ['v1-badges', region, name, tag] });
-        queryClient.invalidateQueries({ queryKey: ['player-overview', region, name, tag] });
-        queryClient.invalidateQueries({ queryKey: ['recent-matches', region, name, tag] });
-        queryClient.invalidateQueries({ queryKey: ['champion-insights', region, name, tag] });
-        queryClient.invalidateQueries({ queryKey: ['champion-mastery', region, name, tag] });
-        queryClient.invalidateQueries({ queryKey: ['v1-heatmap', region, name, tag] });
-        queryClient.invalidateQueries({ queryKey: ['v1-champions-stats', region, name, tag] });
+        queryClient.invalidateQueries({
+          queryKey: ['v1-badges', region, name, tag],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['player-overview', region, name, tag],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['recent-matches', region, name, tag],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['champion-insights', region, name, tag],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['champion-mastery', region, name, tag],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['v1-heatmap', region, name, tag],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['v1-champions-stats', region, name, tag],
+        });
       }
 
-      if (summoner && (status.status === 'processing' || status.status === 'listing')) {
+      if (
+        summoner &&
+        (status.status === 'processing' || status.status === 'listing')
+      ) {
         setShowScanBox(true);
       } else {
         setShowScanBox(false);
@@ -143,8 +160,13 @@ function RouteComponent() {
   interface AIBadgesResponse {
     badges: AIBadgeItem[];
   }
-  const isIdle = !!status && status.status !== 'processing' && status.status !== 'listing';
-  const { data: badgesData, isLoading: isBadgesLoading } = useQuery<AIBadgesResponse>({
+  const isIdle =
+    !!status && status.status !== 'processing' && status.status !== 'listing';
+  const {
+    data: badgesData,
+    isLoading: isBadgesLoading,
+    isFetching: isBadgesFetching,
+  } = useQuery<AIBadgesResponse>({
     queryKey: ['v1-badges', region, name, tag],
     queryFn: async () => {
       const res = await http.get<AIBadgesResponse>(
@@ -163,19 +185,29 @@ function RouteComponent() {
   // WebSocket connection for live progress
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const [processedMatches, setProcessedMatches] = useState<ProcessedMatch[]>([]);
+  const [processedMatches, setProcessedMatches] = useState<ProcessedMatch[]>(
+    [],
+  );
 
   useEffect(() => {
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
     if (!apiBaseUrl || !status?.rewindId) return;
 
-    const wsUrl = apiBaseUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:').replace(/\/$/, '');
+    const wsUrl = apiBaseUrl
+      .replace(/^http:/, 'ws:')
+      .replace(/^https:/, 'wss:')
+      .replace(/\/$/, '');
     const ws = new WebSocket(`${wsUrl}/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
       setWsConnected(true);
-      ws.send(JSON.stringify({ type: 'subscribe', channel: `rewind:progress:${status.rewindId}` }));
+      ws.send(
+        JSON.stringify({
+          type: 'subscribe',
+          channel: `rewind:progress:${status.rewindId}`,
+        }),
+      );
     };
 
     ws.onmessage = (event) => {
@@ -185,7 +217,13 @@ function RouteComponent() {
               type: 'match_processed';
               jobId: string;
               matchId: string;
-              player: { championId: number; kills: number; deaths: number; assists: number; win: boolean };
+              player: {
+                championId: number;
+                kills: number;
+                deaths: number;
+                assists: number;
+                win: boolean;
+              };
               opponent: { championId: number };
             }
           | { type: 'subscription_confirmed'; channel: string };
@@ -248,10 +286,17 @@ function RouteComponent() {
   }
 
   // Single return with conditional layouts
-  const isProcessing = status.status === 'processing' || status.status === 'listing';
+  const isProcessing =
+    status.status === 'processing' || status.status === 'listing';
 
   if (isProcessing && !summoner) {
-    return <ProcessingLayout region={region} status={status} wsConnected={wsConnected} />;
+    return (
+      <ProcessingLayout
+        region={region}
+        status={status}
+        wsConnected={wsConnected}
+      />
+    );
   }
 
   return (
@@ -262,6 +307,7 @@ function RouteComponent() {
       tag={tag}
       badges={badgesData?.badges}
       isBadgesLoading={isBadgesLoading}
+      isBadgesFetching={isBadgesFetching}
       isIdle={isIdle}
       showScanBox={showScanBox}
       status={status}

@@ -30,6 +30,7 @@ interface ProfileLayoutProps {
   tag: string;
   badges?: BadgeItem[];
   isBadgesLoading?: boolean;
+  isBadgesFetching?: boolean;
   isIdle?: boolean;
   showScanBox?: boolean;
   status?: RewindStatusResponse | null;
@@ -44,6 +45,7 @@ export function ProfileLayout({
   tag,
   badges,
   isBadgesLoading,
+  isBadgesFetching,
   isIdle,
   showScanBox,
   status,
@@ -62,6 +64,7 @@ export function ProfileLayout({
             tag={tag}
             badges={badges}
             isBadgesLoading={isBadgesLoading}
+            isBadgesFetching={isBadgesFetching}
             isIdle={isIdle}
           />
 

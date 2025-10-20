@@ -575,7 +575,7 @@ app.route('/v1', v1Route);
 const server = serve(
   {
     fetch: app.fetch,
-    port: 4000,
+    port: Number(process.env.PORT) || 4000,
   },
   async (info) => {
     setupWorkers();
