@@ -54,7 +54,7 @@ export function SpiderChart({ data, className = '' }: SpiderChartProps) {
               return (
                 <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
                   <p className="font-medium text-foreground mb-2">{label}</p>
-                  {payload.map((entry, index) => {
+                  {payload.map((entry) => {
                     const actualKey =
                       entry.dataKey === 'player'
                         ? 'playerActual'
@@ -87,7 +87,7 @@ export function SpiderChart({ data, className = '' }: SpiderChartProps) {
               );
             }}
           />
-          <PolarGrid className="fill-[--color-player] opacity-20" />
+          <PolarGrid className="fill-[--color-player] opacity-75" />
           <PolarAngleAxis dataKey="metric" />
           <PolarRadiusAxis
             angle={90}
