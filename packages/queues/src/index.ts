@@ -24,6 +24,8 @@ interface ListMatchesJobOptions extends BaseJobOptions {
   puuid: string;
   start: number;
   region: RiotAPITypes.LoLRegion;
+  startTimestamp?: number;
+  scanType?: 'full' | 'partial';
 }
 
 interface FetchMatchJobOptions extends BaseJobOptions {
@@ -55,15 +57,36 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
   const { type, rewindId } = job.data;
   switch (type) {
     case 'list-matches': {
-      const { puuid, start, region } = job.data;
-      consola.info(chalk.greenBright(`Listing matches for ${puuid}`));
+      const { puuid, start, region, startTimestamp, scanType } = job.data;
+      consola.info(
+        chalk.greenBright(
+          `Listing matches for ${puuid} (${scanType || 'full'} scan)`,
+        ),
+      );
+
+      const requestOptions: {
+        start: number;
+        count: number;
+        startTime?: number;
+      } = {
+        start,
+        count: 100,
+      };
+
+      // For partial scans, add startTime filter
+      if (scanType === 'partial' && startTimestamp) {
+        requestOptions.startTime = Math.floor(startTimestamp / 1000); // Riot API expects seconds
+        consola.info(
+          chalk.yellow(
+            `Filtering matches from ${new Date(startTimestamp).toISOString()}`,
+          ),
+        );
+      }
+
       const matches = await riot.getIdsByPuuid(
         regionToCluster(region) as Region,
         puuid,
-        {
-          start,
-          count: 100,
-        },
+        requestOptions,
       );
 
       if (matches.length === 100) {
@@ -75,6 +98,8 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
             start: start + 100,
             region,
             rewindId,
+            startTimestamp,
+            scanType,
           },
           {
             delay: ms('1s'),
@@ -84,6 +109,11 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
         await connection.incr(`rewind:${rewindId}:listing`);
       } else {
         await connection.set(`rewind:${rewindId}:status`, 'processing');
+
+        // Update last scan timestamp when scan is complete
+        if (rewindId) {
+          await connection.set(`rewind:${rewindId}:last_scan`, Date.now());
+        }
       }
 
       if (rewindId) {
@@ -122,8 +152,42 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
         const listing = await connection.get(`rewind:${rewindId}:listing`);
         const matches = await connection.get(`rewind:${rewindId}:matches`);
         if (listing === '0' && matches === '0') {
+          consola.info(
+            chalk.yellow(
+              `No more matches to process for rewindId: ${rewindId}`,
+            ),
+          );
           await connection.set(`rewind:${rewindId}:status`, 'completed');
+
+          consola.info(
+            chalk.yellow(`Deleting cache for rewindId: ${rewindId}`),
+          );
+          // Delete exact keys
           await connection.del(`cache:stats:${rewindId}`);
+          await connection.del(`cache:ai-badges:${rewindId}`);
+          await connection.del(`cache:champion-insights:${rewindId}`);
+
+          // Delete pattern-based keys (recent matches and champion mastery with different limits)
+          const recentMatchKeys = await connection.keys(
+            `cache:recent-matches:${rewindId}:*`,
+          );
+          const championMasteryKeys = await connection.keys(
+            `cache:champion-mastery:v2:${rewindId}:*`,
+          );
+
+          if (recentMatchKeys.length > 0) {
+            await connection.del(...recentMatchKeys);
+          }
+          if (championMasteryKeys.length > 0) {
+            await connection.del(...championMasteryKeys);
+          }
+
+          consola.info(
+            chalk.yellow(
+              `Deleted ${recentMatchKeys.length + championMasteryKeys.length} cache keys`,
+            ),
+          );
+
           // Remove from visual queue
           const cluster = regionToCluster(region);
           await connection.zrem(`rewind:queue:${cluster}` as string, rewindId);
@@ -216,7 +280,27 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
         const matches = await connection.get(`rewind:${rewindId}:matches`);
         if (listing === '0' && matches === '0') {
           await connection.set(`rewind:${rewindId}:status`, 'completed');
+
+          // Delete all player-specific caches
           await connection.del(`cache:stats:${rewindId}`);
+          await connection.del(`cache:ai-badges:${rewindId}`);
+          await connection.del(`cache:champion-insights:${rewindId}`);
+
+          // Delete pattern-based keys (recent matches and champion mastery with different limits)
+          const recentMatchKeys = await connection.keys(
+            `cache:recent-matches:${rewindId}:*`,
+          );
+          const championMasteryKeys = await connection.keys(
+            `cache:champion-mastery:v2:${rewindId}:*`,
+          );
+
+          if (recentMatchKeys.length > 0) {
+            await connection.del(...recentMatchKeys);
+          }
+          if (championMasteryKeys.length > 0) {
+            await connection.del(...championMasteryKeys);
+          }
+
           // Remove from visual queue
           const targetCluster = isLegacyJob
             ? (cluster as RiotAPITypes.Cluster)

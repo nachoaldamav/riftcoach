@@ -40,21 +40,51 @@ export function RewindForm() {
       if (!region || !summonerName || !tagline) {
         throw new Error('Region, summoner name and tagline are required');
       }
+      
+      // First check if player already has a completed rewind
+      try {
+        const statusRes = await http.get<{
+          rewindId: string;
+          status: string;
+          matches: number;
+          processed: number;
+          total: number;
+        }>(
+          `/v1/${encodeURIComponent(region)}/${encodeURIComponent(summonerName)}/${encodeURIComponent(tagline)}/rewind`,
+        );
+        
+        // If player has a completed rewind, redirect to rewind page
+        if (statusRes.data.status === 'completed' && statusRes.data.rewindId) {
+          navigate({
+            to: '/rewind/$id',
+            params: {
+              id: statusRes.data.rewindId,
+            },
+          });
+          return { rewindId: statusRes.data.rewindId };
+        }
+      } catch (err) {
+        // If no existing rewind found, continue with new rewind
+        console.log('No existing rewind found, creating new one');
+      }
+      
       const res = await http.post<StartRewindResponse>(
         `/v1/${encodeURIComponent(region)}/${encodeURIComponent(summonerName)}/${encodeURIComponent(tagline)}/rewind`,
       );
       return res.data;
     },
-    onSuccess: () => {
-      // Navigate to the status/profile route for this summoner
-      navigate({
-        to: '/$region/$name/$tag',
-        params: {
-          region,
-          name: summonerName,
-          tag: tagline,
-        },
-      });
+    onSuccess: (data) => {
+      // Only navigate to status page if we created a new rewind
+      if (data.rewindId) {
+        navigate({
+          to: '/$region/$name/$tag',
+          params: {
+            region,
+            name: summonerName,
+            tag: tagline,
+          },
+        });
+      }
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Unknown error';

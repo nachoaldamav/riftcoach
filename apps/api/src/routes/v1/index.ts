@@ -1,8 +1,4 @@
 import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from '@aws-sdk/client-bedrock-runtime';
-import {
   PlatformId,
   type RiotAPITypes,
   regionToCluster,
@@ -27,87 +23,18 @@ import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWi
 import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
-import { BADGES_PROMPT } from '../../prompts/badges.js';
+import { generateChampionInsights } from '../../services/champion-insights.js';
+import {
+  buildBadgesPromptFromStats,
+  computeRoleWeights,
+  invokeBadgesModel,
+  normalizeBadgesResponse,
+} from '../../services/player-badges.js';
 import compareRoleStats, {
   type RoleComparison,
 } from '../../utils/compare-role-stats.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
-
-// Normalize any AI response shape into the required { badges: [{ title, description, reason, polarity }] }
-function normalizeBadgesResponse(input: unknown): {
-  badges: Array<{
-    title: string;
-    description: string;
-    reason: string;
-    polarity: 'good' | 'bad' | 'neutral';
-  }>;
-} {
-  const out: {
-    badges: Array<{
-      title: string;
-      description: string;
-      reason: string;
-      polarity: 'good' | 'bad' | 'neutral';
-    }>;
-  } = { badges: [] };
-  if (!input || typeof input !== 'object') return out;
-  const anyObj = input as Record<string, unknown>;
-  const badgesRaw = anyObj.badges;
-  if (!Array.isArray(badgesRaw)) return out;
-
-  const negativeTitles = new Set([
-    'Vision Improvement Needed',
-    'Early Game Struggles',
-    'Objective Neglect',
-    'Damage Output Gap',
-    'Farm Efficiency Gap',
-    'Tower Pressure Gap',
-    'Death Discipline',
-    'Positioning Cleanup',
-    'Mid Game Dip',
-    'Scaling Issues',
-    'Team Contribution Gap',
-    'Level Tempo Lag',
-    'Experience Gap',
-  ]);
-
-  const normalizePolarity = (
-    title: string,
-    val: unknown,
-  ): 'good' | 'bad' | 'neutral' => {
-    const s = String(val ?? '')
-      .toLowerCase()
-      .trim();
-    if (s === 'good' || s === 'bad' || s === 'neutral')
-      return s as unknown as 'good' | 'bad' | 'neutral';
-    return negativeTitles.has(title) ? 'bad' : 'good';
-  };
-
-  const mapped = badgesRaw
-    .map((b: unknown) => {
-      const obj = (b ?? {}) as Record<string, unknown>;
-      const title = String(obj.title ?? obj.name ?? '').trim();
-      const description = String(obj.description ?? '').trim();
-      const reason = String(obj.reason ?? obj.reasoning ?? '').trim();
-      const polarity = normalizePolarity(title, obj.polarity);
-      if (!title && !description && !reason) return null;
-      return {
-        title: title || 'Badge',
-        description: description || '',
-        reason: reason || '',
-        polarity,
-      };
-    })
-    .filter(Boolean) as Array<{
-    title: string;
-    description: string;
-    reason: string;
-    polarity: 'good' | 'bad' | 'neutral';
-  }>;
-  out.badges = mapped;
-  return out;
-}
 
 const accountMiddleware = createMiddleware<{
   Variables: {
@@ -220,362 +147,6 @@ const app = new Hono<{
   };
 }>();
 
-// Minimal Bedrock client scoped to this route file
-const bedrockClient = new BedrockRuntimeClient({
-  region: process.env.AWS_REGION || 'eu-west-1',
-});
-
-// Compute role weights and primary role from rowsCount
-function computeRoleWeights(stats: Array<Record<string, unknown>>): {
-  weights: Record<string, number>;
-  primaryRole: string | null;
-} {
-  const counts: Record<string, number> = {};
-  let total = 0;
-  for (const row of stats) {
-    const role = String(row.position ?? 'UNKNOWN');
-    const rc = Number(row.rowsCount ?? 0) || 0;
-    counts[role] = (counts[role] ?? 0) + rc;
-    total += rc;
-  }
-  const weights: Record<string, number> = {};
-  let primaryRole: string | null = null;
-  let best = Number.NEGATIVE_INFINITY;
-  for (const [role, rc] of Object.entries(counts)) {
-    const pct = total > 0 ? Math.round((rc / total) * 10000) / 100 : 0;
-    weights[role] = pct;
-    if (rc > best) {
-      best = rc;
-      primaryRole = role;
-    }
-  }
-  return { weights, primaryRole };
-}
-
-// Build a concise, JSON-only prompt using player vs opponent role stats
-function buildBadgesPromptFromStats(
-  myStats: Array<Record<string, unknown>>,
-  enemyStats: Array<Record<string, unknown>>,
-): string {
-  // Compute the differences using compareRoleStats for accurate comparisons
-  const comparisons = compareRoleStats(myStats, enemyStats);
-
-  const header =
-    "You are RiftCoach's League of Legends badge generator. Analyze the player's per-role performance versus direct opponents and award 1–5 badges that best fit their playstyle.";
-
-  const rules =
-    "Rules:\n- Use the following badge catalog and instructions.\n- Treat the player's most-weighted role strictly as the provided 'Primary Role'. Do NOT infer or vary it.\n- You may award badges for other roles if evidence is strong, but never call other roles 'most-weighted'.\n- Prioritize badges only when stats clearly support them; avoid contradictory picks.\n- Output MUST be ONLY valid JSON with one top-level key: badges.\n- badges must be an array of 1–5 objects.\n- Each badge object MUST have keys exactly: title, description, reason, polarity.\n- polarity must be one of: good | bad | neutral\n- For each badge, the 'reason' MUST include at least one explicit numeric value from the metrics that define the selected badge. Cite numbers strictly from that badge’s AI instructions; do NOT pull in unrelated stats (e.g., gold/XP/timepoint metrics) unless the badge explicitly references them. Avoid generic words like 'higher' or 'lower' without numbers.\n- Use the catalog 'name' as the badge title.\n- CRITICAL REASONING STYLE: Write the 'reason' field in a conversational, engaging tone that feels like a coach talking to the player. Avoid robotic statistical reporting.\n- Include specific numbers but weave them into natural language that celebrates achievements or explains performance patterns.\n- GOOD reasoning example: 'You consistently outfarmed your lane opponents, with a +6.3 CS advantage at 10 minutes - that extra farming translates to real gold advantages that fuel your item spikes.'\n- BAD reasoning example: 'Player avgCSAt10 is 71.7 vs opponents 65.4 showing higher CS advantage.'\n- Make it personal and motivational while being factually accurate with the statistics.\n- CRITICAL: When stating comparisons, ensure logical consistency - if player has LOWER values in positive metrics (CS, gold, etc.), they are performing WORSE, not better.";
-
-  const formatHint =
-    "Input data format:\n- statComparisons: Pre-computed differences between player and opponent stats by role. Each role contains nested stats where numeric values represent the difference (player - opponent).\n- POSITIVE differences mean player is BETTER, NEGATIVE differences mean player is WORSE\n- Use these pre-computed differences directly - DO NOT manually calculate differences from raw stats\n- Example: if avgCSAt10 shows +6.3, the player averages 6.3 more CS at 10 minutes than opponents\n- Example: if avgGoldAt10 shows +265, the player averages 265 more gold at 10 minutes than opponents\n- Example: if deathsPerMin shows -0.05, the player dies 0.05 less per minute than opponents (BETTER)\n\nREASONING TONE GUIDELINES:\n- Address the player directly using 'you' and 'your'\n- Use encouraging language that highlights their strengths\n- Transform dry statistics into meaningful insights about their playstyle\n- Example transformations:\n  * 'avgCSAt10: +6.3' → 'You consistently outfarm your opponents early, securing an extra 6.3 CS by 10 minutes'\n  * 'goldPerMin: +0.45' → 'Your efficient farming translates to an extra 45 gold per minute advantage'\n  * 'visionScorePerMin: +0.4' → 'You light up the map with 40% more vision than your opponents'\n- Focus on what the numbers mean for their gameplay impact, not just the raw comparison.";
-
-  const catalog = BADGES_PROMPT;
-
-  const jsonOnly =
-    'CRITICAL OUTPUT FORMAT:\n- Respond with ONLY valid JSON\n- NO reasoning chains, NO <reasoning> tags, NO explanations\n- NO markdown formatting, NO code blocks\n- Start immediately with \'{\' and end with \'}\'\n- Structure: { "badges": [{"title": "...", "description": "...", "reason": "...", "polarity": "good|bad|neutral"}] }\n- Must contain 1-5 badge objects\n- Each badge must have all four fields: title, description, reason, polarity';
-
-  const weightsAndPrimary = computeRoleWeights(myStats);
-  const roleWeights = weightsAndPrimary.weights;
-  const primaryRole = weightsAndPrimary.primaryRole ?? 'UNKNOWN';
-
-  return [
-    header,
-    '',
-    'Player Role Weights (% by rowsCount):',
-    JSON.stringify(roleWeights),
-    '',
-    `Primary Role (most-weighted): ${String(primaryRole)}`,
-    '',
-    rules,
-    '',
-    formatHint,
-    '',
-    'Badge Catalog & Instructions:',
-    catalog,
-    '',
-    jsonOnly,
-    '',
-    'Statistical Comparisons (Player vs Opponents - Pre-computed Differences):',
-    JSON.stringify(comparisons, null, 2),
-  ].join('\n');
-}
-
-async function invokeBadgesModel(prompt: string): Promise<{
-  badges: Array<{
-    title?: string;
-    name?: string;
-    description?: string;
-    reason?: string;
-    reasoning?: string;
-    polarity?: string;
-  }>;
-}> {
-  // Mistral instruct models provide optimal results when
-  // embedding the prompt into the following template:
-  const instruction = `<s>[INST] ${prompt} [/INST]`;
-
-  const payload = {
-    prompt: instruction,
-    max_tokens: 1500,
-    temperature: 0.1,
-    top_p: 0.9,
-    top_k: 50,
-  };
-
-  const command = new InvokeModelCommand({
-    modelId: 'mistral.mixtral-8x7b-instruct-v0:1',
-    contentType: 'application/json',
-    body: JSON.stringify(payload),
-  });
-
-  const response = await bedrockClient.send(command);
-  if (!response.body) throw new Error('No response body from Bedrock');
-  const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-  const aiText = responseBody.outputs?.[0]?.text || '{}';
-
-  // Clean the response by removing reasoning chains and extracting JSON
-  let cleanedText = aiText;
-
-  // Remove reasoning tags if present
-  cleanedText = cleanedText.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
-
-  // Remove any text before the first { and after the last }
-  const firstBrace = cleanedText.indexOf('{');
-  const lastBrace = cleanedText.lastIndexOf('}');
-
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    cleanedText = cleanedText.slice(firstBrace, lastBrace + 1);
-  }
-
-  // Ensure JSON-only
-  try {
-    const parsed = JSON.parse(cleanedText);
-    // Validate structure
-    if (
-      parsed.badges &&
-      Array.isArray(parsed.badges) &&
-      parsed.badges.length >= 1 &&
-      parsed.badges.length <= 5
-    ) {
-      return parsed;
-    }
-    throw new Error('Invalid badge structure');
-  } catch (error) {
-    consola.error('Error parsing AI response:', aiText);
-    consola.error('Cleaned text:', cleanedText);
-    consola.error('Parse error:', error);
-
-    // Fallback minimal JSON
-    return {
-      badges: [
-        {
-          title: 'Consistent Player',
-          description: 'Shows steady performance across matches',
-          reason: 'Fallback badge due to AI generation failure',
-          polarity: 'neutral',
-        },
-        {
-          title: 'Team Player',
-          description: 'Contributes effectively to team objectives',
-          reason: 'Fallback badge due to AI generation failure',
-          polarity: 'neutral',
-        },
-      ],
-    };
-  }
-}
-
-// AI Insights Generation Function
-async function generateChampionInsights(
-  championData: Array<{
-    championId: number;
-    championName: string;
-    totalGames: number;
-    winRate: number;
-    recentWinRate: number;
-    avgKda: number;
-    consistencyScore: number;
-    performanceTrend: unknown;
-    roles: string[];
-    daysSinceLastPlayed: number;
-  }>,
-): Promise<{
-  summary: string;
-  trends: Array<{
-    type: 'improvement' | 'decline' | 'stable';
-    metric: string;
-    description: string;
-    confidence: number;
-  }>;
-  recommendations: Array<{
-    category: 'champion_pool' | 'playstyle' | 'focus_areas';
-    title: string;
-    description: string;
-    priority: 'high' | 'medium' | 'low';
-  }>;
-  confidence: number;
-}> {
-  // Prepare data for AI analysis
-  const topChampions = championData.slice(0, 5);
-  const analysisData = {
-    totalChampions: championData.length,
-    topPerformers: topChampions.map((champ) => ({
-      name: champ.championName,
-      games: champ.totalGames,
-      winRate: champ.winRate,
-      recentWinRate: champ.recentWinRate,
-      avgKda: champ.avgKda,
-      consistencyScore: champ.consistencyScore,
-      trends: champ.performanceTrend,
-      roles: champ.roles,
-      daysSinceLastPlayed: champ.daysSinceLastPlayed,
-    })),
-    overallStats: {
-      totalGames: championData.reduce(
-        (sum, champ) => sum + champ.totalGames,
-        0,
-      ),
-      avgWinRate:
-        championData.reduce(
-          (sum, champ) => sum + champ.winRate * champ.totalGames,
-          0,
-        ) / championData.reduce((sum, champ) => sum + champ.totalGames, 0),
-      avgKda:
-        championData.reduce(
-          (sum, champ) => sum + champ.avgKda * champ.totalGames,
-          0,
-        ) / championData.reduce((sum, champ) => sum + champ.totalGames, 0),
-    },
-  };
-
-  const prompt = `Analyze this League of Legends player's champion performance data and provide insights:
-
-${JSON.stringify(analysisData, null, 2)}
-
-Based on this data, provide a JSON response with:
-1. A brief summary of the player's champion performance
-2. Performance trends (improvement/decline/stable) for key metrics
-3. Actionable recommendations for champion pool, playstyle, and focus areas
-4. Overall confidence score (0-100)
-
-Focus on:
-- Recent performance trends vs overall performance
-- Champion diversity and specialization
-- Consistency across different champions
-- Areas for improvement based on the data
-
-Respond with valid JSON only in this exact format:
-{
-  "summary": "Brief overview of player's champion performance",
-  "trends": [
-    {
-      "type": "improvement|decline|stable",
-      "metric": "metric name",
-      "description": "trend description",
-      "confidence": 85
-    }
-  ],
-  "recommendations": [
-    {
-      "category": "champion_pool|playstyle|focus_areas",
-      "title": "recommendation title",
-      "description": "detailed recommendation",
-      "priority": "high|medium|low"
-    }
-  ],
-  "confidence": 85
-}`;
-
-  const instruction = `<s>[INST] ${prompt} [/INST]`;
-
-  const payload = {
-    prompt: instruction,
-    max_tokens: 2000,
-    temperature: 0.3,
-    top_p: 0.9,
-    top_k: 50,
-  };
-
-  const command = new InvokeModelCommand({
-    modelId: 'mistral.mixtral-8x7b-instruct-v0:1',
-    contentType: 'application/json',
-    body: JSON.stringify(payload),
-  });
-
-  const response = await bedrockClient.send(command);
-  if (!response.body) throw new Error('No response body from Bedrock');
-
-  const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-  const aiText = responseBody.outputs?.[0]?.text || '{}';
-
-  // Clean and parse the response
-  let cleanedText = aiText;
-
-  // Remove any text before the first { and after the last }
-  const firstBrace = cleanedText.indexOf('{');
-  const lastBrace = cleanedText.lastIndexOf('}');
-
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    cleanedText = cleanedText.slice(firstBrace, lastBrace + 1);
-  }
-
-  try {
-    const parsed = JSON.parse(cleanedText);
-
-    // Validate and normalize the response
-    return {
-      summary: parsed.summary || 'Analysis of champion performance completed.',
-      trends: Array.isArray(parsed.trends) ? parsed.trends.slice(0, 5) : [],
-      recommendations: Array.isArray(parsed.recommendations)
-        ? parsed.recommendations.slice(0, 4)
-        : [],
-      confidence: Math.min(Math.max(parsed.confidence || 75, 0), 100),
-    };
-  } catch (error) {
-    consola.error('Error parsing AI insights response:', error);
-
-    // Fallback response based on data analysis
-    const fallbackInsights = generateFallbackInsights(championData);
-    return fallbackInsights;
-  }
-}
-
-// Fallback insights generation when AI fails
-function generateFallbackInsights(
-  championData: Array<{
-    championName: string;
-    totalGames: number;
-    winRate: number;
-    daysSinceLastPlayed: number;
-  }>,
-) {
-  const topChamp = championData[0];
-  const recentlyPlayed = championData.filter(
-    (champ) => champ.daysSinceLastPlayed <= 7,
-  );
-
-  return {
-    summary: `Analysis of ${championData.length} champions shows ${topChamp?.championName || 'your top champion'} as your strongest performer with ${topChamp?.winRate || 0}% win rate.`,
-    trends: [
-      {
-        type: 'stable' as const,
-        metric: 'Champion Performance',
-        description: 'Consistent performance across your champion pool',
-        confidence: 70,
-      },
-    ],
-    recommendations: [
-      {
-        category: 'champion_pool' as const,
-        title: 'Focus on Main Champions',
-        description: `Continue playing ${topChamp?.championName || 'your best champions'} to maintain your current performance level.`,
-        priority: 'medium' as const,
-      },
-    ],
-    confidence: 70,
-  };
-}
-
 const regionSchema = z.object({
   region: z.enum([
     PlatformId.BR1,
@@ -641,13 +212,39 @@ app.get('/:region/:tagName/:tagLine', accountMiddleware, async (c) => {
 
 app.post('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
   const rewindId = c.var.internalId;
+  const { force } = c.req.query();
+  const isForceRefresh = force === 'true';
+
+  // Check if player has been scanned before
+  const lastScanKey = `rewind:${rewindId}:last_scan`;
+  const lastScanTimestamp = await redis.get(lastScanKey);
+
+  let startTimestamp = 0;
+  let scanType = 'full';
+
+  if (lastScanTimestamp && !isForceRefresh) {
+    // Player has been scanned before, do partial scan
+    scanType = 'partial';
+    startTimestamp = Number(lastScanTimestamp);
+    consola.info(
+      chalk.yellow(
+        `Partial scan for ${rewindId} from ${new Date(startTimestamp).toISOString()}`,
+      ),
+    );
+  } else if (isForceRefresh) {
+    consola.info(chalk.blue(`Force refresh requested for ${rewindId}`));
+  } else {
+    consola.info(chalk.blue(`Full scan for new player ${rewindId}`));
+  }
+
   await redis.set(`rewind:${rewindId}:matches`, 0);
   await redis.set(`rewind:${rewindId}:listing`, 1);
   await redis.set(`rewind:${rewindId}:total`, 0);
   await redis.set(`rewind:${rewindId}:status`, 'listing');
   await redis.set(`rewind:${rewindId}:processed`, 0);
+  await redis.set(`rewind:${rewindId}:scan_type`, scanType);
 
-  consola.info(chalk.blue(`Rewind ${rewindId} started`));
+  consola.info(chalk.blue(`Rewind ${rewindId} started (${scanType} scan)`));
 
   queues[c.var.cluster].add(
     `list-matches-${c.var.account.puuid}-0`,
@@ -657,6 +254,8 @@ app.post('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
       start: 0,
       rewindId,
       region: c.var.region,
+      startTimestamp,
+      scanType: scanType as 'full' | 'partial' | undefined,
     },
     {
       delay: ms('1s'),
@@ -668,6 +267,8 @@ app.post('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
 
   return c.json({
     rewindId,
+    scanType,
+    startTimestamp: startTimestamp > 0 ? startTimestamp : null,
   });
 });
 
