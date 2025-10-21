@@ -24,15 +24,22 @@ import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
 import { generateChampionInsights } from '../../services/champion-insights.js';
+import { matchDetailsNode } from '../../services/match-details.js';
+import { generateMatchInsights } from '../../services/match-insights.js';
 import {
   buildBadgesPromptFromStats,
   computeRoleWeights,
   invokeBadgesModel,
   normalizeBadgesResponse,
 } from '../../services/player-badges.js';
-import compareRoleStats, {
-  type RoleComparison,
-} from '../../utils/compare-role-stats.js';
+import compareRoleStats from '../../utils/compare-role-stats.js';
+import {
+  getItemMap,
+  inferPatchFromGameVersion,
+  pickItemMeta,
+  resolveItemNames,
+} from '../../utils/ddragon-items.js';
+import { deriveSynergy } from '../../utils/synergy.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
@@ -667,6 +674,164 @@ app.get(
 
     await redis.set(cacheKey, JSON.stringify(mastery), 'EX', ms('1h'));
     return c.json(mastery);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/match/:matchId',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+    const { matchId } = c.req.param();
+
+    const cacheKey = `cache:matchDetails:${c.var.internalId}:${matchId}`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      consola.debug('[match-details-route] cache hit', { cacheKey });
+      return c.json(JSON.parse(cached));
+    }
+
+    consola.debug('[match-details-route] using node strategy', {
+      matchId,
+      puuid,
+    });
+    const nodeResult = await matchDetailsNode(puuid, matchId);
+    if (!nodeResult) {
+      throw new HTTPException(404, { message: 'Match not found' });
+    }
+    await redis.set(cacheKey, JSON.stringify(nodeResult), 'EX', ms('30m'));
+    return c.json(nodeResult);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/match/:matchId/insights',
+  accountMiddleware,
+  async (c) => {
+    const { matchId } = c.req.param();
+    const {
+      modelId = 'openai.gpt-oss-120b-1:0',
+      locale = 'en',
+      force = 'false',
+    } = c.req.query();
+    const puuid = c.var.account.puuid;
+
+    const cacheKey = `cache:ai:insights:${c.var.internalId}:${matchId}:${modelId}:${locale}`;
+
+    if (force !== 'true') {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          return c.json(parsed);
+        } catch {
+          // ignore cache parse errors
+        }
+      }
+    }
+
+    consola.debug(chalk.blue('[match-insights-route] fetching match details'), {
+      matchId,
+      puuid,
+    });
+    const details = await matchDetailsNode(puuid, matchId);
+    if (!details) {
+      throw new HTTPException(404, {
+        message: 'Match not found or queue not allowed',
+      });
+    }
+
+    // Enrich with item names/meta and duo synergy
+    try {
+      const d = details as Record<string, unknown>;
+      const gameVersion =
+        typeof d.gameVersion === 'string' ? d.gameVersion : null;
+      const patch = inferPatchFromGameVersion(gameVersion);
+      const itemsMap = await getItemMap(patch);
+
+      type SB = {
+        teamId: number;
+        teamPosition: string;
+        championName: string;
+        finalItems?: Array<number | null | undefined>;
+      };
+      type PBMinimal = {
+        participantId: number;
+        puuid: string;
+        summonerName: string;
+        teamId: number;
+        teamPosition: string;
+        championId: number;
+        championName: string;
+        win?: boolean;
+        items?: Array<number | null | undefined>;
+      };
+
+      const subject: SB | null =
+        d.subject && typeof d.subject === 'object' ? (d.subject as SB) : null;
+      const opponent: SB | null =
+        d.opponent && typeof d.opponent === 'object'
+          ? (d.opponent as SB)
+          : null;
+      const participantsBasic: PBMinimal[] = Array.isArray(d.participantsBasic)
+        ? (d.participantsBasic as PBMinimal[])
+        : [];
+
+      const subjectFinalItemIds: Array<number | null | undefined> =
+        Array.isArray(subject?.finalItems)
+          ? (subject?.finalItems as Array<number | null | undefined>)
+          : [];
+      const opponentFinalItemIds: Array<number | null | undefined> =
+        Array.isArray(opponent?.finalItems)
+          ? (opponent?.finalItems as Array<number | null | undefined>)
+          : [];
+
+      const enrichedCtx = {
+        ...details,
+        items: {
+          patch,
+          subjectFinalItemIds,
+          subjectFinalItemNames: resolveItemNames(
+            subjectFinalItemIds,
+            itemsMap,
+          ),
+          subjectFinalItemMeta: pickItemMeta(subjectFinalItemIds, itemsMap),
+          opponentFinalItemIds,
+          opponentFinalItemNames: resolveItemNames(
+            opponentFinalItemIds,
+            itemsMap,
+          ),
+          opponentFinalItemMeta: pickItemMeta(opponentFinalItemIds, itemsMap),
+        },
+        synergy: deriveSynergy(
+          {
+            teamId: subject?.teamId ?? 0,
+            teamPosition: subject?.teamPosition ?? 'UNKNOWN',
+            championName: subject?.championName ?? '',
+          },
+          participantsBasic,
+        ),
+      };
+
+      const insights = await generateMatchInsights(enrichedCtx, {
+        modelId,
+        locale,
+      });
+      await redis.set(cacheKey, JSON.stringify(insights), 'EX', ms('12h'));
+      return c.json(insights);
+    } catch (err) {
+      consola.warn(
+        '[match-insights-route] enrichment failed, falling back',
+        err,
+      );
+      const insights = await generateMatchInsights(details, {
+        modelId,
+        locale,
+      });
+      await redis.set(cacheKey, JSON.stringify(insights), 'EX', ms('12h'));
+      return c.json(insights);
+    }
   },
 );
 

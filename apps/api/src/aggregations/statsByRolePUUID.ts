@@ -12,7 +12,7 @@ export const statsByRolePUUID = (puuid: string) => [
   },
 
   // Only allowed queues
-  { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS as number[] } } },
+  { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS } } },
 
   // 2) Project only needed fields and calculate game duration in minutes
   {

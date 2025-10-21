@@ -48,7 +48,7 @@ export const playerHeatmap = (params: {
     { $match: { 'info.participants.puuid': puuid } },
 
     // Only allowed queues
-    { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS as number[] } } },
+  { $match: { 'info.queueId': { $in: ALLOWED_QUEUE_IDS } } },
 
     // 2) Resolve subject strictly by PUUID (ensures we always have participantId)
     {
