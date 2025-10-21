@@ -6,24 +6,11 @@ import type { Item } from '@riftcoach/shared.lol-types';
 import consola from 'consola';
 import { riotAPI } from '../clients/riot.js';
 
-// Extend the official DDragon type with an id property for our use case
-type ItemWithId = Item & { id: string };
-
-/**
- * Match insights v2 — context-rich, map-aware micro-stories per event
- * - Geometry + zone tagging + enemy-half
- * - Numbers advantage from event membership
- * - Level/Gold diffs from frames
- * - Item spike detection via DDragon (mythics / tier-2 boots / large legendaries)
- * - Vision density around the event (wards within ±60s and radius)
- * - Objective window (±90s around Drake/Herald/Baron kills)
- * - Heuristic flags: overextension, likely dive
- * - Insight writer: turns features into crisp, specific feedback
- */
-
 // =====================
-// Timeline local types
+// Types
 // =====================
+export type ItemWithId = Item & { id: string };
+
 export type TimelineEvent = {
   type: string;
   timestamp?: number;
@@ -33,7 +20,6 @@ export type TimelineEvent = {
   victimId?: number;
   assistingParticipantIds?: number[];
   itemId?: number;
-  // Optional DDragon-ish ward fields Riot includes in timeline
   wardType?: string;
   creatorId?: number;
   monsterType?: string;
@@ -48,6 +34,7 @@ export type ParticipantFrame = {
   jungleMinionsKilled?: number;
   championStats?: unknown;
   damageStats?: unknown;
+  position?: { x: number; y: number };
 };
 
 export type TimelineFrame = {
@@ -55,11 +42,6 @@ export type TimelineFrame = {
   events?: TimelineEvent[];
   participantFrames?: Record<string, ParticipantFrame>;
 };
-
-// =====================
-// DDragon (items) cache
-// =====================
-export type DDragonItemsById = Record<string, ItemWithId>;
 
 export type ParticipantBasic = {
   participantId: number;
@@ -73,31 +55,27 @@ export type ParticipantBasic = {
   items: (number | null)[];
   summoner1Id: number;
   summoner2Id: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  kda: number;
 };
 
+// =====================
+// DDragon cache
+// =====================
+export type DDragonItemsById = Record<string, ItemWithId>;
 let _dd: DDragon | null = null;
 let DD_ITEMS: DDragonItemsById = {};
 
-/** Initialize (or refresh) a light item cache from DDragon using @fightmegg/riot-api. */
 export async function ensureDDragonItemsLoaded(): Promise<void> {
   if (!_dd) _dd = riotAPI.ddragon;
   try {
-    // fightmegg exposes an items accessor as ddragon.item.all()
-    const itemsAny = (await _dd.items()).data;
-    // Handle both possible shapes (array or { data }) defensively.
-    const rawMap: Record<string, Item> = Array.isArray(itemsAny)
-      ? {} // If it's an array, we can't use it directly as a Record
-      : (itemsAny as Record<string, Item>);
-
+    const res: any = await (_dd as any).items();
+    const rawMap: Record<string, Item> = res && res.data ? res.data : res; // supports both shapes
     const out: DDragonItemsById = {};
-    for (const [k, v] of Object.entries(rawMap)) {
-      // Normalize id to string key - use the key from the data structure
-      const idStr = String(k);
-      out[idStr] = {
-        ...v,
-        id: idStr,
-      } as ItemWithId;
-    }
+    for (const [k, v] of Object.entries(rawMap || {}))
+      out[String(k)] = { ...(v as Item), id: String(k) } as ItemWithId;
     DD_ITEMS = out;
     consola.debug('[ddragon] items loaded', {
       count: Object.keys(DD_ITEMS).length,
@@ -119,6 +97,12 @@ const itemEventTypes = [
   'ITEM_TRANSFORMED',
 ] as const;
 
+type ItemEvt = {
+  type: TimelineEvent['type'];
+  itemId?: number | null;
+  timestamp?: number;
+};
+
 function upperRole(p: RiotAPITypes.MatchV5.ParticipantDTO): string {
   const raw = p.teamPosition ?? p.individualPosition ?? p.lane ?? '';
   return String(raw || '').toUpperCase();
@@ -130,28 +114,17 @@ function roleGroup(
   if (roleUpper === 'TOP') return 'TOP';
   if (roleUpper === 'JUNGLE') return 'JUNGLE';
   if (roleUpper === 'MIDDLE' || roleUpper === 'MID') return 'MID';
-  if (
-    roleUpper === 'BOTTOM' ||
-    roleUpper === 'BOT' ||
-    roleUpper === 'ADC' ||
-    roleUpper === 'DUO_CARRY'
-  )
+  if (['BOTTOM', 'BOT', 'ADC', 'DUO_CARRY'].includes(roleUpper))
     return 'BOTTOM';
-  if (
-    roleUpper === 'SUPPORT' ||
-    roleUpper === 'UTILITY' ||
-    roleUpper === 'DUO_SUPPORT'
-  )
+  if (['SUPPORT', 'UTILITY', 'DUO_SUPPORT'].includes(roleUpper))
     return 'SUPPORT';
   return 'UNKNOWN';
 }
 
 function flattenEvents(frames: TimelineFrame[]): TimelineEvent[] {
   const out: TimelineEvent[] = [];
-  for (const f of frames || []) {
-    const fe = f.events;
-    if (Array.isArray(fe)) out.push(...fe);
-  }
+  for (const f of frames || [])
+    if (Array.isArray(f.events)) out.push(...f.events);
   return out;
 }
 
@@ -160,13 +133,20 @@ function findFrameAt(
   ts: number,
 ): TimelineFrame | null {
   if (!frames || frames.length === 0) return null;
-  let cur: TimelineFrame | null = null;
-  for (const f of frames) {
-    if (typeof f.timestamp !== 'number') continue;
-    if (f.timestamp <= ts) cur = f;
-    else break;
+  let lo = 0,
+    hi = frames.length - 1,
+    ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const t = Number(frames[mid]?.timestamp ?? 0);
+    if (t <= ts) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
   }
-  return cur ?? frames[0] ?? null;
+  return frames[ans] ?? frames[0] ?? null;
 }
 
 function getParticipantFrame(
@@ -180,7 +160,7 @@ function getParticipantFrame(
 }
 
 function snapshotFromFrame(pf: ParticipantFrame | null) {
-  if (!pf) {
+  if (!pf)
     return {
       level: 0,
       xp: 0,
@@ -190,19 +170,16 @@ function snapshotFromFrame(pf: ParticipantFrame | null) {
       championStats: {},
       damageStats: {},
     };
-  }
   const minions = Number(pf.minionsKilled || 0);
   const jungle = Number(pf.jungleMinionsKilled || 0);
-  const championStats = pf.championStats ?? {};
-  const damageStats = pf.damageStats ?? {};
   return {
     level: Number(pf.level || 0),
     xp: Number(pf.xp || 0),
     gold: Number(pf.gold || 0),
     totalGold: Number(pf.totalGold || 0),
     cs: minions + jungle,
-    championStats,
-    damageStats,
+    championStats: pf.championStats ?? {},
+    damageStats: pf.damageStats ?? {},
   };
 }
 
@@ -210,36 +187,217 @@ function isItemEventType(t: string): t is (typeof itemEventTypes)[number] {
   return (itemEventTypes as readonly string[]).includes(t);
 }
 
-function itemEventsUpTo(eventsAll: TimelineEvent[], pid: number, ts: number) {
-  const filtered = eventsAll.filter(
-    (ie) =>
-      isItemEventType(ie.type) &&
-      ie.participantId === pid &&
-      (typeof ie.timestamp === 'number' ? ie.timestamp <= ts : true),
+// =====================
+// Positions index (uses participantFrames.position + events)
+// =====================
+export type Vec2 = { x: number; y: number };
+
+type PosIndex = { byT: Array<{ t: number; pos: Record<number, Vec2> }> };
+
+function buildPositionsIndex(frames: TimelineFrame[]): PosIndex {
+  const byT: Array<{ t: number; pos: Record<number, Vec2> }> = [];
+  for (const f of frames) {
+    const t = typeof f.timestamp === 'number' ? f.timestamp : 0;
+    const pos: Record<number, Vec2> = {};
+
+    // participantFrames positions
+    if (f.participantFrames) {
+      for (const [pidStr, pf] of Object.entries(f.participantFrames)) {
+        const p = (pf as any).position as { x: number; y: number } | undefined;
+        if (p && typeof p.x === 'number' && typeof p.y === 'number')
+          pos[Number(pidStr)] = { x: p.x, y: p.y };
+      }
+    }
+
+    // events fallback
+    if (Array.isArray(f.events)) {
+      for (const e of f.events) {
+        if (
+          e.position &&
+          typeof e.participantId === 'number' &&
+          !pos[e.participantId]
+        )
+          pos[e.participantId] = { x: e.position.x, y: e.position.y };
+        if (e.type === 'CHAMPION_KILL' && e.position) {
+          if (typeof e.killerId === 'number' && !pos[e.killerId])
+            pos[e.killerId] = { ...e.position };
+          if (typeof e.victimId === 'number' && !pos[e.victimId])
+            pos[e.victimId] = { ...e.position };
+          if (Array.isArray(e.assistingParticipantIds))
+            for (const aid of e.assistingParticipantIds)
+              if (!pos[aid]) pos[aid] = { ...e.position };
+        }
+      }
+    }
+
+    byT.push({ t, pos });
+  }
+  byT.sort((a, b) => a.t - b.t);
+  return { byT };
+}
+
+// =====================
+// Dynamic AOI (geometry + damage involvement)
+// =====================
+function dist2(a: Vec2, b: Vec2) {
+  const dx = a.x - b.x,
+    dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+function nearestPosInWindow(
+  posIndex: PosIndex,
+  pid: number,
+  start: number,
+  end: number,
+): Vec2 | null {
+  for (const { t, pos } of posIndex.byT) {
+    if (t < start) continue;
+    if (t > end) break;
+    const p = pos[pid];
+    if (p) return p;
+  }
+  return null;
+}
+
+function damageDeltaWindow(
+  frames: TimelineFrame[],
+  pid: number,
+  start: number,
+  end: number,
+): { dealtChamp: number; taken: number } {
+  let first: ParticipantFrame | null = null;
+  let last: ParticipantFrame | null = null;
+  for (const f of frames) {
+    const t = Number(f.timestamp ?? 0);
+    if (t < start || t > end) continue;
+    const pf = f.participantFrames?.[String(pid)];
+    if (!pf) continue;
+    if (!first) first = pf;
+    last = pf;
+  }
+  const fds = (first?.damageStats as any) || {};
+  const lds = (last?.damageStats as any) || {};
+  const dealtChamp =
+    Number(lds.totalDamageDoneToChampions || 0) -
+    Number(fds.totalDamageDoneToChampions || 0);
+  const taken =
+    Number(lds.totalDamageTaken || 0) - Number(fds.totalDamageTaken || 0);
+  return { dealtChamp: Math.max(0, dealtChamp), taken: Math.max(0, taken) };
+}
+
+export type AoiTuning = {
+  baseRadius: number;
+  earlyRadius: number;
+  pre3Radius: number;
+  riverBonus: number;
+  enemyHalfBonus: number;
+  baseWindow: number;
+  earlyWindow: number;
+  damageRadiusMult: number;
+};
+
+export const AOI_TUNING: AoiTuning = {
+  baseRadius: 1200,
+  earlyRadius: 1700,
+  pre3Radius: 2000,
+  riverBonus: 1.1,
+  enemyHalfBonus: 1.1,
+  baseWindow: 5000,
+  earlyWindow: 6000,
+  damageRadiusMult: 1.25,
+};
+
+function computeAoiParams(
+  whenMin: number,
+  zone: string,
+  enemyHalf: boolean,
+  tuning = AOI_TUNING,
+) {
+  let radius = tuning.baseRadius;
+  const windowMs = whenMin < 6 ? tuning.earlyWindow : tuning.baseWindow;
+  if (whenMin < 3) radius = tuning.pre3Radius;
+  else if (whenMin < 6) radius = tuning.earlyRadius;
+  else radius = tuning.baseRadius;
+  if (zone.endsWith('_RIVER')) radius *= tuning.riverBonus;
+  if (enemyHalf) radius *= tuning.enemyHalfBonus;
+  return { radius, windowMs };
+}
+
+function aoiCountsDynamic(
+  posIndex: PosIndex,
+  participantsDict: Record<string, ParticipantBasic>,
+  frames: TimelineFrame[],
+  ts: number,
+  center: Vec2 | null,
+  subjectTeamId: number,
+  whenMin: number,
+  zone: string,
+  enemyHalf: boolean,
+  mandatoryPids: number[] = [],
+  tuning = AOI_TUNING,
+) {
+  const { radius, windowMs } = computeAoiParams(
+    whenMin,
+    zone,
+    enemyHalf,
+    tuning,
   );
-  const purchasedIds: number[] = [];
-  const removedIds: number[] = [];
-  for (const ie of filtered) {
-    if (ie.type === 'ITEM_PURCHASED') {
-      if (typeof ie.itemId === 'number') purchasedIds.push(ie.itemId);
-    } else if (
-      ie.type === 'ITEM_SOLD' ||
-      ie.type === 'ITEM_DESTROYED' ||
-      ie.type === 'ITEM_UNDO'
-    ) {
-      if (typeof ie.itemId === 'number') removedIds.push(ie.itemId);
+  const start = ts - windowMs,
+    end = ts + windowMs;
+  const r2 = radius * radius;
+  const seen = new Set<number>();
+  const ally = new Set<number>();
+  const enemy = new Set<number>();
+  const teamOf = (pid: number) => participantsDict[String(pid)]?.teamId;
+
+  // 1) geometric
+  if (center) {
+    for (const { t, pos } of posIndex.byT) {
+      if (t < start) continue;
+      if (t > end) break;
+      for (const [pidStr, p] of Object.entries(pos)) {
+        const pid = Number(pidStr);
+        if (seen.has(pid)) continue;
+        if (dist2(p, center) <= r2) {
+          seen.add(pid);
+          (teamOf(pid) === subjectTeamId ? ally : enemy).add(pid);
+        }
+      }
     }
   }
-  const itemEvents = filtered.map((ie) => ({
-    type: ie.type,
-    itemId: ie.itemId,
-    timestamp: ie.timestamp,
-  }));
-  const inv = purchasedIds.filter((id) => !removedIds.includes(id));
-  // Broad GW set; keep it simple
-  const grievousWoundsItemIds = [3916, 3165, 3011, 3123, 3033, 3075];
-  const hasGW = inv.some((id) => grievousWoundsItemIds.includes(id));
-  return { itemEvents, purchasedIds, removedIds, inventoryIds: inv, hasGW };
+
+  // 2) damage involvement (champ-only)
+  const relaxedR2 = (radius * tuning.damageRadiusMult) ** 2;
+  for (const pidStr of Object.keys(participantsDict)) {
+    const pid = Number(pidStr);
+    if (seen.has(pid)) continue;
+    const d = damageDeltaWindow(frames, pid, start, end);
+    if (d.dealtChamp > 0 || d.taken > 0) {
+      const p = center ? nearestPosInWindow(posIndex, pid, start, end) : null;
+      if (!center || (p && dist2(p, center) <= relaxedR2)) {
+        seen.add(pid);
+        (teamOf(pid) === subjectTeamId ? ally : enemy).add(pid);
+      }
+    }
+  }
+
+  // 3) mandatory participants fallback
+  for (const pid of mandatoryPids) {
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    (teamOf(pid) === subjectTeamId ? ally : enemy).add(pid);
+  }
+
+  return {
+    allies: ally.size,
+    enemies: enemy.size,
+    diff: ally.size - enemy.size,
+    allyIds: [...ally],
+    enemyIds: [...enemy],
+    radius,
+    windowMs,
+  };
 }
 
 // =====================
@@ -261,7 +419,7 @@ function zoneLabel(pos?: { x: number; y: number } | null): string {
   const x = norm(pos.x);
   const y = norm(pos.y);
   const distToDiag = Math.abs(x - (1 - y));
-  const nearRiver = distToDiag < 0.06;
+  const nearRiver = distToDiag < 0.075;
   const lane = y > 0.66 ? 'TOP' : y < 0.33 ? 'BOTTOM' : 'MIDDLE';
   const nearLane =
     (lane === 'TOP' && x < 0.6) ||
@@ -279,7 +437,7 @@ function isEnemyHalf(
   const x = norm(pos.x);
   const y = norm(pos.y);
   const s = x + y;
-  return side === 'BLUE' ? s > 1.02 : s < 0.98;
+  return side === 'BLUE' ? s > 1.03 : s < 0.97;
 }
 
 function minutes(ts: number) {
@@ -292,44 +450,8 @@ function phaseByTime(m: number): 'EARLY' | 'MID' | 'LATE' {
 }
 
 // =====================
-// Spikes / vision / objectives
+// Vision & objectives
 // =====================
-function isTier2Boot(id: number) {
-  return [3006, 3009, 3020, 3047, 3111, 3117, 3158].includes(id);
-}
-function isLikelyMythic(it?: ItemWithId) {
-  return (
-    !!it &&
-    (it.tags?.includes('Mythic') ||
-      (it.name ?? '').toLowerCase().includes('mythic'))
-  );
-}
-function isBigSpike(id: number) {
-  const it = DD_ITEMS[String(id)];
-  if (!it) return isTier2Boot(id); // fallback
-  if (isTier2Boot(id)) return true;
-  if (isLikelyMythic(it)) return true;
-  return (it.depth ?? 0) >= 3 && !(it.from && it.from.length <= 1);
-}
-
-function recentSpikeWithin(
-  itemEventsUpToObj: ReturnType<typeof itemEventsUpTo>,
-  sinceMs: number,
-  ts: number,
-) {
-  const recent = itemEventsUpToObj.itemEvents
-    .filter(
-      (e) =>
-        e.type === 'ITEM_PURCHASED' &&
-        typeof e.timestamp === 'number' &&
-        ts - (e.timestamp ?? 0) <= sinceMs,
-    )
-    .map((e) => e.itemId)
-    .filter((id): id is number => id != null);
-  const spikes = recent.filter(isBigSpike);
-  return { recent, spikes, hasSpike: spikes.length > 0 };
-}
-
 const WARD_TYPES = new Set([
   'YELLOW_TRINKET',
   'CONTROL_WARD',
@@ -400,52 +522,89 @@ function objectiveWindow(
   };
 }
 
-function numbersAdvantage(
-  e: TimelineEvent,
-  selfPid: number,
-  participantsDict: Record<string, ParticipantBasic>,
-) {
-  const killer = e.killerId;
-  const victim = e.victimId;
-  const assistIds = (e.assistingParticipantIds || []).filter(
-    Boolean,
-  ) as number[];
-  const pids = new Set<number>(
-    [killer, victim, ...assistIds].filter((id): id is number => id != null),
-  );
-  const selfTeam = participantsDict[String(selfPid)]?.teamId;
-  let ally = 0;
-  let enemy = 0;
-  for (const pid of pids) {
-    const t = participantsDict[String(pid)]?.teamId;
-    if (!t) continue;
-    if (t === selfTeam) ally++;
-    else enemy++;
-  }
-  return { ally, enemy, diff: ally - enemy };
-}
+// =====================
+// Inventory at time t + spikes
+// =====================
+function inventoryAtTime(eventsAll: TimelineEvent[], pid: number, ts: number) {
+  const evts: ItemEvt[] = eventsAll
+    .filter(
+      (ie) =>
+        isItemEventType(ie.type) &&
+        ie.participantId === pid &&
+        (typeof ie.timestamp !== 'number' || ie.timestamp <= ts),
+    )
+    .map((ie) => ({
+      type: ie.type,
+      itemId: ie.itemId ?? null,
+      timestamp: ie.timestamp ?? 0,
+    }))
+    .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 
-function levelGoldDiff(
-  tsFrame: TimelineFrame | null,
-  selfPid: number,
-  oppPid?: number | null,
-) {
-  const self = snapshotFromFrame(getParticipantFrame(tsFrame, selfPid));
-  const opp = snapshotFromFrame(getParticipantFrame(tsFrame, oppPid ?? -1));
-  return {
-    levelDiff: (self.level ?? 0) - (opp.level ?? 0),
-    goldDiff: (self.totalGold ?? 0) - (opp.totalGold ?? 0),
+  const counts = new Map<number, number>();
+  const push = (id: number) => counts.set(id, (counts.get(id) ?? 0) + 1);
+  const pop = (id: number) => {
+    const c = (counts.get(id) ?? 0) - 1;
+    if (c <= 0) counts.delete(id);
+    else counts.set(id, c);
   };
+
+  for (const e of evts) {
+    const id = typeof e.itemId === 'number' ? e.itemId : null;
+    if (e.type === 'ITEM_PURCHASED' && id != null) push(id);
+    else if (
+      (e.type === 'ITEM_SOLD' || e.type === 'ITEM_DESTROYED') &&
+      id != null
+    )
+      pop(id);
+    else if (e.type === 'ITEM_UNDO' && id != null) pop(id);
+    else if (e.type === 'ITEM_TRANSFORMED' && id != null) push(id);
+  }
+  const inv = [...counts.entries()].flatMap(([id, c]) =>
+    Array.from({ length: c }, () => id),
+  );
+  const GW = new Set([3916, 3165, 3011, 3123, 3033, 3076, 3075]);
+  const hasGW = inv.some((id) => GW.has(id));
+  return { inventoryIds: inv, hasGW };
 }
 
-function likelyDive(
-  pos: { x: number; y: number } | null,
-  zone: string,
-  numbers: { ally: number; enemy: number },
+function isTier2Boot(id: number) {
+  return [3006, 3009, 3020, 3047, 3111, 3117, 3158].includes(id);
+}
+function isLikelyMythic(it?: ItemWithId) {
+  return (
+    !!it &&
+    (it.tags?.includes('Mythic') ||
+      (it.name ?? '').toLowerCase().includes('mythic'))
+  );
+}
+function isBigSpike(id: number) {
+  const it = DD_ITEMS[String(id)];
+  if (!it) return isTier2Boot(id);
+  if (isTier2Boot(id)) return true;
+  if (isLikelyMythic(it)) return true;
+  return (it.depth ?? 0) >= 3 && !(it.from && it.from.length <= 1);
+}
+
+function recentSpikeWithin(
+  src: {
+    itemEvents?: { type: string; itemId?: number | null; timestamp?: number }[];
+    inventoryIds?: number[];
+  },
+  sinceMs: number,
+  ts: number,
 ) {
-  if (!pos) return false;
-  const inLane = zone.endsWith('_LANE');
-  return inLane && numbers.enemy >= 2;
+  const recent = (src.itemEvents || [])
+    .filter(
+      (e) =>
+        e.type === 'ITEM_PURCHASED' &&
+        typeof e.timestamp === 'number' &&
+        ts - (e.timestamp ?? 0) <= sinceMs,
+    )
+    .map((e) => e.itemId)
+    .filter((id): id is number => id != null);
+  const base = recent.length ? recent : src.inventoryIds || [];
+  const spikes = base.filter(isBigSpike);
+  return { recent: base, spikes, hasSpike: spikes.length > 0 };
 }
 
 // =====================
@@ -475,67 +634,50 @@ export type EventFeatures = {
 export function writeInsight(f: EventFeatures): string {
   const parts: string[] = [];
   const zoneText = f.zone.replace('_', ' ').toLowerCase();
-
-  if (f.numbers.diff <= -1)
+  const label = `${f.numbers.ally}v${f.numbers.enemy}`;
+  if (f.numbers.diff < 0)
     parts.push(
-      `You took a ${Math.abs(f.numbers.diff)}-player disadvantage ${zoneText}${f.enemyHalf ? ' on enemy territory' : ''}.`,
+      `You took a ${label} ${zoneText}${f.enemyHalf ? ' on enemy territory' : ''}.`,
     );
-  else if (f.numbers.diff >= 1)
+  else if (f.numbers.diff > 0)
     parts.push(
-      `Good ${f.numbers.ally}v${f.numbers.enemy} setup ${zoneText}${f.enemyHalf ? ' deep in enemy side' : ''}.`,
+      `Good ${label} setup ${zoneText}${f.enemyHalf ? ' deep in enemy side' : ''}.`,
     );
   else
-    parts.push(`Even fight ${zoneText}${f.enemyHalf ? ' on enemy half' : ''}.`);
-
+    parts.push(
+      `Even ${label} ${zoneText}${f.enemyHalf ? ' on enemy half' : ''}.`,
+    );
   if (f.spikes.enemy && !f.spikes.self)
-    parts.push(
-      'Enemy had a fresh item spike within ~2m; consider delaying or pulling to neutral ground.',
-    );
+    parts.push('Enemy had a fresh item spike within ~2m; kite or delay.');
   if (f.spikes.self && !f.spikes.enemy)
-    parts.push('You had a fresh spike—nice timing to force.');
+    parts.push('You had a fresh spike—force with wave/vision.');
   if (f.selfHasGW && !f.enemyHasGW && f.kind === 'kill')
-    parts.push('Grievous Wounds helped secure the kill—keep it vs sustain.');
+    parts.push('Your anti-heal mattered here.');
   if (!f.selfHasGW && f.enemyHasGW && f.kind === 'death')
-    parts.push(
-      'Enemy applied Grievous Wounds—avoid extended trades until it wears off.',
-    );
-
+    parts.push('They had anti-heal—avoid extended trades.');
   if (f.diffs.levelDiff <= -2)
-    parts.push(
-      `You were down ${Math.abs(f.diffs.levelDiff)} levels—high risk.`,
-    );
+    parts.push(`Down ${Math.abs(f.diffs.levelDiff)} levels—high risk.`);
   if (f.diffs.goldDiff <= -800)
-    parts.push(
-      `~${Math.abs(Math.round(f.diffs.goldDiff))}g deficit made this tough.`,
-    );
+    parts.push(`~${Math.abs(Math.round(f.diffs.goldDiff))}g deficit.`);
   if (f.diffs.levelDiff >= 2)
-    parts.push(
-      `You had a ${f.diffs.levelDiff}-level lead—convert to objectives.`,
-    );
-
+    parts.push(`Up ${f.diffs.levelDiff} levels—convert to objectives.`);
   if (f.vision.enemy > f.vision.ally && f.enemyHalf)
-    parts.push(
-      'Enemy had better local vision; sweep or path through safer fog.',
-    );
+    parts.push('Enemy had better local vision—sweep first.');
   if (f.objWin.nearbyObjective) {
     const k = f.objWin.kinds.join('/');
-    if (f.kind === 'death')
-      parts.push(`This death is inside the ${k} window—enemy can convert.`);
-    else parts.push(`Great timing around ${k}—translate into the take.`);
+    parts.push(
+      f.kind === 'death'
+        ? `Inside ${k} window—enemy converts.`
+        : `Great ${k} timing—secure it.`,
+    );
   }
-
-  if (f.enemyHalf && f.numbers.enemy >= 2 && f.kind === 'death') {
-    if (f.likelyDive)
-      parts.push('Classic dive pattern—thin the wave and hug fog earlier.');
-    else
-      parts.push(
-        'Overextended without cover—reset earlier or wait for info on enemy positions.',
-      );
-  }
-
-  return parts.length
-    ? parts.join(' ')
-    : `Standard ${f.kind} with neutral context.`;
+  if (f.enemyHalf && f.numbers.enemy >= 2 && f.kind === 'death')
+    parts.push(
+      f.likelyDive
+        ? 'Dive pattern—thin wave, hug fog.'
+        : 'Overextended—reset or wait for info.',
+    );
+  return parts.join(' ') || `Standard ${f.kind} with neutral context.`;
 }
 
 // =====================
@@ -579,7 +721,7 @@ export async function matchDetailsNode(
     participants.find((p) => p.teamId !== subject.teamId) ??
     null;
 
-  const participantsBasic = participants.map((p) => ({
+  const participantsBasic: ParticipantBasic[] = participants.map((p) => ({
     participantId: p.participantId,
     puuid: p.puuid,
     summonerName: p.summonerName,
@@ -591,6 +733,10 @@ export async function matchDetailsNode(
     items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6],
     summoner1Id: p.summoner1Id,
     summoner2Id: p.summoner2Id,
+    kills: p.kills,
+    deaths: p.deaths,
+    assists: p.assists,
+    kda: calcKDA(p.kills, p.deaths, p.assists),
   }));
 
   const participantsDict: Record<string, ParticipantBasic> = {};
@@ -633,6 +779,10 @@ export async function matchDetailsNode(
         championName: subject.championName,
         summoner1Id: subject.summoner1Id,
         summoner2Id: subject.summoner2Id,
+        kills: subject.kills,
+        deaths: subject.deaths,
+        assists: subject.assists,
+        kda: calcKDA(subject.kills, subject.deaths, subject.assists),
         finalItems: [
           subject.item0,
           subject.item1,
@@ -654,6 +804,10 @@ export async function matchDetailsNode(
             championName: opponent.championName,
             summoner1Id: opponent.summoner1Id,
             summoner2Id: opponent.summoner2Id,
+            kills: opponent.kills,
+            deaths: opponent.deaths,
+            assists: opponent.assists,
+            kda: calcKDA(opponent.kills, opponent.deaths, opponent.assists),
             finalItems: [
               opponent.item0,
               opponent.item1,
@@ -679,6 +833,9 @@ export async function matchDetailsNode(
     : [];
   const eventsAll = flattenEvents(frames);
 
+  await ensureDDragonItemsLoaded();
+  const posIndex = buildPositionsIndex(frames);
+
   const subjectPid = subject.participantId;
   const assistInclusion = includeAssistsInKills;
 
@@ -692,9 +849,6 @@ export async function matchDetailsNode(
         : false;
     return isKiller || isVictim || isAssist;
   });
-
-  // Ensure DDragon items are ready for spike logic
-  await ensureDDragonItemsLoaded();
 
   const events = killDeathEvents.map((e) => {
     const ts = e.timestamp ?? 0;
@@ -713,7 +867,6 @@ export async function matchDetailsNode(
 
     const killerPid = e.killerId;
     const victimPid = e.victimId;
-
     const killerFrame = snapshotFromFrame(
       getParticipantFrame(frameAt, killerPid ?? -1),
     );
@@ -721,32 +874,49 @@ export async function matchDetailsNode(
       getParticipantFrame(frameAt, victimPid ?? -1),
     );
 
-    const subjItems = itemEventsUpTo(eventsAll, subjectPid, ts);
-    const enemyItems = opponentPid
-      ? itemEventsUpTo(eventsAll, opponentPid, ts)
-      : {
-          itemEvents: [],
-          purchasedIds: [],
-          removedIds: [],
-          inventoryIds: [],
-          hasGW: false,
-        };
-
-    let kind: 'kill' | 'death' | 'assist' = 'assist';
-    if (killerPid === subjectPid) kind = 'kill';
-    else if (victimPid === subjectPid) kind = 'death';
-
     const selfSide = teamSide(subject.teamId);
     const zone = zoneLabel(position);
     const enemyHalfFlag = isEnemyHalf(position, selfSide);
-    const numbers = numbersAdvantage(e, subjectPid, participantsDict);
+
+    // AOI dynamic counts
+    const center = position ? { x: position.x, y: position.y } : null;
+    const mandatory = [
+      e.killerId,
+      e.victimId,
+      ...(e.assistingParticipantIds || []),
+    ].filter((x): x is number => typeof x === 'number');
+    const pres = aoiCountsDynamic(
+      posIndex,
+      participantsDict,
+      frames,
+      ts,
+      center,
+      subject.teamId,
+      whenMin,
+      zone,
+      enemyHalfFlag,
+      mandatory,
+    );
+    const numbers = { ally: pres.allies, enemy: pres.enemies, diff: pres.diff };
+
+    // Inventory & spikes
+    const subjInv = inventoryAtTime(eventsAll, subjectPid, ts);
+    const enemyInv = opponentPid
+      ? inventoryAtTime(eventsAll, opponentPid, ts)
+      : { inventoryIds: [], hasGW: false };
+    const selfSpike = recentSpikeWithin(
+      { inventoryIds: subjInv.inventoryIds },
+      120_000,
+      ts,
+    );
+    const enemySpike = recentSpikeWithin(
+      { inventoryIds: enemyInv.inventoryIds },
+      120_000,
+      ts,
+    );
+
     const diffs = levelGoldDiff(frameAt, subjectPid, opponentPid ?? null);
-
-    const selfSpike = recentSpikeWithin(subjItems, 120_000, ts);
-    const enemySpike = recentSpikeWithin(enemyItems, 120_000, ts);
-
     const objWin = objectiveWindow(eventsAll, ts, 90_000);
-
     const byTeam = (pid?: number) =>
       teamSide(participantsDict[String(pid ?? subjectPid)]?.teamId);
     const vision = wardsNearTimeAndPos(
@@ -757,10 +927,14 @@ export async function matchDetailsNode(
       2500,
       byTeam,
     );
+    const likelyDiveFlag =
+      position && zone.endsWith('_LANE') && numbers.enemy >= 2 ? true : false;
 
-    const likelyDiveFlag = likelyDive(position, zone, numbers);
+    let kind: 'kill' | 'death' | 'assist' = 'assist';
+    if (killerPid === subjectPid) kind = 'kill';
+    else if (victimPid === subjectPid) kind = 'death';
 
-    const features = {
+    const features: EventFeatures = {
       kind,
       whenMin,
       phase: phaseByTime(whenMin),
@@ -777,9 +951,9 @@ export async function matchDetailsNode(
       objWin,
       vision: { ally: vision.ally, enemy: vision.enemy },
       likelyDive: likelyDiveFlag,
-      selfHasGW: subjItems.hasGW,
-      enemyHasGW: enemyItems.hasGW,
-    } satisfies EventFeatures;
+      selfHasGW: subjInv.hasGW,
+      enemyHasGW: enemyInv.hasGW,
+    };
 
     const insight = writeInsight(features);
 
@@ -794,32 +968,29 @@ export async function matchDetailsNode(
       numbersAdvantage: numbers,
       levelDiffAt: diffs.levelDiff,
       goldDiffAt: diffs.goldDiff,
-      subjectHasGrievousWounds: subjItems.hasGW,
-      enemyHasGrievousWounds: enemyItems.hasGW,
+      subjectHasGrievousWounds: subjInv.hasGW,
+      enemyHasGrievousWounds: enemyInv.hasGW,
       subjectRecentSpikeItemIds: features.spikes.selfIds,
       enemyRecentSpikeItemIds: features.spikes.enemyIds,
       objectiveWindow: objWin,
       localVision: vision,
       likelyDive: likelyDiveFlag,
-
+      // Debug AOI
+      aoiRadiusUsed: pres.radius,
+      aoiWindowUsed: pres.windowMs,
+      aoiAllyIds: pres.allyIds,
+      aoiEnemyIds: pres.enemyIds,
       killerId: killerPid,
       victimId: victimPid,
       assists: assistIds,
-
       subjectSnapshot: spf,
       enemySnapshot: opf,
       killerChampionStats: killerFrame.championStats,
       killerDamageStats: killerFrame.damageStats,
       victimChampionStats: victimFrame.championStats,
       victimDamageStats: victimFrame.damageStats,
-
-      subjectItemEventsUpTo: subjItems.itemEvents,
-      enemyItemEventsUpTo: enemyItems.itemEvents,
-      subjectPurchasedItemsUpTo: subjItems.purchasedIds,
-      subjectRemovedItemsUpTo: subjItems.removedIds,
-      enemyPurchasedItemsUpTo: enemyItems.purchasedIds,
-      enemyRemovedItemsUpTo: enemyItems.removedIds,
-
+      subjectInventoryAtTs: subjInv.inventoryIds,
+      enemyInventoryAtTs: enemyInv.inventoryIds,
       insight,
     };
 
@@ -921,4 +1092,29 @@ export async function matchDetailsNode(
     objectiveEventsRaw,
     events,
   } as const;
+}
+
+// =====================
+// Small helpers
+// =====================
+function calcKDA(kills?: number, deaths?: number, assists?: number): number {
+  const k = Number(kills || 0);
+  const d = Number(deaths || 0);
+  const a = Number(assists || 0);
+  const denom = Math.max(1, d);
+  const v = (k + a) / denom;
+  return Number(v.toFixed(2));
+}
+
+function levelGoldDiff(
+  tsFrame: TimelineFrame | null,
+  selfPid: number,
+  oppPid?: number | null,
+) {
+  const self = snapshotFromFrame(getParticipantFrame(tsFrame, selfPid));
+  const opp = snapshotFromFrame(getParticipantFrame(tsFrame, oppPid ?? -1));
+  return {
+    levelDiff: (self.level ?? 0) - (opp.level ?? 0),
+    goldDiff: (self.totalGold ?? 0) - (opp.totalGold ?? 0),
+  };
 }

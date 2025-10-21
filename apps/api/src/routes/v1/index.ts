@@ -684,14 +684,6 @@ app.get(
     const puuid = c.var.account.puuid;
     const { matchId } = c.req.param();
 
-    const cacheKey = `cache:matchDetails:${c.var.internalId}:${matchId}`;
-
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      consola.debug('[match-details-route] cache hit', { cacheKey });
-      return c.json(JSON.parse(cached));
-    }
-
     consola.debug('[match-details-route] using node strategy', {
       matchId,
       puuid,
@@ -700,7 +692,6 @@ app.get(
     if (!nodeResult) {
       throw new HTTPException(404, { message: 'Match not found' });
     }
-    await redis.set(cacheKey, JSON.stringify(nodeResult), 'EX', ms('30m'));
     return c.json(nodeResult);
   },
 );
@@ -711,7 +702,7 @@ app.get(
   async (c) => {
     const { matchId } = c.req.param();
     const {
-      modelId = 'openai.gpt-oss-120b-1:0',
+      modelId = 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
       locale = 'en',
       force = 'false',
     } = c.req.query();
