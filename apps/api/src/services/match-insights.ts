@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import {
   type ContentBlock,
   ConverseCommand,
@@ -160,7 +161,7 @@ function buildPrompt(
     `  "summary": string (max ${SUMMARY_MAX_CHARS} chars)`,
     '  "roleFocus": string',
     `  "keyMoments": [{ "ts": number, "title": string, "insight": string, "suggestion": string, "coordinates"?: [{"x": number, "y": number}], "zone"?: string, "enemyHalf"?: boolean }] (max ${KEY_MOMENTS_MAX})`,
-    '  "buildNotesV2": [{ "when": string, "goal": string, "suggestion": { "add": number[], "replace"?: number[], "timingHint"?: string }, "reason": string, "confidence": number }]',
+    '  "buildNotesV2": [{ "when": string, "goal": "anti-heal"|"burst"|"sustain"|"survivability"|"siege"|"waveclear"|"armor-pen"|"magic-pen"|"on-hit"|"cdr"|"utility", "suggestion": { "add": number[], "replace"?: number[], "timingHint"?: string }, "reason": string, "confidence": number }]',
     `  "macro": { "objectives": string[] (max ${MACRO_LIST_MAX}), "rotations": string[] (max ${MACRO_LIST_MAX}), "vision": string[] (max ${MACRO_LIST_MAX}) }`,
     `  "drills": string[] (exactly ${DRILLS_MAX})`,
     '  "confidence": number (0..1)',
@@ -173,6 +174,7 @@ function buildPrompt(
     'Return STRICT JSON that matches the required schema. No markdown or prose outside JSON.',
     'Use tools when you need additional data (items, builds, stats, coordinates).',
     'Treat inventory.completedItemIds as already filtered to completed items—avoid recommending unfinished components.',
+    "When suggesting build changes (buildNotesV2), base them ONLY on other players' common builds via tools: use query_common_champion_builds for the subject's champion and role; do not invent items beyond tool outputs.",
     schemaHint,
   ].join('\n');
 
@@ -234,7 +236,7 @@ function extractTextFromMessage(message: Message | undefined): string {
   const textBlocks = message.content
     .map((block) => ('text' in block && block.text ? block.text : null))
     .filter((v): v is string => typeof v === 'string');
-  return textBlocks.join('\n').trim();
+  return textBlocks.join('\n').replace('```json', '').replace('```', '').trim();
 }
 
 function enforceOutputLimits(insights: MatchInsights): MatchInsights {
@@ -266,10 +268,208 @@ function enforceOutputLimits(insights: MatchInsights): MatchInsights {
   };
 }
 
+// Normalize AI output before schema validation to coerce goal values and numbers
+const GOAL_VALUES = [
+  'anti-heal',
+  'burst',
+  'sustain',
+  'survivability',
+  'siege',
+  'waveclear',
+  'armor-pen',
+  'magic-pen',
+  'on-hit',
+  'cdr',
+  'utility',
+] as const;
+
+type GoalValue = (typeof GOAL_VALUES)[number];
+
+function canonicalizeGoal(v: string): string {
+  return v.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+}
+
+const goalCanonicalToEnum: Record<string, GoalValue> = {
+  antiheal: 'anti-heal',
+  burst: 'burst',
+  sustain: 'sustain',
+  survivability: 'survivability',
+  siege: 'siege',
+  waveclear: 'waveclear',
+  armorpen: 'armor-pen',
+  magicpen: 'magic-pen',
+  onhit: 'on-hit',
+  cdr: 'cdr',
+  utility: 'utility',
+};
+
+const goalSynonyms: Record<string, GoalValue> = {
+  grievouswounds: 'anti-heal',
+  grievous: 'anti-heal',
+  healingreduction: 'anti-heal',
+  antihealing: 'anti-heal',
+  armorpenetration: 'armor-pen',
+  lethality: 'armor-pen',
+  antiarmor: 'armor-pen',
+  magicpenetration: 'magic-pen',
+  abilityhaste: 'cdr',
+  cooldown: 'cdr',
+  cooldowns: 'cdr',
+  haste: 'cdr',
+  onhiteffects: 'on-hit',
+  oneshot: 'burst',
+  execute: 'burst',
+  combo: 'burst',
+  poke: 'siege',
+  waveclearance: 'waveclear',
+  waveclearer: 'waveclear',
+  push: 'waveclear',
+  shove: 'waveclear',
+  healing: 'sustain',
+  lifesteal: 'sustain',
+  vamp: 'sustain',
+  omnivamp: 'sustain',
+  defense: 'survivability',
+  durability: 'survivability',
+  tankiness: 'survivability',
+  defensive: 'survivability',
+  support: 'utility',
+  cc: 'utility',
+  crowdcontrol: 'utility',
+  vision: 'utility',
+};
+
+function normalizeGoalValue(value: unknown): GoalValue | undefined {
+  if (typeof value !== 'string') return undefined;
+  const key = canonicalizeGoal(value);
+  return goalCanonicalToEnum[key] ?? goalSynonyms[key];
+}
+
+function normalizeAIInsightsOutput(output: any): any {
+  if (!output || typeof output !== 'object') return output;
+  const copy: any = { ...output };
+  if (Array.isArray(copy.buildNotesV2)) {
+    copy.buildNotesV2 = copy.buildNotesV2.map((note: any) => {
+      const n: any = { ...note };
+      const normalizedGoal = normalizeGoalValue(n.goal);
+      n.goal = normalizedGoal ?? 'utility';
+      if (n.suggestion && typeof n.suggestion === 'object') {
+        const s = { ...n.suggestion };
+        s.add = Array.isArray(s.add)
+          ? s.add
+              .map((x: any) => Number(x))
+              .filter((x: number) => Number.isFinite(x))
+          : [];
+        if (Array.isArray(s.replace)) {
+          s.replace = s.replace
+            .map((x: any) => Number(x))
+            .filter((x: number) => Number.isFinite(x));
+        } else {
+          delete s.replace;
+        }
+        n.suggestion = s;
+      }
+      return n;
+    });
+  }
+  return copy;
+}
+
 function derivePatchFromContext(ctx: UnknownRecord): string | undefined {
   const ctxItems = ctx.items as { patch?: string } | undefined;
   const infoObj = ctx.info as { gameVersion?: string } | undefined;
   return ctxItems?.patch ?? inferPatchFromGameVersion(infoObj?.gameVersion);
+}
+
+// Add a reducer to prune heavy fields from the match context before prompting
+function reduceCtxForPrompt(
+  ctx: UnknownRecord,
+  opts?: { maxEvents?: number },
+): UnknownRecord {
+  const out: UnknownRecord = {};
+
+  const maxEvents = Math.max(0, Math.trunc(opts?.maxEvents ?? 120));
+
+  // Shallow base properties commonly used by the model
+  const baseKeys = [
+    'matchId',
+    'gameCreation',
+    'gameDuration',
+    'gameMode',
+    'gameVersion',
+    'mapId',
+    'queueId',
+  ];
+  for (const k of baseKeys) {
+    const v = (ctx as Record<string, unknown>)[k];
+    if (v !== undefined) out[k] = v;
+  }
+
+  // Subject/opponent minimal shapes
+  function pruneSB(raw: unknown): UnknownRecord | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const s = raw as Record<string, unknown>;
+    const obj: UnknownRecord = {};
+    for (const k of [
+      'participantId',
+      'puuid',
+      'summonerName',
+      'teamId',
+      'teamPosition',
+      'championId',
+      'championName',
+      'summoner1Id',
+      'summoner2Id',
+      'finalItems',
+      'completedFinalItems',
+    ]) {
+      if (s[k] !== undefined) obj[k] = s[k];
+    }
+    return obj;
+  }
+
+  const subjectPruned = pruneSB((ctx as { subject?: unknown }).subject);
+  const opponentPruned = pruneSB((ctx as { opponent?: unknown }).opponent);
+  if (subjectPruned) out.subject = subjectPruned;
+  if (opponentPruned) out.opponent = opponentPruned;
+
+  // Items block (already reduced at route level)
+  const items = (ctx as { items?: unknown }).items;
+  if (items && typeof items === 'object') out.items = items as UnknownRecord;
+
+  // Synergy info is small
+  const synergy = (ctx as { synergy?: unknown }).synergy;
+  if (synergy && typeof synergy === 'object')
+    out.synergy = synergy as UnknownRecord;
+
+  // Events: keep only essential fields and cap the count
+  const eventsRaw = (ctx as { events?: unknown }).events as unknown;
+  if (Array.isArray(eventsRaw) && maxEvents > 0) {
+    const prunedEvents = eventsRaw.slice(0, maxEvents).map((e) => {
+      const ev = e as Record<string, unknown>;
+      const pos = ev.position as { x?: number; y?: number } | null | undefined;
+      const position =
+        pos && typeof pos === 'object'
+          ? { x: Number(pos.x ?? 0), y: Number(pos.y ?? 0) }
+          : null;
+      return {
+        type: ev.type,
+        timestamp: ev.timestamp,
+        phase: ev.phase,
+        zone: ev.zone,
+        enemyHalf: ev.enemyHalf,
+        position,
+        killerId: ev.killerId ?? null,
+        victimId: ev.victimId ?? null,
+      } as UnknownRecord;
+    });
+    out.events = prunedEvents as unknown as UnknownRecord;
+  }
+
+  // Explicitly omit large collections like participants, teams, participantsBasic
+  // by not copying them over.
+
+  return out;
 }
 
 export async function generateMatchInsights(
@@ -324,7 +524,22 @@ export async function generateMatchInsights(
       : {}),
   };
 
-  const { systemPrompt, userPrompt } = buildPrompt(ctx, locale, mechanicsSpec);
+  // Use reduced context for the prompt to keep input size safe
+  let promptCtx = reduceCtxForPrompt(ctx, { maxEvents: 120 });
+  let prompts = buildPrompt(promptCtx, locale, mechanicsSpec);
+  const MAX_INPUT_CHARS = 100_000; // conservative bound
+  let totalLen = prompts.systemPrompt.length + prompts.userPrompt.length;
+
+  if (totalLen > MAX_INPUT_CHARS) {
+    for (const cap of [80, 40, 20, 0]) {
+      promptCtx = reduceCtxForPrompt(ctx, { maxEvents: cap });
+      prompts = buildPrompt(promptCtx, locale, mechanicsSpec);
+      totalLen = prompts.systemPrompt.length + prompts.userPrompt.length;
+      if (totalLen <= MAX_INPUT_CHARS) break;
+    }
+  }
+
+  const { systemPrompt, userPrompt } = prompts;
 
   const messages: Message[] = [
     {
@@ -384,6 +599,12 @@ export async function generateMatchInsights(
       });
       const toolResults: ContentBlock[] = [];
       for (const toolUse of toolUses) {
+        const start = Date.now();
+        consola.debug('[match-insights] AI requested tool call', {
+          toolUseId: toolUse.toolUseId,
+          name: toolUse.name,
+          input: toolUse.input,
+        });
         const result = await executeToolUse(toolUse, runtimeCtx);
         const content: ToolResultContentBlock[] =
           result.status === 'success'
@@ -395,6 +616,12 @@ export async function generateMatchInsights(
             status: result.status,
             content,
           },
+        });
+        consola.debug('[match-insights] AI tool call duration', {
+          toolUseId: toolUse.toolUseId,
+          name: toolUse.name,
+          duration: Date.now() - start,
+          result: JSON.stringify(result),
         });
       }
       messages.push({
@@ -413,9 +640,11 @@ export async function generateMatchInsights(
   }
 
   const aiText = extractTextFromMessage(finalMessage);
+  consola.info('[match-insights] AI response', aiText);
   try {
     const parsed = JSON.parse(aiText || '{}');
-    const validated = MatchInsightsSchema.parse(parsed);
+    const normalized = normalizeAIInsightsOutput(parsed);
+    const validated = MatchInsightsSchema.parse(normalized);
     return enforceOutputLimits(validated);
   } catch (error) {
     consola.error('[match-insights] failed to parse AI response', {
