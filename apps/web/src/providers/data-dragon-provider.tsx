@@ -1,4 +1,6 @@
 import {
+  getIconImageUrl as _getIconImageUrl,
+  getItemImageUrl as _getItemImageUrl,
   getProfileIconUrl as _getProfileIconUrl,
   championDataQueryOptions,
   getChampionImageUrl as getImageUrl,
@@ -72,6 +74,18 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
       return _getProfileIconUrl(profileIconId, version);
     };
 
+    // Function to get item image URL
+    const getItemImageUrl = (itemId: number): string => {
+      if (!version) return '';
+      return _getItemImageUrl(itemId, version);
+    };
+
+    // Function to get item icon URL
+    const getIconImageUrl = (iconId: number): string => {
+      if (!version) return '';
+      return _getIconImageUrl(iconId, version);
+    };
+
     return {
       champions,
       version: version || null,
@@ -80,6 +94,8 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
       getChampionById,
       getChampionImageUrl,
       getProfileIconUrl,
+      getIconImageUrl,
+      getItemImageUrl,
     };
   }, [
     championData,

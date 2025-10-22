@@ -75,4 +75,6 @@ export interface DataDragonContextType {
     imageType?: 'square' | 'loading' | 'splash',
   ) => string;
   getProfileIconUrl: (profileIconId: number) => string;
+  getIconImageUrl: (iconId: number) => string;
+  getItemImageUrl: (itemId: number) => string;
 }

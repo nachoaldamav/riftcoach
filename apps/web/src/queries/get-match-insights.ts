@@ -7,7 +7,6 @@ export interface MatchInsights {
   summary: string;
   roleFocus: string;
   keyMoments: KeyMoment[];
-  buildNotesV2: BuildNotesV2[];
   macro: Macro;
   drills: string[];
   confidence: number;
@@ -26,19 +25,6 @@ export interface KeyMoment {
 export interface Coordinate {
   x: number;
   y: number;
-}
-
-export interface BuildNotesV2 {
-  when: string;
-  goal: string;
-  suggestion: Suggestion;
-  reason: string;
-  confidence: number;
-}
-
-export interface Suggestion {
-  add: number[];
-  timingHint: string;
 }
 
 export interface Macro {

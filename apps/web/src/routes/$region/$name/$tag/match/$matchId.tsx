@@ -42,13 +42,6 @@ type TimelineFrame = {
   participantFrames?: Record<string, ParticipantFrame>;
 };
 
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-
-const lerp2 = (a: Vec2, b: Vec2, t: number): Vec2 => ({
-  x: lerp(a.x, b.x, t),
-  y: lerp(a.y, b.y, t),
-});
-
 const dist2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
 
 function boundingFrames(frames: TimelineFrame[], ts: number) {

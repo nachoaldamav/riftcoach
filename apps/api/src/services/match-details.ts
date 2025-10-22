@@ -5,6 +5,73 @@ import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
 import type { Item } from '@riftcoach/shared.lol-types';
 import consola from 'consola';
 import { riotAPI } from '../clients/riot.js';
+import { getItemMap, inferPatchFromGameVersion, type ItemMap } from '../utils/ddragon-items.js';
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Item Data Enrichment                                                     */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function extractAllItemIds(
+  participants: RiotAPITypes.MatchV5.ParticipantDTO[],
+  eventsAll: TimelineEvent[]
+): Set<number> {
+  const itemIds = new Set<number>();
+  
+  // Extract from final participant items
+  for (const p of participants) {
+    const items = [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6];
+    for (const itemId of items) {
+      if (typeof itemId === 'number' && Number.isFinite(itemId) && itemId > 0) {
+        itemIds.add(itemId);
+      }
+    }
+  }
+  
+  // Extract from timeline events
+  for (const event of eventsAll) {
+    if (typeof event.itemId === 'number' && Number.isFinite(event.itemId) && event.itemId > 0) {
+      itemIds.add(event.itemId);
+    }
+  }
+  
+  return itemIds;
+}
+
+async function enrichMatchWithItems(
+  participants: RiotAPITypes.MatchV5.ParticipantDTO[],
+  eventsAll: TimelineEvent[],
+  gameVersion: string | undefined
+): Promise<{
+  itemsData: Record<number, any>;
+}> {
+  const patch = inferPatchFromGameVersion(gameVersion);
+  const itemMap = await getItemMap(patch);
+  
+  // Extract all item IDs from the match
+  const allItemIds = extractAllItemIds(participants, eventsAll);
+  
+  // Create items data object
+  const itemsData: Record<number, any> = {};
+  for (const itemId of allItemIds) {
+    const item = itemMap[itemId];
+    if (item) {
+      itemsData[itemId] = {
+        id: itemId,
+        name: item.name,
+        plaintext: item.plaintext || null,
+        tags: item.tags || [],
+        gold: item.gold || null,
+        depth: item.depth || null,
+        from: item.from || [],
+        into: item.into || [],
+      };
+    }
+  }
+  
+  return {
+    itemsData,
+  };
+}
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Types                                                                     */
@@ -664,11 +731,19 @@ export async function matchDetailsNode(
     completedItemIds: p.completedItemIds,
   }));
 
+  // Enrich with items data
+  const enrichmentData = await enrichMatchWithItems(
+    participants,
+    eventsAll,
+    match.info.gameVersion
+  );
+
   return {
     ...base,
     subject: subjectBlock,
     opponent: opponentBlock,
     participants: participantsBrief,
     events: relevantEvents,
+    itemsData: enrichmentData.itemsData,
   } as const;
 }

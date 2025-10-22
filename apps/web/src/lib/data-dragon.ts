@@ -1,5 +1,5 @@
-import { queryOptions } from '@tanstack/react-query';
 import type { ChampionData } from '@/types/data-dragon';
+import { queryOptions } from '@tanstack/react-query';
 
 // Data Dragon API endpoints
 const DATA_DRAGON_BASE_URL = 'https://ddragon.leagueoflegends.com';
@@ -16,7 +16,9 @@ export const fetchLatestVersion = async (): Promise<string> => {
 };
 
 // Fetch champion data for a specific version
-export const fetchChampionData = async (version: string): Promise<ChampionData> => {
+export const fetchChampionData = async (
+  version: string,
+): Promise<ChampionData> => {
   const championDataUrl = `${DATA_DRAGON_BASE_URL}/cdn/${version}/data/en_US/champion.json`;
   const response = await fetch(championDataUrl);
   if (!response.ok) {
@@ -36,24 +38,26 @@ export const versionsQueryOptions = queryOptions({
 });
 
 // TanStack Query options for champion data
-export const championDataQueryOptions = (version: string) => queryOptions({
-  queryKey: ['data-dragon', 'champions', version],
-  queryFn: () => fetchChampionData(version),
-  staleTime: 1000 * 60 * 60 * 24, // 24 hours
-  gcTime: 1000 * 60 * 60 * 24 * 7, // 7 days
-  retry: 3,
-  retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-  enabled: !!version, // Only fetch if version is available
-});
+export const championDataQueryOptions = (version: string) =>
+  queryOptions({
+    queryKey: ['data-dragon', 'champions', version],
+    queryFn: () => fetchChampionData(version),
+    staleTime: 1000 * 60 * 60 * 24, // 24 hours
+    gcTime: 1000 * 60 * 60 * 24 * 7, // 7 days
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    enabled: !!version, // Only fetch if version is available
+  });
 
 // Helper function to get champion image URL
 export const getChampionImageUrl = (
   championId: string | number,
   version: string,
-  imageType: 'square' | 'loading' | 'splash' = 'square'
+  imageType: 'square' | 'loading' | 'splash' = 'square',
 ): string => {
-  const championKey = typeof championId === 'number' ? championId.toString() : championId;
-  
+  const championKey =
+    typeof championId === 'number' ? championId.toString() : championId;
+
   switch (imageType) {
     case 'square':
       return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/champion/${championKey}.png`;
@@ -66,10 +70,19 @@ export const getChampionImageUrl = (
   }
 };
 
+export const getIconImageUrl = (iconId: number, version: string): string => {
+  return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/item/${iconId}.png`;
+};
+
+// Helper function to get item image URL
+export const getItemImageUrl = (itemId: number, version: string): string => {
+  return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/item/${itemId}.png`;
+};
+
 // Helper function to get profile icon URL
 export const getProfileIconUrl = (
   profileIconId: number,
-  version: string
+  version: string,
 ): string => {
   return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/profileicon/${profileIconId}.png`;
 };
