@@ -5,6 +5,7 @@ import { Avatar, Card, CardBody, Chip } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Clock, Shield, Sword, Target } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 
 interface RecentMatch {
   matchId: string;
@@ -49,6 +50,9 @@ interface RecentMatchesCardProps {
 interface MatchItemProps {
   match: RecentMatch;
   index: number;
+  region: string;
+  name: string;
+  tag: string;
   formatGameDuration: (seconds: number) => string;
   getTimeAgo: (timestamp: number) => string;
 }
@@ -56,66 +60,75 @@ interface MatchItemProps {
 function MatchItem({
   match,
   index,
+  region,
+  name,
+  tag,
   formatGameDuration,
   getTimeAgo,
 }: MatchItemProps) {
   const championImageUrl = useChampionImage(match.player.championId, 'square');
 
   return (
-    <motion.div
-      key={match.matchId}
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.2, delay: index * 0.05 }}
-      className="flex items-center gap-4 p-4 bg-neutral-800/50 rounded-xl border border-neutral-700/50 hover:bg-neutral-800/70 transition-all duration-150"
+    <Link
+      to="/$region/$name/$tag/match/$matchId"
+      params={{ region, name, tag, matchId: match.matchId }}
+      className="block"
     >
-      <div className="relative flex-shrink-0">
-        <Avatar
-          src={championImageUrl}
-          alt={match.player.championName}
-          className="w-16 h-16 border-2 border-neutral-700"
-          radius="lg"
-        />
-        <div
-          className={`absolute -top-1 -right-1 w-5 h-5 rounded-full border-2 border-neutral-900 ${
-            match.player.win ? 'bg-accent-emerald-500' : 'bg-red-500'
-          }`}
-        />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-1">
-          <span className="font-semibold text-sm text-neutral-100 truncate">
-            {match.player.championName}
-          </span>
-          <span className="text-xs font-medium text-neutral-400">
-            {getTimeAgo(match.gameCreation)}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-neutral-400">
-              {match.player.kills}/{match.player.deaths}/{match.player.assists}
-            </span>
-            <span className="text-xs text-neutral-500">•</span>
-            <span className="text-xs text-neutral-500">
-              {formatGameDuration(match.gameDuration)}
-            </span>
-          </div>
-
+      <motion.div
+        key={match.matchId}
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.2, delay: index * 0.05 }}
+        className="flex items-center gap-4 p-4 bg-neutral-800/50 rounded-xl border border-neutral-700/50 hover:bg-neutral-800/70 transition-all duration-150 cursor-pointer"
+      >
+        <div className="relative flex-shrink-0">
+          <Avatar
+            src={championImageUrl}
+            alt={match.player.championName}
+            className="w-16 h-16 border-2 border-neutral-700"
+            radius="lg"
+          />
           <div
-            className={`px-2 py-1 rounded-md text-xs font-semibold ${
-              match.player.win
-                ? 'bg-accent-emerald-900/30 text-accent-emerald-400'
-                : 'bg-red-900/30 text-red-400'
+            className={`absolute -top-1 -right-1 w-5 h-5 rounded-full border-2 border-neutral-900 ${
+              match.player.win ? 'bg-accent-emerald-500' : 'bg-red-500'
             }`}
-          >
-            {match.player.win ? 'Victory' : 'Defeat'}
+          />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-semibold text-sm text-neutral-100 truncate">
+              {match.player.championName}
+            </span>
+            <span className="text-xs font-medium text-neutral-400">
+              {getTimeAgo(match.gameCreation)}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-neutral-400">
+                {match.player.kills}/{match.player.deaths}/{match.player.assists}
+              </span>
+              <span className="text-xs text-neutral-500">•</span>
+              <span className="text-xs text-neutral-500">
+                {formatGameDuration(match.gameDuration)}
+              </span>
+            </div>
+
+            <div
+              className={`px-2 py-1 rounded-md text-xs font-semibold ${
+                match.player.win
+                  ? 'bg-accent-emerald-900/30 text-accent-emerald-400'
+                  : 'bg-red-900/30 text-red-400'
+              }`}
+            >
+              {match.player.win ? 'Victory' : 'Defeat'}
+            </div>
           </div>
         </div>
-      </div>
-    </motion.div>
+      </motion.div>
+    </Link>
   );
 }
 
@@ -203,6 +216,9 @@ export function RecentMatchesCard({
                 key={match.matchId}
                 match={match}
                 index={index}
+                region={region}
+                name={name}
+                tag={tag}
                 formatGameDuration={formatGameDuration}
                 getTimeAgo={getTimeAgo}
               />

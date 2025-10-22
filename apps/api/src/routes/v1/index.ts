@@ -697,12 +697,42 @@ app.get(
 );
 
 app.get(
+  '/:region/:tagName/:tagLine/match/:matchId/match',
+  accountMiddleware,
+  async (c) => {
+    const { matchId } = c.req.param();
+    const match = await collections.matches.findOne({
+      'metadata.matchId': matchId,
+    });
+    if (!match) {
+      throw new HTTPException(404, { message: 'Match not found' });
+    }
+    return c.json(match);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/match/:matchId/timeline',
+  accountMiddleware,
+  async (c) => {
+    const { matchId } = c.req.param();
+    const timeline = await collections.timelines.findOne({
+      'metadata.matchId': matchId,
+    });
+    if (!timeline) {
+      throw new HTTPException(404, { message: 'Match not found' });
+    }
+    return c.json(timeline);
+  },
+);
+
+app.get(
   '/:region/:tagName/:tagLine/match/:matchId/insights',
   accountMiddleware,
   async (c) => {
     const { matchId } = c.req.param();
     const {
-      modelId = 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      modelId = 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
       locale = 'en',
       force = 'false',
     } = c.req.query();
