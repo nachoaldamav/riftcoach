@@ -697,6 +697,36 @@ app.get(
 );
 
 app.get(
+  '/:region/:tagName/:tagLine/match/:matchId/match',
+  accountMiddleware,
+  async (c) => {
+    const { matchId } = c.req.param();
+    const match = await collections.matches.findOne({
+      'metadata.matchId': matchId,
+    });
+    if (!match) {
+      throw new HTTPException(404, { message: 'Match not found' });
+    }
+    return c.json(match);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/match/:matchId/timeline',
+  accountMiddleware,
+  async (c) => {
+    const { matchId } = c.req.param();
+    const timeline = await collections.timelines.findOne({
+      'metadata.matchId': matchId,
+    });
+    if (!timeline) {
+      throw new HTTPException(404, { message: 'Match not found' });
+    }
+    return c.json(timeline);
+  },
+);
+
+app.get(
   '/:region/:tagName/:tagLine/match/:matchId/insights',
   accountMiddleware,
   async (c) => {

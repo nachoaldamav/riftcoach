@@ -29,7 +29,7 @@ export interface HeatmapData {
   grid: number;
 }
 
-export const Route = createFileRoute('/$region/$name/$tag')({
+export const Route = createFileRoute('/$region/$name/$tag/')({
   component: RouteComponent,
   loader: async ({ params }) => {
     const { region, name, tag } = params;

@@ -256,6 +256,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@fightmegg/riot-api':
+        specifier: 0.0.21
+        version: 0.0.21
       '@heroui/react':
         specifier: 2.8.5
         version: 2.8.5(@types/react@19.1.15)(framer-motion@12.23.22(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(tailwindcss@4.1.13)
@@ -7961,7 +7964,7 @@ snapshots:
     dependencies:
       '@fightmegg/riot-rate-limiter': 0.0.23
       debug: 4.4.3
-      ioredis: 5.8.0
+      ioredis: 5.8.1
       node-fetch: 2.7.0
       path-to-regexp: 6.3.0
     transitivePeerDependencies:
@@ -7972,7 +7975,7 @@ snapshots:
     dependencies:
       bottleneck: 2.19.5
       debug: 4.4.3
-      ioredis: 5.8.0
+      ioredis: 5.8.1
       node-fetch: 2.7.0
       path-to-regexp: 6.3.0
     transitivePeerDependencies:

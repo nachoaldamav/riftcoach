@@ -70,18 +70,20 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="dark">
         <DataDragonProvider>{children}</DataDragonProvider>
-        <TanstackDevtools
-          config={{
-            position: 'bottom-left',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-            TanStackQueryDevtools,
-          ]}
-        />
+        {process.env.NODE_ENV === 'development' && (
+          <TanstackDevtools
+            config={{
+              position: 'bottom-left',
+            }}
+            plugins={[
+              {
+                name: 'Tanstack Router',
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+              TanStackQueryDevtools,
+            ]}
+          />
+        )}
         <Scripts />
       </body>
     </html>
