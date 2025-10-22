@@ -701,7 +701,7 @@ function MatchAnalysisComponent() {
                         className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
                         title="Toggle Area-of-Interest zoom"
                       >
-                        {aoiZoomEnabled ? 'AOI Zoom: On' : 'AOI Zoom: Off'}
+                        {aoiZoomEnabled ? 'Zoom Out' : 'Zoom In'}
                       </button>
                     </div>
                   </div>
