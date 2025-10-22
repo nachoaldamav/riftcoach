@@ -732,7 +732,7 @@ app.get(
   async (c) => {
     const { matchId } = c.req.param();
     const {
-      modelId = 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      modelId = 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
       locale = 'en',
       force = 'false',
     } = c.req.query();

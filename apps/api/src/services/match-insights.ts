@@ -160,7 +160,7 @@ function buildPrompt(
     '{',
     `  "summary": string (max ${SUMMARY_MAX_CHARS} chars)`,
     '  "roleFocus": string',
-    `  "keyMoments": [{ "ts": number, "title": string, "insight": string, "suggestion": string, "coordinates"?: [{"x": number, "y": number}], "zone"?: string, "enemyHalf"?: boolean }] (max ${KEY_MOMENTS_MAX})`,
+    `  "keyMoments": [{ "ts": number, "title": string, "insight": string, "suggestion": string, "coordinates"?: [{"x": number, "y": number}], "zone"?: string, "enemyHalf"?: boolean }] (max ${KEY_MOMENTS_MAX}, min 4)`,
     '  "buildNotesV2": [{ "when": string, "goal": "anti-heal"|"burst"|"sustain"|"survivability"|"siege"|"waveclear"|"armor-pen"|"magic-pen"|"on-hit"|"cdr"|"utility", "suggestion": { "add": number[], "replace"?: number[], "timingHint"?: string }, "reason": string, "confidence": number }]',
     `  "macro": { "objectives": string[] (max ${MACRO_LIST_MAX}), "rotations": string[] (max ${MACRO_LIST_MAX}), "vision": string[] (max ${MACRO_LIST_MAX}) }`,
     `  "drills": string[] (exactly ${DRILLS_MAX})`,
@@ -237,7 +237,10 @@ function extractTextFromMessage(message: Message | undefined): string {
   const textBlocks = message.content
     .map((block) => ('text' in block && block.text ? block.text : null))
     .filter((v): v is string => typeof v === 'string');
-  return textBlocks.join('\n').replace('```json', '').replace('```', '').trim();
+  const raw = textBlocks
+    .join('\n')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
+  return raw.replace('```json', '').replace('```', '').trim();
 }
 
 function enforceOutputLimits(insights: MatchInsights): MatchInsights {
@@ -644,7 +647,7 @@ export async function generateMatchInsights(
   }
 
   const aiText = extractTextFromMessage(finalMessage);
-  consola.info('[match-insights] AI response', aiText);
+  consola.info('[match-insights] AI response', finalMessage);
   try {
     const parsed = JSON.parse(aiText || '{}');
     const normalized = normalizeAIInsightsOutput(parsed);
