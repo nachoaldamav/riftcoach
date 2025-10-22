@@ -1,6 +1,6 @@
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import { getAllMatchDataQueryOptions } from '@/queries/get-match-insights';
-import { Avatar, Card, CardBody, Chip } from '@heroui/react';
+import { Avatar, Card, CardBody, Chip, cn } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
@@ -328,6 +328,58 @@ function MatchAnalysisComponent() {
     return { ts, eventPos, entries };
   }, [timelineData, matchData, selectedMoment]);
 
+  // AOI center for zooming (prefer event position, fallback to actors' centroid, then selectedMoment.coordinates[0])
+  const [aoiZoomEnabled, setAoiZoomEnabled] = useState(true);
+  const aoiCenter = useMemo(() => {
+    if (eventSnapshot?.eventPos) return eventSnapshot.eventPos;
+    const actorEntries = eventSnapshot?.entries?.filter((e) => e.isActor) ?? [];
+    if (actorEntries.length > 0) {
+      const sx = actorEntries.reduce((acc, e) => acc + e.x, 0);
+      const sy = actorEntries.reduce((acc, e) => acc + e.y, 0);
+      return { x: sx / actorEntries.length, y: sy / actorEntries.length };
+    }
+    const cc =
+      selectedMoment && 'coordinates' in selectedMoment
+        ? (selectedMoment as { coordinates?: { x: number; y: number }[] })
+            ?.coordinates?.[0]
+        : undefined;
+    if (cc && typeof cc.x === 'number' && typeof cc.y === 'number')
+      return cc as Vec2;
+    return null;
+  }, [eventSnapshot, selectedMoment]);
+
+  const getMapTransformStyle = (zoom: number): CSSProperties => {
+    if (!aoiZoomEnabled || zoom <= 1) return {};
+    const useMaxX = maxX || 15000;
+    const useMaxY = maxY || 15000;
+
+    let cx = 0.5; // normalized [0..1] from left
+    let cyTop = 0.5; // normalized [0..1] from top
+    if (aoiCenter) {
+      const normX =
+        aoiCenter.x > 1 || aoiCenter.y > 1
+          ? aoiCenter.x / useMaxX
+          : aoiCenter.x;
+      const normY =
+        aoiCenter.x > 1 || aoiCenter.y > 1
+          ? aoiCenter.y / useMaxY
+          : aoiCenter.y;
+      cx = Math.min(1, Math.max(0, normX));
+      const yTop = 1 - normY; // convert to top-left origin space
+      cyTop = Math.min(1, Math.max(0, yTop));
+    }
+
+    // Compute translate in %; clamp so the scaled map stays within bounds
+    const minT = (1 - zoom) * 100; // left/top most allowed
+    const tx = Math.min(0, Math.max(minT, (0.5 - zoom * cx) * 100));
+    const ty = Math.min(0, Math.max(minT, (0.5 - zoom * cyTop) * 100));
+
+    return {
+      transformOrigin: '0 0',
+      transform: `translate(${tx}%, ${ty}%) scale(${zoom})`,
+    };
+  };
+
   const isLoading = isMatchLoading || isTimelineLoading || isInsightsLoading;
 
   // Helper functions
@@ -585,53 +637,72 @@ function MatchAnalysisComponent() {
                 {/* Map */}
                 <div className="md:col-span-3">
                   <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
-                    <img
-                      src="/map.svg"
-                      alt="Summoner's Rift Map"
-                      className="w-full h-full opacity-70 contrast-90 filter brightness-75"
-                    />
+                    {/* Transform layer: scales and pans the map and markers to center AOI */}
+                    <div
+                      className="absolute inset-0"
+                      style={getMapTransformStyle(1.75)}
+                    >
+                      <img
+                        src="/map.svg"
+                        alt="Summoner's Rift Map"
+                        className="absolute inset-0 w-full h-full opacity-70 contrast-90 filter brightness-75"
+                      />
 
-                    {/* Interpolated player markers at selected moment */}
-                    {eventSnapshot?.entries.map((pp) => (
-                      <div
-                        key={`pp-${pp.participantId}`}
-                        className="absolute"
-                        style={coordToStyle(pp.x, pp.y)}
-                      >
-                        {/* Uncertainty halo */}
+                      {/* Interpolated player markers at selected moment */}
+                      {eventSnapshot?.entries.map((pp) => (
                         <div
-                          className="absolute rounded-full border border-white/10 bg-white/5"
-                          style={{
-                            ...radiusToStyle(pp.radius),
-                            left: '50%',
-                            top: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            opacity: Math.max(
-                              0.25,
-                              Math.min(0.85, 1 - pp.confidence + 0.35),
-                            ),
-                            filter: 'blur(2px)',
-                          }}
-                        />
-                        {/* Avatar marker */}
-                        <Avatar
-                          src={getChampionSquare(pp.championName)}
-                          alt={pp.summonerName}
-                          className={`w-6 h-6 ring-2 ${pp.teamId === 100 ? 'ring-blue-400' : 'ring-red-400'} shadow-md`}
-                        />
-                        {/* Actor glow */}
-                        {pp.isActor && (
-                          <span className="absolute -inset-2 rounded-full ring-2 ring-yellow-400/60 animate-pulse" />
-                        )}
-                      </div>
-                    ))}
+                          key={`pp-${pp.participantId}`}
+                          className="absolute"
+                          style={coordToStyle(pp.x, pp.y)}
+                        >
+                          {/* Uncertainty halo */}
+                          <div
+                            className="absolute rounded-full border border-white/10 bg-white/5"
+                            style={{
+                              ...radiusToStyle(pp.radius),
+                              left: '50%',
+                              top: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              opacity: Math.max(
+                                0.25,
+                                Math.min(0.85, 1 - pp.confidence + 0.35),
+                              ),
+                              filter: 'blur(2px)',
+                            }}
+                          />
+                          {/* Avatar marker */}
+                          <Avatar
+                            src={getChampionSquare(pp.championName)}
+                            alt={pp.summonerName}
+                            className={cn(
+                              'w-6 h-6 ring-2',
+                              pp.teamId === 100
+                                ? 'ring-blue-400'
+                                : 'ring-red-400',
+                              'shadow-md z-20',
+                              !pp.isActor ? 'opacity-50' : '',
+                            )}
+                          />
+                        </div>
+                      ))}
+                    </div>
 
-                    {/* Corner decoration */}
-                    <div className="absolute top-4 right-4 px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
-                      <MapIcon className="w-3 h-3" />
-                      {eventSnapshot
-                        ? `t ${formatClock(eventSnapshot.ts)}`
-                        : '—'}
+                    {/* Corner controls (outside of transform so UI doesn't scale) */}
+                    <div className="absolute top-4 right-4 flex items-center gap-2">
+                      <div className="px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
+                        <MapIcon className="w-3 h-3" />
+                        {eventSnapshot
+                          ? `t ${formatClock(eventSnapshot.ts)}`
+                          : '—'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAoiZoomEnabled((v) => !v)}
+                        className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
+                        title="Toggle Area-of-Interest zoom"
+                      >
+                        {aoiZoomEnabled ? 'AOI Zoom: On' : 'AOI Zoom: Off'}
+                      </button>
                     </div>
                   </div>
 
