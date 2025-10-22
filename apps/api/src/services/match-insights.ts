@@ -181,6 +181,16 @@ function buildPrompt(
     // Role source of truth
     'When reasoning about role/lane, prefer subject.opponent participants’ "inferredPosition" from context over Riot’s raw fields.',
     '',
+    // Event selection & participation
+    'Only create moments from Context.events. Treat every event as involving the subject; do not infer or add events that are not listed.',
+    'For CHAMPION_KILL events: if killerId equals subject.participantId, the subject secured the kill; if victimId equals subject.participantId, the subject died; otherwise, the subject assisted. Explicitly state "assisted" in the insight or suggestion when applicable.',
+    '',
+    // Naming & phrasing (natural language)
+    'Use the subject’s summonerName if available; otherwise use their championName. Never use placeholders like "participant N" or raw enums like "CHAMPION_KILL" or zones like "TOP_LANE".',
+    'Translate code-like terms to natural language: say "kill", "death", "assist"; use "top lane", "mid lane", "bot lane", "river" instead of code names; when enemyHalf is true say "enemy side", otherwise say "ally side".',
+    'When you mention a time in text, format it as mm:ss derived from ts.',
+    'Write insights in short, clear, human language focused on the subject’s action.',
+    '',
     // Tool usage & grounding
     'Use tools whenever you need additional data (items, builds, stats, coordinates).',
     'When suggesting build changes (buildNotesV2), base them ONLY on other players’ common builds via tools (e.g., query_common_champion_builds for the subject champion and inferred role). Do not invent items beyond tool outputs.',
