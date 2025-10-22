@@ -6,11 +6,143 @@ import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
 import { Clock, Map as MapIcon, Target, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 
 export const Route = createFileRoute('/$region/$name/$tag/match/$matchId')({
   component: MatchAnalysisComponent,
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// Interpolation + helper utilities
+// ────────────────────────────────────────────────────────────────────────────
+type Vec2 = { x: number; y: number };
+
+type TimelineEvent = {
+  type: string;
+  timestamp?: number;
+  position?: Vec2 | null;
+  participantId?: number;
+  killerId?: number;
+  victimId?: number;
+  assistingParticipantIds?: number[];
+};
+
+type ParticipantFrame = {
+  position?: Vec2;
+  level?: number;
+  totalGold?: number;
+  gold?: number;
+  minionsKilled?: number;
+  jungleMinionsKilled?: number;
+};
+
+type TimelineFrame = {
+  timestamp?: number;
+  events?: TimelineEvent[];
+  participantFrames?: Record<string, ParticipantFrame>;
+};
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+const lerp2 = (a: Vec2, b: Vec2, t: number): Vec2 => ({
+  x: lerp(a.x, b.x, t),
+  y: lerp(a.y, b.y, t),
+});
+
+const dist2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
+
+function boundingFrames(frames: TimelineFrame[], ts: number) {
+  if (!frames?.length)
+    return {
+      f0: null as TimelineFrame | null,
+      f1: null as TimelineFrame | null,
+    };
+  let lo = 0;
+  let hi = frames.length - 1;
+  let ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const t = Number(frames[mid]?.timestamp ?? 0);
+    if (t <= ts) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  const f0 = frames[ans] ?? null;
+  const f1 = frames[Math.min(ans + 1, frames.length - 1)] ?? null;
+  return { f0, f1 };
+}
+
+function interpolateParticipantPosition(
+  frames: TimelineFrame[],
+  pid: number,
+  ts: number,
+) {
+  const { f0, f1 } = boundingFrames(frames, ts);
+  const p0: Vec2 | null =
+    f0?.participantFrames?.[String(pid)]?.position ?? null;
+  const p1: Vec2 | null =
+    f1?.participantFrames?.[String(pid)]?.position ?? null;
+  const t0 = Number(f0?.timestamp ?? Number.NaN);
+  const t1 = Number(f1?.timestamp ?? Number.NaN);
+
+  // both sides → interpolate
+  if (p0 && p1 && Number.isFinite(t0) && Number.isFinite(t1) && t1 > t0) {
+    const alpha = Math.max(0, Math.min(1, (ts - t0) / (t1 - t0)));
+    const pos = lerp2(p0, p1, alpha);
+    const gap = (t1 - t0) / 1000; // seconds
+    const radius = Math.max(50, 0.1 * dist2(p0, p1) + gap * 8); // map units
+    const confidence = Math.max(0.4, 1 - gap / 120);
+    return { position: pos, confidence, radius, source: 'interp' as const };
+  }
+
+  // one side → nearest
+  if (p0 && Number.isFinite(t0)) {
+    const gap = Math.abs(ts - t0) / 1000;
+    const radius = 80 + gap * 10;
+    const confidence = Math.max(0.25, 1 - gap / 180);
+    return { position: p0, confidence, radius, source: 'nearest' as const };
+  }
+  if (p1 && Number.isFinite(t1)) {
+    const gap = Math.abs(t1 - ts) / 1000;
+    const radius = 80 + gap * 10;
+    const confidence = Math.max(0.25, 1 - gap / 180);
+    return { position: p1, confidence, radius, source: 'nearest' as const };
+  }
+
+  return {
+    position: null,
+    confidence: 0,
+    radius: 300,
+    source: 'missing' as const,
+  };
+}
+
+function findClosestKillEvent(
+  frames: TimelineFrame[],
+  ts: number,
+): { event: TimelineEvent; diffMs: number } | null {
+  let best: TimelineEvent | null = null;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const fr of frames) {
+    for (const ev of fr?.events ?? []) {
+      if (ev?.type !== 'CHAMPION_KILL' || typeof ev?.timestamp !== 'number')
+        continue;
+      const diff = Math.abs(ev.timestamp - ts);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = ev;
+      }
+    }
+  }
+  return best ? { event: best, diffMs: bestDiff } : null;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Component
+// ────────────────────────────────────────────────────────────────────────────
 function MatchAnalysisComponent() {
   const { region, name, tag, matchId } = Route.useParams();
   const { version } = useDataDragon();
@@ -59,7 +191,7 @@ function MatchAnalysisComponent() {
       const ys: number[] = [];
       for (const frame of timelineData.info.frames || []) {
         for (const pf of Object.values(frame.participantFrames || {})) {
-          const pos = (pf as { position?: { x: number; y: number } }).position;
+          const pos = (pf as { position?: Vec2 }).position;
           if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
             xs.push(pos.x);
             ys.push(pos.y);
@@ -78,38 +210,12 @@ function MatchAnalysisComponent() {
   const [selectedMomentIndex, setSelectedMomentIndex] = useState(0);
   const selectedMoment = insightsData?.keyMoments[selectedMomentIndex] || null;
 
-  // Compute the closest frame index to the selected moment timestamp
-  const frameIndexForSelectedMoment = useMemo(() => {
-    if (!selectedMoment || !timelineData) return 0;
-    const frames = timelineData.info.frames || [];
-    let bestIdx = 0;
-    let bestDiff = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < frames.length; i++) {
-      const frame = frames[i];
-      const ft = (frame as { timestamp?: number }).timestamp;
-      if (typeof ft === 'number') {
-        const diff = Math.abs(ft - selectedMoment.ts);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          bestIdx = i;
-        }
-      }
-      for (const ev of frame.events || []) {
-        const ts = (ev as { timestamp?: number }).timestamp;
-        if (typeof ts === 'number') {
-          const diff = Math.abs(ts - selectedMoment.ts);
-          if (diff < bestDiff) {
-            bestDiff = diff;
-            bestIdx = i;
-          }
-        }
-      }
-    }
-    return bestIdx;
-  }, [selectedMoment, timelineData]);
-
   const participantById = useMemo(() => {
-    if (!matchData) return new Map();
+    if (!matchData)
+      return new Map<
+        number,
+        { championName: string; teamId: number; summonerName: string }
+      >();
     const m = new Map<
       number,
       { championName: string; teamId: number; summonerName: string }
@@ -124,62 +230,103 @@ function MatchAnalysisComponent() {
     return m;
   }, [matchData]);
 
-  // Player positions for that frame
-  const playerPositions = useMemo(() => {
-    if (!timelineData || !matchData) return [];
-    const frames = timelineData.info.frames || [];
-    const frame = frames[frameIndexForSelectedMoment];
-    if (!frame)
-      return [] as Array<{
-        participantId: number;
-        x: number;
-        y: number;
-        championName: string;
-        teamId: number;
-        summonerName: string;
-      }>;
+  // Interpolated snapshot at the event timestamp
+  const eventSnapshot = useMemo(() => {
+    if (!timelineData || !matchData || !selectedMoment) return null;
+    const frames: TimelineFrame[] = (timelineData.info.frames ||
+      []) as TimelineFrame[];
+    const ts = selectedMoment.ts;
 
-    const pById = new Map<
+    // Find closest CHAMPION_KILL to snap killer/victim to exact event position if appropriate
+    const killInfo = findClosestKillEvent(frames, ts);
+    const killEvent = killInfo?.event ?? null;
+    const eventPos: Vec2 | null = killEvent?.position ?? null;
+    const diffMs = killInfo?.diffMs ?? Number.POSITIVE_INFINITY;
+
+    const actorIds = new Set<number>(
+      [
+        killEvent?.killerId,
+        killEvent?.victimId,
+        ...(killEvent?.assistingParticipantIds ?? []),
+      ].filter((x): x is number => typeof x === 'number'),
+    );
+
+    // Participant meta
+    const meta = new Map<
       number,
       { championName: string; teamId: number; summonerName: string }
     >();
     for (const p of matchData.info.participants) {
-      pById.set(p.participantId, {
+      meta.set(p.participantId, {
         championName: p.championName,
         teamId: p.teamId,
         summonerName: p.summonerName,
       });
     }
 
-    const out: Array<{
+    const entries: Array<{
       participantId: number;
-      x: number;
-      y: number;
       championName: string;
       teamId: number;
       summonerName: string;
+      x: number;
+      y: number;
+      confidence: number;
+      radius: number; // map units
+      isActor: boolean;
     }> = [];
 
-    const participantFrames = frame.participantFrames || {};
-    for (let id = 1; id <= 10; id++) {
-      const pf = participantFrames[String(id)] as
-        | { position?: { x: number; y: number } }
-        | undefined;
-      const pos = pf?.position;
-      const meta = pById.get(id);
-      if (pos && meta) {
-        out.push({
-          participantId: id,
+    const SAFE_SNAP_MS = 250; // Only trust event position when very close in time
+    const SAME_SPOT_EPS = 60; // Considered same spot in map units for snapping
+
+    for (let pid = 1; pid <= 10; pid++) {
+      const m = meta.get(pid);
+      if (!m) continue;
+      const snap = interpolateParticipantPosition(frames, pid, ts);
+      let pos = snap.position;
+      let conf = snap.confidence;
+      let rad = snap.radius;
+      const isActor = actorIds.has(pid);
+
+      // Snap logic: Victim snaps to event position if time is close; Killer only if also spatially the same
+      if (isActor && eventPos && killEvent) {
+        const trustEventTime = diffMs <= SAFE_SNAP_MS;
+        const distanceToEvent =
+          pos && eventPos ? dist2(pos, eventPos) : Number.POSITIVE_INFINITY;
+
+        if (pid === killEvent.victimId) {
+          if (trustEventTime) {
+            pos = eventPos;
+            conf = Math.max(conf, 0.9);
+            rad = Math.min(rad, 40);
+          }
+        } else if (pid === killEvent.killerId) {
+          // Only snap killer if their interpolated position is essentially at the event spot and time is close
+          if (trustEventTime && distanceToEvent <= SAME_SPOT_EPS) {
+            pos = eventPos;
+            conf = Math.max(conf, 0.85);
+            rad = Math.min(rad, 40);
+          }
+        }
+      }
+
+      if (pos) {
+        entries.push({
+          participantId: pid,
+          championName: m.championName,
+          teamId: m.teamId,
+          summonerName: m.summonerName,
           x: pos.x,
           y: pos.y,
-          championName: meta.championName,
-          teamId: meta.teamId,
-          summonerName: meta.summonerName,
+          confidence: conf,
+          radius: rad,
+          isActor,
         });
       }
     }
-    return out;
-  }, [frameIndexForSelectedMoment, timelineData, matchData]);
+
+    return { ts, eventPos, entries };
+  }, [timelineData, matchData, selectedMoment]);
 
   const isLoading = isMatchLoading || isTimelineLoading || isInsightsLoading;
 
@@ -191,22 +338,17 @@ function MatchAnalysisComponent() {
     ts: number,
   ): { killer?: string; victim?: string } | null {
     if (!timelineData) return null;
-    const frames = timelineData.info.frames || [];
+    const frames: TimelineFrame[] = (timelineData.info.frames ||
+      []) as TimelineFrame[];
     let best: { killer?: number; victim?: number } | null = null;
     let bestDiff = Number.POSITIVE_INFINITY;
     for (const frame of frames) {
       for (const ev of frame.events || []) {
-        const e = ev as {
-          timestamp?: number;
-          type?: string;
-          killerId?: number;
-          victimId?: number;
-        };
-        if (e.type === 'CHAMPION_KILL' && typeof e.timestamp === 'number') {
-          const diff = Math.abs(e.timestamp - ts);
+        if (ev.type === 'CHAMPION_KILL' && typeof ev.timestamp === 'number') {
+          const diff = Math.abs(ev.timestamp - ts);
           if (diff < bestDiff) {
             bestDiff = diff;
-            best = { killer: e.killerId, victim: e.victimId };
+            best = { killer: ev.killerId, victim: ev.victimId };
           }
         }
       }
@@ -221,6 +363,51 @@ function MatchAnalysisComponent() {
     if (!killerName && !victimName) return null;
     return { killer: killerName, victim: victimName };
   }
+
+  // Utilities for assets
+  const { version: ddVersion } = useDataDragon();
+  const getChampionSquare = (championName: string) =>
+    ddVersion
+      ? `https://ddragon.leagueoflegends.com/cdn/${ddVersion}/img/champion/${championName}.png`
+      : `https://ddragon.leagueoflegends.com/cdn/img/champion/${championName}.png`;
+
+  const getItemIcon = (itemId?: number) =>
+    ddVersion && itemId && itemId > 0
+      ? `https://ddragon.leagueoflegends.com/cdn/${ddVersion}/img/item/${itemId}.png`
+      : '';
+
+  const getSpellIcon = (spellId?: number) => {
+    if (!spellId || !version || !spellKeyById) return '';
+    const key = spellKeyById[spellId];
+    if (!key) return '';
+    return `https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${key}.png`;
+  };
+
+  const formatClock = (ms: number) => {
+    const m = Math.floor(ms / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  const coordToStyle = (x: number, y: number): CSSProperties => {
+    const useMaxX = maxX || 15000;
+    const useMaxY = maxY || 15000;
+    const normX = x > 1 || y > 1 ? x / useMaxX : x; // support normalized or absolute
+    const normY = x > 1 || y > 1 ? y / useMaxY : y;
+    return {
+      left: `${normX * 100}%`,
+      top: `${(1 - normY) * 100}%`, // invert Y for top-left origin
+      transform: 'translate(-50%, -50%)',
+    };
+  };
+
+  const radiusToStyle = (rUnits: number): CSSProperties => {
+    const useMaxX = maxX || 15000;
+    const useMaxY = maxY || 15000;
+    const w = (rUnits / useMaxX) * 100;
+    const h = (rUnits / useMaxY) * 100;
+    return { width: `${w * 2}%`, height: `${h * 2}%` }; // diameter
+  };
 
   if (isLoading) {
     return (
@@ -259,42 +446,6 @@ function MatchAnalysisComponent() {
     );
   }
 
-  // Utilities for assets
-  const getChampionSquare = (championName: string) =>
-    version
-      ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${championName}.png`
-      : `https://ddragon.leagueoflegends.com/cdn/img/champion/${championName}.png`;
-
-  const getItemIcon = (itemId?: number) =>
-    version && itemId && itemId > 0
-      ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${itemId}.png`
-      : '';
-
-  const getSpellIcon = (spellId?: number) => {
-    if (!spellId || !version || !spellKeyById) return '';
-    const key = spellKeyById[spellId];
-    if (!key) return '';
-    return `https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${key}.png`;
-  };
-
-  const formatClock = (ms: number) => {
-    const m = Math.floor(ms / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    return `${m}:${String(s).padStart(2, '0')}`;
-  };
-
-  const coordToStyle = (x: number, y: number): React.CSSProperties => {
-    const useMaxX = maxX || 15000;
-    const useMaxY = maxY || 15000;
-    const normX = x > 1 || y > 1 ? x / useMaxX : x; // support normalized or absolute
-    const normY = x > 1 || y > 1 ? y / useMaxY : y;
-    return {
-      left: `${normX * 100}%`,
-      top: `${(1 - normY) * 100}%`, // invert Y for top-left origin
-      transform: 'translate(-50%, -50%)',
-    };
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 p-6">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -331,19 +482,13 @@ function MatchAnalysisComponent() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {matchData.info.teams.map((team) => (
+                {matchData.info.teams.map((team: any) => (
                   <div key={team.teamId} className="space-y-4">
                     <div
-                      className={`text-center p-4 rounded-lg ${
-                        team.win
-                          ? 'bg-accent-emerald-900/30 border border-accent-emerald-500/30'
-                          : 'bg-red-900/30 border border-red-500/30'
-                      }`}
+                      className={`text-center p-4 rounded-lg ${team.win ? 'bg-accent-emerald-900/30 border border-accent-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}
                     >
                       <h3
-                        className={`text-lg font-bold ${
-                          team.win ? 'text-accent-emerald-400' : 'text-red-400'
-                        }`}
+                        className={`text-lg font-bold ${team.win ? 'text-accent-emerald-400' : 'text-red-400'}`}
                       >
                         {team.win ? 'Victory' : 'Defeat'}
                       </h3>
@@ -351,8 +496,8 @@ function MatchAnalysisComponent() {
 
                     <div className="space-y-2">
                       {matchData.info.participants
-                        .filter((p) => p.teamId === team.teamId)
-                        .map((p) => (
+                        .filter((p: any) => p.teamId === team.teamId)
+                        .map((p: any) => (
                           <div
                             key={`row-${p.puuid}`}
                             className="flex items-center gap-3 p-3 bg-neutral-800/50 rounded-lg border border-neutral-700/40"
@@ -394,16 +539,12 @@ function MatchAnalysisComponent() {
                                   p.item3,
                                   p.item4,
                                   p.item5,
-                                ].map((it, idx) => (
+                                ].map((it: number | undefined, idx: number) => (
                                   <img
                                     key={`it-${p.puuid}-${idx}-${it}`}
                                     src={getItemIcon(it)}
                                     alt="item"
-                                    className={`w-5 h-5 rounded bg-neutral-900 border ${
-                                      it
-                                        ? 'border-neutral-700'
-                                        : 'border-neutral-700/40 opacity-30'
-                                    } object-cover`}
+                                    className={`w-5 h-5 rounded bg-neutral-900 border ${it ? 'border-neutral-700' : 'border-neutral-700/40 opacity-30'} object-cover`}
                                   />
                                 ))}
                                 {/* Trinket */}
@@ -450,40 +591,46 @@ function MatchAnalysisComponent() {
                       className="w-full h-full opacity-70 contrast-90 filter brightness-75"
                     />
 
-                    {/* Player markers at selected moment */}
-                    {playerPositions.map((pp) => (
+                    {/* Interpolated player markers at selected moment */}
+                    {eventSnapshot?.entries.map((pp) => (
                       <div
                         key={`pp-${pp.participantId}`}
                         className="absolute"
                         style={coordToStyle(pp.x, pp.y)}
                       >
+                        {/* Uncertainty halo */}
+                        <div
+                          className="absolute rounded-full border border-white/10 bg-white/5"
+                          style={{
+                            ...radiusToStyle(pp.radius),
+                            left: '50%',
+                            top: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            opacity: Math.max(
+                              0.25,
+                              Math.min(0.85, 1 - pp.confidence + 0.35),
+                            ),
+                            filter: 'blur(2px)',
+                          }}
+                        />
+                        {/* Avatar marker */}
                         <Avatar
                           src={getChampionSquare(pp.championName)}
                           alt={pp.summonerName}
                           className={`w-6 h-6 ring-2 ${pp.teamId === 100 ? 'ring-blue-400' : 'ring-red-400'} shadow-md`}
                         />
-                      </div>
-                    ))}
-
-                    {/* Selected moment markers */}
-                    {selectedMoment?.coordinates?.map((c, i) => (
-                      <div
-                        key={`pt-${selectedMoment.ts}-${i}-${c.x}-${c.y}`}
-                        className="absolute"
-                        style={coordToStyle(c.x, c.y)}
-                      >
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-yellow-400 opacity-60" />
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-accent-yellow-400 border border-neutral-900" />
-                        </span>
+                        {/* Actor glow */}
+                        {pp.isActor && (
+                          <span className="absolute -inset-2 rounded-full ring-2 ring-yellow-400/60 animate-pulse" />
+                        )}
                       </div>
                     ))}
 
                     {/* Corner decoration */}
                     <div className="absolute top-4 right-4 px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
                       <MapIcon className="w-3 h-3" />
-                      {selectedMoment
-                        ? `t ${formatClock(selectedMoment.ts)}`
+                      {eventSnapshot
+                        ? `t ${formatClock(eventSnapshot.ts)}`
                         : '—'}
                     </div>
                   </div>
@@ -519,7 +666,7 @@ function MatchAnalysisComponent() {
 
                 {/* Moments list */}
                 <div className="space-y-3 md:col-span-2">
-                  {insightsData.keyMoments.map((moment, index) => {
+                  {insightsData.keyMoments.map((moment: any, index: number) => {
                     const isSelected = index === selectedMomentIndex;
                     const versus = findKillParticipants(moment.ts);
                     return (
@@ -530,11 +677,7 @@ function MatchAnalysisComponent() {
                         initial={{ opacity: 0, x: 10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.03 }}
-                        className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                          isSelected
-                            ? 'bg-neutral-800/70 border-accent-yellow-400/50'
-                            : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'
-                        }`}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
                       >
                         {versus && (
                           <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
@@ -566,9 +709,7 @@ function MatchAnalysisComponent() {
                                   'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
                               }}
                             />
-                            {/* Dark overlay for better text readability */}
                             <div className="absolute inset-0 bg-black/30" />
-                            {/* VS text */}
                             <div className="relative flex items-center justify-center h-full">
                               <span className="text-sm font-bold text-white drop-shadow-lg">
                                 VS

@@ -6,6 +6,10 @@ import type { Item } from '@riftcoach/shared.lol-types';
 import consola from 'consola';
 import { riotAPI } from '../clients/riot.js';
 
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Types                                                                     */
+/* ────────────────────────────────────────────────────────────────────────── */
+
 export type ItemWithId = Item & { id: string };
 
 export type TimelineEvent = {
@@ -49,41 +53,28 @@ const itemEventTypes = [
   'ITEM_TRANSFORMED',
 ] as const;
 
-export type ParticipantBasic = {
+export type SlimParticipant = {
   participantId: number;
   puuid: string;
   summonerName: string;
-  teamId: number;
-  teamPosition: string;
+  teamId: number; // 100 / 200
   championId: number;
   championName: string;
-  win: boolean;
-  items: (number | null)[];
   summoner1Id: number;
   summoner2Id: number;
-  kills: number;
-  deaths: number;
-  assists: number;
-  kda: number;
-};
-
-export type ParticipantDetails = ParticipantBasic & {
-  individualPosition: string;
-  lane: string;
-  role: string;
-  championLevel: number;
-  goldEarned: number;
-  goldSpent: number;
   totalMinionsKilled: number;
-  neutralMinionsKilled: number;
-  totalDamageDealtToChampions: number;
-  totalDamageTaken: number;
+  goldEarned: number;
   visionScore: number;
-  timePlayed: number;
-  perks: RiotAPITypes.MatchV5.Perks;
+  win: boolean;
+  inferredPosition:
+    | 'TOP'
+    | 'JUNGLE'
+    | 'MIDDLE'
+    | 'BOTTOM'
+    | 'UTILITY'
+    | 'UNKNOWN';
   completedItemIds: number[];
   trinketId: number | null;
-  rawParticipant: RiotAPITypes.MatchV5.ParticipantDTO;
 };
 
 export type EventParticipantState = {
@@ -91,7 +82,13 @@ export type EventParticipantState = {
   teamId: number;
   championName: string;
   frameTimestamp: number | null;
-  frame: Record<string, unknown> | null;
+  frame: {
+    level?: number;
+    totalGold?: number;
+    position?: { x: number; y: number } | null;
+    minionsKilled?: number;
+    jungleMinionsKilled?: number;
+  } | null;
   inventory: {
     itemIds: number[];
     completedItemIds: number[];
@@ -110,15 +107,63 @@ export type MatchEventDetail = {
   victimId: number | null;
   assistingParticipantIds: number[];
   relatedParticipantIds: number[];
-  participantStates: EventParticipantState[];
-  rawEvent: TimelineEvent;
+  participantStates: EventParticipantState[]; // actors only
+  rawEventType?: string; // tiny breadcrumb, no blob
 };
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* DDragon cache                                                             */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+export type DDragonItemsById = Record<string, ItemWithId>;
+let _dd: DDragon | null = null;
+let DD_ITEMS: DDragonItemsById = {};
+
+export async function ensureDDragonItemsLoaded(): Promise<void> {
+  if (!_dd) _dd = riotAPI.ddragon;
+  if (Object.keys(DD_ITEMS).length > 0) return;
+  try {
+    type ItemsClient = {
+      items: () => Promise<
+        Record<string, Item> | { data?: Record<string, Item> }
+      >;
+    };
+    const client = _dd as unknown as ItemsClient;
+    const res = await client.items();
+    const rawMap: Record<string, Item> =
+      typeof res === 'object' && res !== null && 'data' in res
+        ? ((res as { data?: Record<string, Item> }).data ?? {})
+        : ((res as Record<string, Item>) ?? {});
+    const out: DDragonItemsById = {};
+    for (const [k, v] of Object.entries(rawMap || {})) {
+      out[String(k)] = { ...(v as Item), id: String(k) } as ItemWithId;
+    }
+    DD_ITEMS = out;
+    consola.debug('[ddragon] items loaded', {
+      count: Object.keys(DD_ITEMS).length,
+    });
+  } catch (err) {
+    consola.warn('[ddragon] items load failed; continuing without cache', err);
+    DD_ITEMS = {};
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Geometry & phases                                                         */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 const MAP_MIN = 0;
 const MAP_MAX = 15000;
+const SMITE_ID = 11;
 
-function norm(v: number) {
-  return Math.max(0, Math.min(1, (v - MAP_MIN) / (MAP_MAX - MAP_MIN)));
+const norm = (v: number) =>
+  Math.max(0, Math.min(1, (v - MAP_MIN) / (MAP_MAX - MAP_MIN)));
+const minutes = (ts: number) => (ts || 0) / 60000;
+
+function phaseByTime(m: number): 'EARLY' | 'MID' | 'LATE' {
+  if (m < 14) return 'EARLY';
+  if (m < 25) return 'MID';
+  return 'LATE';
 }
 
 function zoneLabel(pos?: { x: number; y: number } | null): string {
@@ -147,51 +192,9 @@ function isEnemyHalf(
   return teamId === 100 ? s > 1.03 : s < 0.97;
 }
 
-function minutes(ts: number) {
-  return (ts || 0) / 60000;
-}
-
-function phaseByTime(m: number): 'EARLY' | 'MID' | 'LATE' {
-  if (m < 14) return 'EARLY';
-  if (m < 25) return 'MID';
-  return 'LATE';
-}
-
-export type DDragonItemsById = Record<string, ItemWithId>;
-let _dd: DDragon | null = null;
-let DD_ITEMS: DDragonItemsById = {};
-
-export async function ensureDDragonItemsLoaded(): Promise<void> {
-  if (!_dd) _dd = riotAPI.ddragon;
-  if (Object.keys(DD_ITEMS).length > 0) return;
-  try {
-    type ItemsClient = {
-      items: () => Promise<
-        Record<string, Item> | { data?: Record<string, Item> }
-      >;
-    };
-    const client = _dd as unknown as ItemsClient;
-    const res = await client.items();
-    const rawMap: Record<string, Item> =
-      typeof res === 'object' && res !== null && 'data' in res
-        ? ((res as { data?: Record<string, Item> }).data ?? {})
-        : ((res as Record<string, Item>) ?? {});
-    const out: DDragonItemsById = {};
-    for (const [k, v] of Object.entries(rawMap || {}))
-      out[String(k)] = { ...(v as Item), id: String(k) } as ItemWithId;
-    DD_ITEMS = out;
-    consola.debug('[ddragon] items loaded', {
-      count: Object.keys(DD_ITEMS).length,
-    });
-  } catch (err) {
-    consola.warn('[ddragon] items load failed; continuing without cache', err);
-    DD_ITEMS = {};
-  }
-}
-
-function isItemEventType(t: string): t is (typeof itemEventTypes)[number] {
-  return (itemEventTypes as readonly string[]).includes(t);
-}
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Frames helpers                                                            */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 function flattenEvents(frames: TimelineFrame[]): TimelineEvent[] {
   const out: TimelineEvent[] = [];
@@ -205,9 +208,9 @@ function findFrameAt(
   ts: number,
 ): TimelineFrame | null {
   if (!frames || frames.length === 0) return null;
-  let lo = 0;
-  let hi = frames.length - 1;
-  let ans = 0;
+  let lo = 0,
+    hi = frames.length - 1,
+    ans = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     const t = Number(frames[mid]?.timestamp ?? 0);
@@ -231,26 +234,12 @@ function getParticipantFrame(
   return dict[String(pid)] ?? null;
 }
 
-function cloneParticipantFrame(
-  pf: ParticipantFrame | null,
-): Record<string, unknown> | null {
-  if (!pf) return null;
-  try {
-    return JSON.parse(JSON.stringify(pf));
-  } catch {
-    return {
-      level: pf.level ?? 0,
-      xp: pf.xp ?? 0,
-      gold: pf.gold ?? 0,
-      totalGold: pf.totalGold ?? 0,
-      currentGold: (pf as { currentGold?: number }).currentGold ?? null,
-      minionsKilled: pf.minionsKilled ?? 0,
-      jungleMinionsKilled: pf.jungleMinionsKilled ?? 0,
-      championStats: pf.championStats ?? {},
-      damageStats: pf.damageStats ?? {},
-      position: pf.position ?? null,
-    };
-  }
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Items/inventory                                                           */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function isItemEventType(t: string): t is (typeof itemEventTypes)[number] {
+  return (itemEventTypes as readonly string[]).includes(t);
 }
 
 type ItemEvt = {
@@ -258,6 +247,36 @@ type ItemEvt = {
   itemId?: number | null;
   timestamp?: number;
 };
+
+function isTier2Boot(id: number) {
+  return [3006, 3009, 3020, 3047, 3111, 3117, 3158].includes(id);
+}
+
+function isCompletedItem(id: number): boolean {
+  const it = DD_ITEMS[String(id)];
+  if (!it) return true; // fallback: assume completed if unknown
+  const tags = (it.tags || []).map((t) => String(t).toLowerCase());
+  const name = String(it.name || '').toLowerCase();
+  if (tags.includes('trinket')) return false;
+  if (tags.includes('consumable') || /elixir|potion|ward|cookie/.test(name))
+    return false;
+  if (isTier2Boot(id)) return true;
+  if (tags.includes('mythic')) return true;
+  if (Array.isArray(it.into) && it.into.length > 0) return false;
+  const total = Number(it.gold?.total ?? 0);
+  if (total >= 2300) return true;
+  const depth = Number(it.depth ?? 0);
+  if (depth >= 3) return true;
+  return total >= 900 && (!it.from || it.from.length === 0);
+}
+
+function filterCompletedItemIds(
+  ids: Array<number | null | undefined>,
+): number[] {
+  return ids
+    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id))
+    .filter((id) => isCompletedItem(id));
+}
 
 function inventoryAtTime(eventsAll: TimelineEvent[], pid: number, ts: number) {
   const evts: ItemEvt[] = eventsAll
@@ -293,6 +312,7 @@ function inventoryAtTime(eventsAll: TimelineEvent[], pid: number, ts: number) {
     else if (e.type === 'ITEM_UNDO' && id != null) pop(id);
     else if (e.type === 'ITEM_TRANSFORMED' && id != null) push(id);
   }
+
   const inv = [...counts.entries()].flatMap(([id, c]) =>
     Array.from({ length: c }, () => id),
   );
@@ -301,126 +321,176 @@ function inventoryAtTime(eventsAll: TimelineEvent[], pid: number, ts: number) {
   return { inventoryIds: inv, hasGW };
 }
 
-function isTier2Boot(id: number) {
-  return [3006, 3009, 3020, 3047, 3111, 3117, 3158].includes(id);
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Role/position inference                                                   */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+// Determine modal lane by movement in first N minutes
+function inferLaneFromMovement(
+  frames: TimelineFrame[],
+  pid: number,
+  minutesCap = 6,
+): 'TOP' | 'MIDDLE' | 'BOTTOM' | 'UNKNOWN' {
+  if (!frames?.length) return 'UNKNOWN';
+  const capTs = minutesCap * 60_000;
+  const counts = { TOP: 0, MIDDLE: 0, BOTTOM: 0 } as Record<
+    'TOP' | 'MIDDLE' | 'BOTTOM',
+    number
+  >;
+  for (const fr of frames) {
+    const ts = Number(fr.timestamp ?? 0);
+    if (ts > capTs) break;
+    const pf = fr.participantFrames?.[String(pid)];
+    const pos = pf?.position ?? null;
+    const z = zoneLabel(pos);
+    if (z.startsWith('TOP')) counts.TOP++;
+    else if (z.startsWith('MIDDLE')) counts.MIDDLE++;
+    else if (z.startsWith('BOTTOM')) counts.BOTTOM++;
+  }
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] > 0 ? (best[0] as any) : 'UNKNOWN';
 }
 
-function isCompletedItem(id: number): boolean {
-  const it = DD_ITEMS[String(id)];
-  if (!it) return true;
-  const tags = (it.tags || []).map((t) => String(t).toLowerCase());
-  const name = String(it.name || '').toLowerCase();
-  if (tags.includes('trinket')) return false;
-  if (tags.includes('consumable') || /elixir|potion|ward|cookie/.test(name))
-    return false;
-  if (isTier2Boot(id)) return true;
-  if (tags.includes('mythic')) return true;
-  if (Array.isArray(it.into) && it.into.length > 0) return false;
-  const total = Number(it.gold?.total ?? 0);
-  if (total >= 2300) return true;
-  const depth = Number(it.depth ?? 0);
-  if (depth >= 3) return true;
-  return total >= 900 && (!it.from || it.from.length === 0);
+function hasSmite(p: RiotAPITypes.MatchV5.ParticipantDTO) {
+  return p.summoner1Id === SMITE_ID || p.summoner2Id === SMITE_ID;
 }
 
-function filterCompletedItemIds(
-  ids: Array<number | null | undefined>,
-): number[] {
-  return ids
-    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id))
-    .filter((id) => isCompletedItem(id));
+function inferSupportOrCarry(
+  botAllies: RiotAPITypes.MatchV5.ParticipantDTO[],
+  self: RiotAPITypes.MatchV5.ParticipantDTO,
+): 'UTILITY' | 'BOTTOM' {
+  if (botAllies.length < 2) return 'BOTTOM';
+  const [a, b] = botAllies;
+  const csA = a.totalMinionsKilled;
+  const csB = b.totalMinionsKilled;
+  const support = csA <= csB ? a : b; // lower CS ~ support heuristic
+  return support.puuid === self.puuid ? 'UTILITY' : 'BOTTOM';
 }
 
-function calcKDA(kills?: number, deaths?: number, assists?: number): number {
-  const k = Number(kills || 0);
-  const d = Number(deaths || 0);
-  const a = Number(assists || 0);
-  const denom = Math.max(1, d);
-  const v = (k + a) / denom;
-  return Number(v.toFixed(2));
-}
-
-function buildParticipantDetails(
+function inferPosition(
   p: RiotAPITypes.MatchV5.ParticipantDTO,
-): ParticipantDetails {
+  frames: TimelineFrame[],
+  teamMates: RiotAPITypes.MatchV5.ParticipantDTO[],
+): 'TOP' | 'JUNGLE' | 'MIDDLE' | 'BOTTOM' | 'UTILITY' | 'UNKNOWN' {
+  // 1) Smite is definitive jungle signal
+  if (hasSmite(p)) return 'JUNGLE';
+
+  // 2) Movement-derived lane
+  const laneByMove = inferLaneFromMovement(frames, p.participantId);
+
+  if (laneByMove === 'TOP') return 'TOP';
+  if (laneByMove === 'MIDDLE') return 'MIDDLE';
+  if (laneByMove === 'BOTTOM') {
+    // Decide support vs carry using CS share among bot duo
+    const botDuo = teamMates
+      .filter((t) => !hasSmite(t))
+      .filter(
+        (t) =>
+          t.puuid === p.puuid ||
+          inferLaneFromMovement(frames, t.participantId) === 'BOTTOM',
+      );
+    try {
+      return inferSupportOrCarry(botDuo, p);
+    } catch {
+      return 'BOTTOM';
+    }
+  }
+
+  // 3) Fallback: use Riot fields if movement inconclusive
+  const tp = (p.teamPosition ?? p.role ?? p.lane ?? 'UNKNOWN').toUpperCase();
+  if (tp === 'UTILITY' || tp === 'SUPPORT') return 'UTILITY';
+  if (tp === 'BOTTOM' || tp === 'ADC' || tp === 'DUO_CARRY') return 'BOTTOM';
+  if (tp === 'MIDDLE' || tp === 'MID') return 'MIDDLE';
+  if (tp === 'TOP') return 'TOP';
+  if (tp === 'JUNGLE') return 'JUNGLE';
+
+  return 'UNKNOWN';
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Builders                                                                  */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function slimParticipant(
+  p: RiotAPITypes.MatchV5.ParticipantDTO,
+  frames: TimelineFrame[],
+  teamMates: RiotAPITypes.MatchV5.ParticipantDTO[],
+): SlimParticipant {
   const items = [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6];
+  const inferred = inferPosition(p, frames, teamMates);
   return {
     participantId: p.participantId,
     puuid: p.puuid,
     summonerName: p.summonerName,
     teamId: p.teamId,
-    teamPosition: (p.teamPosition ?? 'UNKNOWN') as string,
     championId: p.championId,
     championName: p.championName,
-    win: !!p.win,
-    items,
     summoner1Id: p.summoner1Id,
     summoner2Id: p.summoner2Id,
-    kills: p.kills,
-    deaths: p.deaths,
-    assists: p.assists,
-    kda: calcKDA(p.kills, p.deaths, p.assists),
-    individualPosition: (p.individualPosition ?? 'UNKNOWN') as string,
-    lane: (p.lane ?? 'UNKNOWN') as string,
-    role: (p.role ?? 'UNKNOWN') as string,
-    championLevel: p.champLevel,
-    goldEarned: p.goldEarned,
-    goldSpent: p.goldSpent,
     totalMinionsKilled: p.totalMinionsKilled,
-    neutralMinionsKilled: p.neutralMinionsKilled,
-    totalDamageDealtToChampions: p.totalDamageDealtToChampions,
-    totalDamageTaken: p.totalDamageTaken,
+    goldEarned: p.goldEarned,
     visionScore: p.visionScore,
-    timePlayed: p.timePlayed,
-    perks: p.perks,
+    win: !!p.win,
+    inferredPosition: inferred,
     completedItemIds: filterCompletedItemIds(items),
     trinketId:
-      typeof p.item6 === 'number' && Number.isFinite(p.item6)
-        ? (p.item6 as number)
-        : null,
-    rawParticipant: p,
-  } satisfies ParticipantDetails;
+      typeof p.item6 === 'number' && Number.isFinite(p.item6) ? p.item6 : null,
+  };
 }
 
-function eventInvolvesParticipant(event: TimelineEvent, pid: number): boolean {
-  if (event.participantId === pid) return true;
-  if (event.killerId === pid) return true;
-  if (event.victimId === pid) return true;
-  if (event.creatorId === pid) return true;
-  if (Array.isArray(event.assistingParticipantIds))
-    return event.assistingParticipantIds.includes(pid);
-  return false;
+function actorsOf(e: TimelineEvent): number[] {
+  const s = new Set<number>();
+  if (typeof e.participantId === 'number') s.add(e.participantId);
+  if (typeof e.killerId === 'number') s.add(e.killerId);
+  if (typeof e.victimId === 'number') s.add(e.victimId);
+  if (typeof e.creatorId === 'number') s.add(e.creatorId);
+  for (const a of e.assistingParticipantIds ?? [])
+    if (typeof a === 'number') s.add(a);
+  return [...s];
+}
+
+function minimalFrameSnapshot(pf: ParticipantFrame | null) {
+  if (!pf) return null;
+  return {
+    level: pf.level,
+    totalGold: pf.totalGold ?? pf.gold,
+    position: pf.position ?? null,
+    minionsKilled: pf.minionsKilled,
+    jungleMinionsKilled: pf.jungleMinionsKilled,
+  };
 }
 
 function buildEventDetail(
   event: TimelineEvent,
   frames: TimelineFrame[],
   eventsAll: TimelineEvent[],
-  participants: ParticipantDetails[],
+  participants: SlimParticipant[],
   subjectTeamId: number,
-): MatchEventDetail | null {
+): MatchEventDetail {
   const ts = Number(event.timestamp ?? 0);
   const frame = findFrameAt(frames, ts);
   const when = minutes(ts);
   const position = event.position ? { ...event.position } : null;
   const zone = zoneLabel(position);
-  const participantStates: EventParticipantState[] = participants.map((p) => {
-    const pf = getParticipantFrame(frame, p.participantId);
-    const cloned = cloneParticipantFrame(pf);
-    const inventory = inventoryAtTime(eventsAll, p.participantId, ts);
-    const completedAtTs = filterCompletedItemIds(inventory.inventoryIds);
+
+  const actorIds = actorsOf(event);
+  const participantStates: EventParticipantState[] = actorIds.map((pid) => {
+    const p = participants.find((pp) => pp.participantId === pid)!;
+    const pf = getParticipantFrame(frame, pid);
+    const inv = inventoryAtTime(eventsAll, pid, ts);
+    const completedAtTs = filterCompletedItemIds(inv.inventoryIds);
     return {
-      participantId: p.participantId,
-      teamId: p.teamId,
-      championName: p.championName,
+      participantId: pid,
+      teamId: p?.teamId ?? (pid <= 5 ? 100 : 200),
+      championName: p?.championName ?? '',
       frameTimestamp: frame?.timestamp ?? null,
-      frame: cloned,
+      frame: minimalFrameSnapshot(pf),
       inventory: {
-        itemIds: inventory.inventoryIds,
+        itemIds: inv.inventoryIds,
         completedItemIds: completedAtTs,
-        hasGrievousWounds: inventory.hasGW,
+        hasGrievousWounds: inv.hasGW,
       },
-    } satisfies EventParticipantState;
+    };
   });
 
   return {
@@ -435,25 +505,21 @@ function buildEventDetail(
     assistingParticipantIds: Array.isArray(event.assistingParticipantIds)
       ? event.assistingParticipantIds
       : [],
-    relatedParticipantIds: participantStates
-      .filter((state) => {
-        if (!state.frame) return false;
-        return true;
-      })
-      .map((state) => state.participantId),
+    relatedParticipantIds: actorIds,
     participantStates,
-    rawEvent: event,
-  } satisfies MatchEventDetail;
+    rawEventType: event.type,
+  };
 }
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Public: build trimmed AI context                                          */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 export async function matchDetailsNode(
   puuid: string,
   matchId: string,
 ): Promise<Record<string, unknown> | null> {
-  consola.debug('[matchDetailsNode] start', {
-    puuid,
-    matchId,
-  });
+  consola.debug('[matchDetailsNode] start', { puuid, matchId });
 
   const match = await collections.matches.findOne({
     'metadata.matchId': matchId,
@@ -468,43 +534,69 @@ export async function matchDetailsNode(
     .participants as RiotAPITypes.MatchV5.ParticipantDTO[];
   const teams = match.info.teams as RiotAPITypes.MatchV5.TeamDTO[];
 
-  const subject = participants.find((p) => p.puuid === puuid);
-  if (!subject) return null;
-
-  const opponent =
-    participants.find(
-      (p) => p.teamId !== subject.teamId && p.lane === subject.lane,
-    ) ?? null;
+  const subjectP = participants.find((p) => p.puuid === puuid);
+  if (!subjectP) return null;
 
   await ensureDDragonItemsLoaded();
 
-  const participantDetails = participants.map((p) =>
-    buildParticipantDetails(p),
-  );
-
-  const participantsBasic: ParticipantBasic[] = participantDetails.map((p) => ({
-    participantId: p.participantId,
-    puuid: p.puuid,
-    summonerName: p.summonerName,
-    teamId: p.teamId,
-    teamPosition: p.teamPosition,
-    championId: p.championId,
-    championName: p.championName,
-    win: p.win,
-    items: p.items,
-    summoner1Id: p.summoner1Id,
-    summoner2Id: p.summoner2Id,
-    kills: p.kills,
-    deaths: p.deaths,
-    assists: p.assists,
-    kda: p.kda,
-  }));
-
+  // Timeline (optional)
   const timeline = await collections.timelines.findOne({
     'metadata.matchId': matchId,
   });
+  const frames: TimelineFrame[] = Array.isArray(timeline?.info?.frames)
+    ? (timeline!.info.frames as unknown as TimelineFrame[])
+    : [];
+  const eventsAll = flattenEvents(frames);
 
-  const baseResponse = {
+  // Slim participants with inferred positions
+  const byTeam: Record<100 | 200, RiotAPITypes.MatchV5.ParticipantDTO[]> = {
+    100: participants.filter((p) => p.teamId === 100),
+    200: participants.filter((p) => p.teamId === 200),
+  };
+  const slim: SlimParticipant[] = participants.map((p) =>
+    slimParticipant(p, frames, byTeam[p.teamId as 100 | 200]),
+  );
+
+  const subject = slim.find((p) => p.puuid === puuid)!;
+
+  // Choose opponent by **inferred** lane/role
+  const opponent =
+    slim
+      .filter((p) => p.teamId !== subject.teamId)
+      .filter((p) => {
+        // Bot duo: subject BOTTOM fights enemy BOTTOM (carry) or UTILITY (support)
+        if (
+          subject.inferredPosition === 'BOTTOM' ||
+          subject.inferredPosition === 'UTILITY'
+        ) {
+          return (
+            p.inferredPosition === 'BOTTOM' || p.inferredPosition === 'UTILITY'
+          );
+        }
+        return p.inferredPosition === subject.inferredPosition;
+      })
+      // Prefer the enemy with **closest lane CS profile** vs subject
+      .sort(
+        (a, b) =>
+          Math.abs(a.totalMinionsKilled - subject.totalMinionsKilled) -
+          Math.abs(b.totalMinionsKilled - subject.totalMinionsKilled),
+      )[0] ?? null;
+
+  // Relevant events: only those involving the subject (keeps payload light)
+  const subjectPid = subject.participantId;
+  const relevantEvents = frames.length
+    ? eventsAll
+        .filter((e) => {
+          const ids = new Set(actorsOf(e));
+          return ids.has(subjectPid);
+        })
+        .map((event) =>
+          buildEventDetail(event, frames, eventsAll, slim, subject.teamId),
+        )
+    : [];
+
+  // Minimal match meta + tiny teams
+  const base = {
     matchId: match.metadata.matchId,
     gameCreation: match.info.gameCreation,
     gameDuration: match.info.gameDuration,
@@ -512,99 +604,71 @@ export async function matchDetailsNode(
     gameVersion: match.info.gameVersion,
     mapId: match.info.mapId,
     queueId: match.info.queueId,
-    subject: {
-      participantId: subject.participantId,
-      puuid: subject.puuid,
-      summonerName: subject.summonerName,
-      teamId: subject.teamId,
-      teamPosition: (subject.teamPosition ?? 'UNKNOWN') as string,
-      championId: subject.championId,
-      championName: subject.championName,
-      summoner1Id: subject.summoner1Id,
-      summoner2Id: subject.summoner2Id,
-      finalItems: [
-        subject.item0,
-        subject.item1,
-        subject.item2,
-        subject.item3,
-        subject.item4,
-        subject.item5,
-        subject.item6,
-      ],
-      completedFinalItems: filterCompletedItemIds([
-        subject.item0,
-        subject.item1,
-        subject.item2,
-        subject.item3,
-        subject.item4,
-        subject.item5,
-        subject.item6,
-      ]),
-    },
-    opponent: opponent
-      ? {
-          participantId: opponent.participantId,
-          puuid: opponent.puuid,
-          summonerName: opponent.summonerName,
-          teamId: opponent.teamId,
-          teamPosition: (opponent.teamPosition ?? 'UNKNOWN') as string,
-          championId: opponent.championId,
-          championName: opponent.championName,
-          summoner1Id: opponent.summoner1Id,
-          summoner2Id: opponent.summoner2Id,
-          finalItems: [
-            opponent.item0,
-            opponent.item1,
-            opponent.item2,
-            opponent.item3,
-            opponent.item4,
-            opponent.item5,
-            opponent.item6,
-          ],
-          completedFinalItems: filterCompletedItemIds([
-            opponent.item0,
-            opponent.item1,
-            opponent.item2,
-            opponent.item3,
-            opponent.item4,
-            opponent.item5,
-            opponent.item6,
-          ]),
-        }
-      : null,
-    teams,
-    participantsBasic,
-    participants: participantDetails,
+    outcome: match.info.teams.find((t) => t.teamId === subject.teamId)?.win
+      ? 'win'
+      : 'lose',
+    teams:
+      teams?.map((t) => ({
+        teamId: t.teamId,
+        win: !!t.win,
+        objectives: {
+          baron: t.objectives?.baron?.kills ?? 0,
+          dragon: t.objectives?.dragon?.kills ?? 0,
+          riftHerald: t.objectives?.riftHerald?.kills ?? 0,
+          horde: (t as any)?.objectives?.horde?.kills ?? 0, // if present on patch
+          tower: t.objectives?.tower?.kills ?? 0,
+        },
+      })) ?? [],
   };
 
-  if (!timeline) {
-    return {
-      ...baseResponse,
-      events: [],
-    } as const;
-  }
+  // Subject/opponent minimal blocks
+  const subjectBlock = {
+    participantId: subject.participantId,
+    puuid: subject.puuid,
+    summonerName: subject.summonerName,
+    teamId: subject.teamId,
+    inferredPosition: subject.inferredPosition,
+    championId: subject.championId,
+    championName: subject.championName,
+    summoner1Id: subject.summoner1Id,
+    summoner2Id: subject.summoner2Id,
+    finalItems: subject.completedItemIds,
+    trinketId: subject.trinketId,
+  };
 
-  const frames: TimelineFrame[] = Array.isArray(timeline.info?.frames)
-    ? (timeline.info.frames as unknown as TimelineFrame[])
-    : [];
-  const eventsAll = flattenEvents(frames);
+  const opponentBlock = opponent
+    ? {
+        participantId: opponent.participantId,
+        puuid: opponent.puuid,
+        summonerName: opponent.summonerName,
+        teamId: opponent.teamId,
+        inferredPosition: opponent.inferredPosition,
+        championId: opponent.championId,
+        championName: opponent.championName,
+        summoner1Id: opponent.summoner1Id,
+        summoner2Id: opponent.summoner2Id,
+        finalItems: opponent.completedItemIds,
+        trinketId: opponent.trinketId,
+      }
+    : null;
 
-  const subjectPid = subject.participantId;
-  const relevantEvents = eventsAll
-    .filter((e) => eventInvolvesParticipant(e, subjectPid))
-    .map((event) =>
-      buildEventDetail(
-        event,
-        frames,
-        eventsAll,
-        participantDetails,
-        subject.teamId,
-      ),
-    )
-    .filter((evt): evt is MatchEventDetail => evt !== null);
+  // Participants table for quick lookups (10 rows, slim)
+  const participantsBrief = slim.map((p) => ({
+    participantId: p.participantId,
+    teamId: p.teamId,
+    championName: p.championName,
+    inferredPosition: p.inferredPosition,
+    totalMinionsKilled: p.totalMinionsKilled,
+    goldEarned: p.goldEarned,
+    visionScore: p.visionScore,
+    completedItemIds: p.completedItemIds,
+  }));
 
   return {
-    ...baseResponse,
+    ...base,
+    subject: subjectBlock,
+    opponent: opponentBlock,
+    participants: participantsBrief,
     events: relevantEvents,
   } as const;
 }

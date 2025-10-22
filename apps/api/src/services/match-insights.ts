@@ -155,12 +155,13 @@ function buildPrompt(
   locale: string,
   mechanics: MechanicsSpec,
 ): { systemPrompt: string; userPrompt: string } {
+  const BOOTS_IDS = [3006, 3009, 3020, 3047, 3111, 3117, 3158]; // Tier-2 boots
   const schemaHint = [
     'Required JSON schema:',
     '{',
     `  "summary": string (max ${SUMMARY_MAX_CHARS} chars)`,
     '  "roleFocus": string',
-    `  "keyMoments": [{ "ts": number, "title": string, "insight": string, "suggestion": string, "coordinates"?: [{"x": number, "y": number}], "zone"?: string, "enemyHalf"?: boolean }] (max ${KEY_MOMENTS_MAX}, min 4)`,
+    `  "keyMoments": [{ "ts": number, "title": string, "insight": string, "suggestion": string, "coordinates"?: [{"x": number, "y": number}], "zone"?: string, "enemyHalf"?: boolean }] (max ${KEY_MOMENTS_MAX}, min 4, SORTED BY ts ASC)`,
     '  "buildNotesV2": [{ "when": string, "goal": "anti-heal"|"burst"|"sustain"|"survivability"|"siege"|"waveclear"|"armor-pen"|"magic-pen"|"on-hit"|"cdr"|"utility", "suggestion": { "add": number[], "replace"?: number[], "timingHint"?: string }, "reason": string, "confidence": number }]',
     `  "macro": { "objectives": string[] (max ${MACRO_LIST_MAX}), "rotations": string[] (max ${MACRO_LIST_MAX}), "vision": string[] (max ${MACRO_LIST_MAX}) }`,
     `  "drills": string[] (exactly ${DRILLS_MAX})`,
@@ -170,12 +171,32 @@ function buildPrompt(
 
   const systemPrompt = [
     'You are RiftCoach, a League of Legends coaching assistant.',
-    'Respond with actionable, role-specific advice grounded only in provided context.',
+    'Respond with actionable, role-specific advice grounded ONLY in the provided context and tool results.',
     'Return STRICT JSON that matches the required schema. No markdown or prose outside JSON.',
-    'Use tools when you need additional data (items, builds, stats, coordinates).',
-    'Treat inventory.completedItemIds as already filtered to completed items—avoid recommending unfinished components.',
-    "When suggesting build changes (buildNotesV2), base them ONLY on other players' common builds via tools: use query_common_champion_builds for the subject's champion and role; do not invent items beyond tool outputs.",
-    '`ts` should be the timestamp provided in the specific event that the moment occurs.',
+    '',
+    // Outcome & sorting
+    'Set "outcome" to "WIN" or "LOSS" based on the subject’s team result; mention the outcome in "summary".',
+    'Ensure "keyMoments" are sorted by "ts" ascending and include at least 4 moments.',
+    '',
+    // Role source of truth
+    'When reasoning about role/lane, prefer subject.opponent participants’ "inferredPosition" from context over Riot’s raw fields.',
+    '',
+    // Tool usage & grounding
+    'Use tools whenever you need additional data (items, builds, stats, coordinates).',
+    'When suggesting build changes (buildNotesV2), base them ONLY on other players’ common builds via tools (e.g., query_common_champion_builds for the subject champion and inferred role). Do not invent items beyond tool outputs.',
+    'Use an items tool to retrieve item names/effects for any item IDs you reference, and ground your "reason" in those facts.',
+    '',
+    // Boots policy
+    `Boots policy: Tier-2 boots IDs are ${JSON.stringify(BOOTS_IDS)}.`,
+    'Never recommend SELLING boots to buy another item.',
+    'Only discuss WHICH boots to build (e.g., Plated Steelcaps vs Mercury’s Treads) when justified by enemy damage profile or crowd control.',
+    'If the enemy has heavy CC and the subject lacks tenacity/cleanse, you MAY suggest Mercury’s Treads; if the enemy has very low CC, you MAY call out that Mercs are unnecessary.',
+    'Do NOT suggest replacing boots in the late game unless the context explicitly contains an exceptional reason (e.g., duplicated boots or clear misbuild).',
+    '',
+    // Output quality & safety rails
+    'Be concise but complete: 1–2 sentences per "insight"/"suggestion"/"reason", with concrete references to timings, zones, and items.',
+    'Lower "confidence" if evidence is weak; do NOT hallucinate data.',
+    '`ts` must match the event timestamp; "zone" and "enemyHalf" should align with provided coordinates.',
     schemaHint,
   ].join('\n');
 
