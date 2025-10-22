@@ -88,28 +88,43 @@ function interpolateParticipantPosition(
   const t0 = Number(f0?.timestamp ?? Number.NaN);
   const t1 = Number(f1?.timestamp ?? Number.NaN);
 
-  // both sides → interpolate
+  // If both timestamps are valid, pick the closest frame (no interpolation)
   if (p0 && p1 && Number.isFinite(t0) && Number.isFinite(t1) && t1 > t0) {
-    const alpha = Math.max(0, Math.min(1, (ts - t0) / (t1 - t0)));
-    const pos = lerp2(p0, p1, alpha);
-    const gap = (t1 - t0) / 1000; // seconds
-    const radius = Math.max(50, 0.1 * dist2(p0, p1) + gap * 8); // map units
-    const confidence = Math.max(0.4, 1 - gap / 120);
-    return { position: pos, confidence, radius, source: 'interp' as const };
+    const d0 = Math.abs(ts - t0);
+    const d1 = Math.abs(t1 - ts);
+    const chosen = d1 < d0 ? { pos: p1, dt: d1 } : { pos: p0, dt: d0 };
+
+    // Confidence & radius scale with time distance to the chosen frame start
+    const secFromChosen = chosen.dt / 1000;
+    const radius = 80 + secFromChosen * 10; // map units
+    const confidence = Math.max(0.25, 1 - secFromChosen / 180);
+
+    return {
+      position: chosen.pos,
+      confidence,
+      radius,
+      source: 'nearest' as const,
+    };
   }
 
-  // one side → nearest
+  // One-sided fallback
   if (p0 && Number.isFinite(t0)) {
     const gap = Math.abs(ts - t0) / 1000;
-    const radius = 80 + gap * 10;
-    const confidence = Math.max(0.25, 1 - gap / 180);
-    return { position: p0, confidence, radius, source: 'nearest' as const };
+    return {
+      position: p0,
+      confidence: Math.max(0.25, 1 - gap / 180),
+      radius: 80 + gap * 10,
+      source: 'nearest' as const,
+    };
   }
   if (p1 && Number.isFinite(t1)) {
     const gap = Math.abs(t1 - ts) / 1000;
-    const radius = 80 + gap * 10;
-    const confidence = Math.max(0.25, 1 - gap / 180);
-    return { position: p1, confidence, radius, source: 'nearest' as const };
+    return {
+      position: p1,
+      confidence: Math.max(0.25, 1 - gap / 180),
+      radius: 80 + gap * 10,
+      source: 'nearest' as const,
+    };
   }
 
   return {
