@@ -175,6 +175,7 @@ function buildPrompt(
     'Use tools when you need additional data (items, builds, stats, coordinates).',
     'Treat inventory.completedItemIds as already filtered to completed items—avoid recommending unfinished components.',
     "When suggesting build changes (buildNotesV2), base them ONLY on other players' common builds via tools: use query_common_champion_builds for the subject's champion and role; do not invent items beyond tool outputs.",
+    '`ts` should be the timestamp provided in the specific event that the moment occurs.',
     schemaHint,
   ].join('\n');
 
@@ -286,7 +287,10 @@ const GOAL_VALUES = [
 type GoalValue = (typeof GOAL_VALUES)[number];
 
 function canonicalizeGoal(v: string): string {
-  return v.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+  return v
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]/g, '');
 }
 
 const goalCanonicalToEnum: Record<string, GoalValue> = {
