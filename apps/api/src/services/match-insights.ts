@@ -1,4 +1,3 @@
-import { inspect } from 'node:util';
 import {
   type ContentBlock,
   ConverseCommand,
@@ -19,6 +18,17 @@ import { inferPatchFromGameVersion } from '../utils/ddragon-items.js';
 import { buildToolConfig, toolDefinitions } from './tools/index.js';
 import type { ToolRuntimeContext } from './tools/types.js';
 
+/**
+ * ————————————————————————————————————————————————————————————————
+ * NEW: Single Build Path + Branches (for the UI like your screenshot)
+ * ————————————————————————————————————————————————————————————————
+ *
+ * This file introduces `buildPath`, a deterministic build line with
+ * (a) core sequence, (b) boots choice, and (c) situational branches per slot.
+ * The AI is asked to ground all items via tools and to avoid parroting the
+ * user’s exact build unless it is provably optimal. Reasons are concise.
+ */
+
 const CLAUDE_SMART_MODEL = 'anthropic.claude-3-5-sonnet-20240620-v1:0';
 const MAX_TOOL_ITERATIONS = 6;
 const SUMMARY_MAX_CHARS = 360;
@@ -26,9 +36,47 @@ const KEY_MOMENTS_MAX = 6;
 const MACRO_LIST_MAX = 3;
 const DRILLS_MAX = 3;
 
-const CoordinateSchema = z.object({
-  x: z.number(),
-  y: z.number(),
+const CoordinateSchema = z.object({ x: z.number(), y: z.number() });
+
+// ——— Build Path V1 ————————————————————————————————————————
+// 0..3: On-curve order guarantee, then branches per slot.
+const BuildBranchSchema = z.object({
+  label: z.string(), // e.g., "vs heavy MR", "vs burst + pick"
+  when: z.string().optional(),
+  add: z.array(z.number()).min(1),
+  replace: z.array(z.number()).optional(), // replacement target(s) by ID
+  reason: z.string().min(1),
+});
+
+const BuildSlotSchema = z.object({
+  slot: z.enum(['mythic', '1st', '2nd', '3rd', '4th', '5th', '6th']),
+  primary: z.array(z.number()).min(1), // usually a single item; allow combos like RFC+Statikk if ever
+  branches: z.array(BuildBranchSchema).default([]),
+});
+
+const BootsChoiceSchema = z.object({
+  options: z
+    .array(
+      z.object({
+        id: z.number(),
+        reason: z.string(),
+        priority: z.number().min(0).max(1),
+      }),
+    )
+    .min(1),
+  policyNote: z.string().optional(),
+});
+
+const BuildPathSchema = z.object({
+  starting: z.array(z.number()).max(5).default([]),
+  early: z
+    .array(z.object({ id: z.number(), note: z.string().optional() }))
+    .max(6)
+    .default([]),
+  boots: BootsChoiceSchema,
+  core: z.array(BuildSlotSchema).min(3).max(6),
+  sellOrder: z.array(z.number()).default([]),
+  rationale: z.string(),
 });
 
 export const MatchInsightsSchema = z.object({
@@ -47,34 +95,10 @@ export const MatchInsightsSchema = z.object({
       }),
     )
     .max(KEY_MOMENTS_MAX),
-  buildNotesV2: z
-    .array(
-      z.object({
-        when: z.string(),
-        goal: z.enum([
-          'anti-heal',
-          'burst',
-          'sustain',
-          'survivability',
-          'siege',
-          'waveclear',
-          'armor-pen',
-          'magic-pen',
-          'on-hit',
-          'cdr',
-          'utility',
-        ]),
-        suggestion: z.object({
-          add: z.array(z.number()).default([]),
-          replace: z.array(z.number()).optional(),
-          timingHint: z.string().optional(),
-        }),
-        reason: z.string(),
-        confidence: z.number().min(0).max(1).default(0.5),
-      }),
-    )
-    .max(8)
-    .default([]),
+
+  // NEW: Deterministic build line used by the UI
+  buildPath: BuildPathSchema,
+
   macro: z.object({
     objectives: z.array(z.string()).max(MACRO_LIST_MAX),
     rotations: z.array(z.string()).max(MACRO_LIST_MAX),
@@ -92,11 +116,14 @@ const DEFAULT_DRILLS = [
   'Focus on minimap checks every wave for rotations.',
 ];
 
+// ——— Mechanics helper ————————————————————————————————————————
+
 type UnknownRecord = Record<string, unknown>;
 
 type MechanicsSpec = {
   antiHealItemIds?: number[];
   championAbilities?: Record<string, string>;
+  alreadyBuilt?: number[]; // subject completed items
 };
 
 function buildAbilityHintFromDDragon(ch: DDragonChampion): string {
@@ -150,19 +177,41 @@ async function deriveChampionAbilityHints(
   }
 }
 
+function deriveExistingItems(ctx: UnknownRecord): number[] {
+  const subj = (ctx as any)?.subject ?? {};
+  const final: number[] = Array.isArray(subj.completedFinalItems)
+    ? subj.completedFinalItems
+    : Array.isArray(subj.finalItems)
+      ? subj.finalItems
+      : [];
+  return final
+    .filter((x: any) => Number.isFinite(Number(x)))
+    .map((x: any) => Number(x));
+}
+
+// ——— Prompt ————————————————————————————————————————————
+
 function buildPrompt(
   ctx: UnknownRecord,
   locale: string,
   mechanics: MechanicsSpec,
 ): { systemPrompt: string; userPrompt: string } {
   const BOOTS_IDS = [3006, 3009, 3020, 3047, 3111, 3117, 3158]; // Tier-2 boots
+
   const schemaHint = [
     'Required JSON schema:',
     '{',
     `  "summary": string (max ${SUMMARY_MAX_CHARS} chars)`,
     '  "roleFocus": string',
     `  "keyMoments": [{ "ts": number, "title": string, "insight": string, "suggestion": string, "coordinates"?: [{"x": number, "y": number}], "zone"?: string, "enemyHalf"?: boolean }] (max ${KEY_MOMENTS_MAX}, min 4, SORTED BY ts ASC)`,
-    '  "buildNotesV2": [{ "when": string, "goal": "anti-heal"|"burst"|"sustain"|"survivability"|"siege"|"waveclear"|"armor-pen"|"magic-pen"|"on-hit"|"cdr"|"utility", "suggestion": { "add": number[], "replace"?: number[], "timingHint"?: string }, "reason": string, "confidence": number }]',
+    '  "buildPath": {',
+    '      "starting": number[],',
+    '      "early": [{"id": number, "note"?: string}] ,',
+    '      "boots": { "options": [{"id": number, "reason": string, "priority": number (0..1)}], "policyNote"?: string },',
+    '      "core": [{ "slot": "mythic"|"1st"|"2nd"|"3rd"|"4th"|"5th"|"6th", "primary": number[] (min 1), "branches": [{"label": string, "when"?: string, "add": number[] (min 1), "replace"?: number[], "reason": string}] }] (MAX 6 entries total; if "mythic" present, only include "1st".."5th"),',
+    '      "sellOrder": number[],',
+    '      "rationale": string',
+    '  }',
     `  "macro": { "objectives": string[] (max ${MACRO_LIST_MAX}), "rotations": string[] (max ${MACRO_LIST_MAX}), "vision": string[] (max ${MACRO_LIST_MAX}) }`,
     `  "drills": string[] (exactly ${DRILLS_MAX})`,
     '  "confidence": number (0..1)',
@@ -174,39 +223,33 @@ function buildPrompt(
     'Respond with actionable, role-specific advice grounded ONLY in the provided context and tool results.',
     'Return STRICT JSON that matches the required schema. No markdown or prose outside JSON.',
     '',
-    // Outcome & sorting
-    'Set "outcome" to "WIN" or "LOSS" based on the subject’s team result; mention the outcome in "summary".',
-    'Ensure "keyMoments" are sorted by "ts" ascending and include at least 4 moments.',
+    'Outcome handling:',
+    'Set "outcome" to "WIN" or "LOSS" in your internal reasoning; mention the outcome in "summary".',
     '',
-    // Role source of truth
-    'When reasoning about role/lane, prefer subject.opponent participants’ "inferredPosition" from context over Riot’s raw fields.',
+    'Role handling:',
+    'When reasoning about role/lane, prefer subject/opponent participants’ "inferredPosition" from context over Riot raw fields.',
     '',
-    // Event selection & participation
-    'Only create moments from Context.events. Treat every event as involving the subject; do not infer or add events that are not listed.',
-    'For CHAMPION_KILL events: if killerId equals subject.participantId, the subject secured the kill; if victimId equals subject.participantId, the subject died; otherwise, the subject assisted. Explicitly state "assisted" in the insight or suggestion when applicable.',
+    'Events:',
+    'Only create moments from Context.events. Do not invent events. For kills: killerId=subject => kill; victimId=subject => death; otherwise -> assisted.',
     '',
-    // Naming & phrasing (natural language)
-    'Use the subject’s summonerName if available; otherwise use their championName. Never use placeholders like "participant N" or raw enums like "CHAMPION_KILL" or zones like "TOP_LANE".',
-    'Translate code-like terms to natural language: say "kill", "death", "assist"; use "top lane", "mid lane", "bot lane", "river" instead of code names; when enemyHalf is true say "enemy side", otherwise say "ally side".',
-    'When you mention a time in text, format it as mm:ss derived from ts.',
-    'Write insights in short, clear, human language focused on the subject’s action.',
+    'Naming & phrasing:',
+    'Use summonerName if available; else championName. Use human lane names (top/mid/bot/river). Format times as mm:ss.',
     '',
-    // Tool usage & grounding
-    'Use tools whenever you need additional data (items, builds, stats, coordinates).',
-    'When suggesting build changes (buildNotesV2), base them ONLY on other players’ common builds via tools (e.g., query_common_champion_builds for the subject champion and inferred role). Do not invent items beyond tool outputs.',
-    'Use an items tool to retrieve item names/effects for any item IDs you reference, and ground your "reason" in those facts.',
+    // — Boots and Build Path policy
+    `Boots policy: Tier-2 boots IDs ${JSON.stringify(BOOTS_IDS)}.`,
+    'Never recommend SELLING boots for another item. Only choose boots type based on enemy damage/CC. Include 1–3 options ranked with reasons.',
     '',
-    // Boots policy
-    `Boots policy: Tier-2 boots IDs are ${JSON.stringify(BOOTS_IDS)}.`,
-    'Never recommend SELLING boots to buy another item.',
-    'Only discuss WHICH boots to build (e.g., Plated Steelcaps vs Mercury’s Treads) when justified by enemy damage profile or crowd control.',
-    'If the enemy has heavy CC and the subject lacks tenacity/cleanse, you MAY suggest Mercury’s Treads; if the enemy has very low CC, you MAY call out that Mercs are unnecessary.',
-    'Do NOT suggest replacing boots in the late game unless the context explicitly contains an exceptional reason (e.g., duplicated boots or clear misbuild).',
+    // NEW: anti-parroting & grounding
+    'BuildPath rules:',
+    '- Base recommendations on common builds via tools (e.g., query_common_champion_builds, items_by_ids).',
+    '- Use the provided mechanics.alreadyBuilt list to AVOID parroting the same build order. If a user-built item is still optimal, keep it but justify ordering; otherwise present a superior alternative or swap.',
+    '- Include up to 2 situational branches per relevant slot that adapt to enemy comp (e.g., vs heavy MR/armor/heal/burst/poke/splitpush/shields). Every branch MUST include at least one item in "add"; if advice-only, omit the branch.',
+    '- Each slot must include at least one ID in "primary" (min 1).',
+    '- Total "core" entries must be <= 6 (including "mythic" if used). If you include "mythic", only use "1st".."5th" afterwards; otherwise use "1st".."6th" with no "mythic".',
+    '- Ensure the core sequence is a coherent path (mythic → 1st → 2nd …).',
     '',
-    // Output quality & safety rails
-    'Be concise but complete: 1–2 sentences per "insight"/"suggestion"/"reason", with concrete references to timings, zones, and items.',
-    'Lower "confidence" if evidence is weak; do NOT hallucinate data.',
-    '`ts` must match the event timestamp; "zone" and "enemyHalf" should align with provided coordinates.',
+    'Quality:',
+    'Be concise but complete: 1–2 sentences per reason. Lower confidence if evidence is weak. Align zone/enemyHalf with coordinates.',
     schemaHint,
   ].join('\n');
 
@@ -221,6 +264,8 @@ function buildPrompt(
 
   return { systemPrompt, userPrompt };
 }
+
+// ——— Tool execution glue ——————————————————————————————
 
 type ToolUseBlock = {
   toolUseId: string;
@@ -293,6 +338,39 @@ function enforceOutputLimits(insights: MatchInsights): MatchInsights {
       },
       confidence: Math.max(0, Math.min(1, note.confidence)),
     })),
+    buildPath: {
+      starting: (insights.buildPath?.starting || [])
+        .slice(0, 5)
+        .map((id) => Math.trunc(id)),
+      early: (insights.buildPath?.early || [])
+        .slice(0, 6)
+        .map((e) => ({ id: Math.trunc(e.id), note: e.note })),
+      boots: {
+        options: (insights.buildPath?.boots?.options || [])
+          .slice(0, 3)
+          .map((o) => ({
+            id: Math.trunc(o.id),
+            reason: o.reason,
+            priority: Math.max(0, Math.min(1, o.priority)),
+          })),
+        policyNote: insights.buildPath?.boots?.policyNote,
+      },
+      core: (insights.buildPath?.core || []).slice(0, 6).map((slot) => ({
+        slot: slot.slot,
+        primary: (slot.primary || []).map((id) => Math.trunc(id)),
+        branches: (slot.branches || []).slice(0, 4).map((b) => ({
+          label: b.label,
+          when: b.when,
+          add: (b.add || []).map((id) => Math.trunc(id)),
+          replace: b.replace?.map((id) => Math.trunc(id)),
+          reason: b.reason,
+        })),
+      })),
+      sellOrder: (insights.buildPath?.sellOrder || [])
+        .slice(0, 3)
+        .map((id) => Math.trunc(id)),
+      rationale: insights.buildPath?.rationale || '',
+    },
     macro: {
       objectives: insights.macro.objectives.slice(0, MACRO_LIST_MAX),
       rotations: insights.macro.rotations.slice(0, MACRO_LIST_MAX),
@@ -303,7 +381,7 @@ function enforceOutputLimits(insights: MatchInsights): MatchInsights {
   };
 }
 
-// Normalize AI output before schema validation to coerce goal values and numbers
+// ——— Normalizers for legacy goals —————————————————————————
 const GOAL_VALUES = [
   'anti-heal',
   'burst',
@@ -410,6 +488,53 @@ function normalizeAIInsightsOutput(output: any): any {
       return n;
     });
   }
+  // buildPath coercions
+  if (copy.buildPath && typeof copy.buildPath === 'object') {
+    const bp = copy.buildPath;
+    bp.starting = Array.isArray(bp.starting)
+      ? bp.starting.map(Number).filter(Number.isFinite)
+      : [];
+    bp.early = Array.isArray(bp.early)
+      ? bp.early.map((e: any) => ({ id: Number(e.id), note: e.note }))
+      : [];
+    if (bp.boots && Array.isArray(bp.boots.options)) {
+      bp.boots.options = bp.boots.options.map((o: any) => ({
+        id: Number(o.id),
+        reason: o.reason,
+        priority: Math.max(0, Math.min(1, Number(o.priority))),
+      }));
+    }
+    bp.core = Array.isArray(bp.core)
+      ? bp.core
+          .map((s: any) => ({
+            slot: s.slot,
+            primary: Array.isArray(s.primary)
+              ? s.primary.map(Number).filter(Number.isFinite)
+              : [],
+            branches: Array.isArray(s.branches)
+              ? s.branches
+                  .map((b: any) => ({
+                    label: b.label,
+                    when: b.when,
+                    add: Array.isArray(b.add)
+                      ? b.add.map(Number).filter(Number.isFinite)
+                      : [],
+                    replace: Array.isArray(b.replace)
+                      ? b.replace.map(Number).filter(Number.isFinite)
+                      : undefined,
+                    reason: b.reason,
+                  }))
+                  .filter((b: any) => Array.isArray(b.add) && b.add.length > 0)
+              : [],
+          }))
+          .filter((s: any) => Array.isArray(s.primary) && s.primary.length > 0)
+           .slice(0, 6)
+      : [];
+    bp.sellOrder = Array.isArray(bp.sellOrder)
+      ? bp.sellOrder.map(Number).filter(Number.isFinite)
+      : [];
+    copy.buildPath = bp;
+  }
   return copy;
 }
 
@@ -419,16 +544,12 @@ function derivePatchFromContext(ctx: UnknownRecord): string | undefined {
   return ctxItems?.patch ?? inferPatchFromGameVersion(infoObj?.gameVersion);
 }
 
-// Add a reducer to prune heavy fields from the match context before prompting
 function reduceCtxForPrompt(
   ctx: UnknownRecord,
   opts?: { maxEvents?: number },
 ): UnknownRecord {
   const out: UnknownRecord = {};
-
   const maxEvents = Math.max(0, Math.trunc(opts?.maxEvents ?? 120));
-
-  // Shallow base properties commonly used by the model
   const baseKeys = [
     'matchId',
     'gameCreation',
@@ -442,8 +563,6 @@ function reduceCtxForPrompt(
     const v = (ctx as Record<string, unknown>)[k];
     if (v !== undefined) out[k] = v;
   }
-
-  // Subject/opponent minimal shapes
   function pruneSB(raw: unknown): UnknownRecord | null {
     if (!raw || typeof raw !== 'object') return null;
     const s = raw as Record<string, unknown>;
@@ -460,27 +579,21 @@ function reduceCtxForPrompt(
       'summoner2Id',
       'finalItems',
       'completedFinalItems',
+      'inferredPosition',
     ]) {
       if (s[k] !== undefined) obj[k] = s[k];
     }
     return obj;
   }
-
   const subjectPruned = pruneSB((ctx as { subject?: unknown }).subject);
   const opponentPruned = pruneSB((ctx as { opponent?: unknown }).opponent);
   if (subjectPruned) out.subject = subjectPruned;
   if (opponentPruned) out.opponent = opponentPruned;
-
-  // Items block (already reduced at route level)
   const items = (ctx as { items?: unknown }).items;
   if (items && typeof items === 'object') out.items = items as UnknownRecord;
-
-  // Synergy info is small
   const synergy = (ctx as { synergy?: unknown }).synergy;
   if (synergy && typeof synergy === 'object')
     out.synergy = synergy as UnknownRecord;
-
-  // Events: keep only essential fields and cap the count
   const eventsRaw = (ctx as { events?: unknown }).events as unknown;
   if (Array.isArray(eventsRaw) && maxEvents > 0) {
     const prunedEvents = eventsRaw.slice(0, maxEvents).map((e) => {
@@ -503,10 +616,6 @@ function reduceCtxForPrompt(
     });
     out.events = prunedEvents as unknown as UnknownRecord;
   }
-
-  // Explicitly omit large collections like participants, teams, participantsBasic
-  // by not copying them over.
-
   return out;
 }
 
@@ -554,20 +663,21 @@ export async function generateMatchInsights(
     names,
     patch,
   );
+  const alreadyBuilt = deriveExistingItems(ctx);
 
   const mechanicsSpec: MechanicsSpec = {
     antiHealItemIds: Array.from(ITEM_GROUPS.GRIEVOUS_WOUNDS),
+    alreadyBuilt,
     ...(Object.keys(championAbilitiesHints).length
       ? { championAbilities: championAbilitiesHints }
       : {}),
   };
 
-  // Use reduced context for the prompt to keep input size safe
+  // reduce context
   let promptCtx = reduceCtxForPrompt(ctx, { maxEvents: 120 });
   let prompts = buildPrompt(promptCtx, locale, mechanicsSpec);
-  const MAX_INPUT_CHARS = 100_000; // conservative bound
+  const MAX_INPUT_CHARS = 100_000;
   let totalLen = prompts.systemPrompt.length + prompts.userPrompt.length;
-
   if (totalLen > MAX_INPUT_CHARS) {
     for (const cap of [80, 40, 20, 0]) {
       promptCtx = reduceCtxForPrompt(ctx, { maxEvents: cap });
@@ -580,12 +690,8 @@ export async function generateMatchInsights(
   const { systemPrompt, userPrompt } = prompts;
 
   const messages: Message[] = [
-    {
-      role: 'user',
-      content: [{ text: userPrompt }],
-    },
+    { role: 'user', content: [{ text: userPrompt }] },
   ];
-
   const toolConfig = buildToolConfig();
   const runtimeCtx: ToolRuntimeContext = { ctx };
 
@@ -596,13 +702,8 @@ export async function generateMatchInsights(
       modelId,
       system: [{ text: systemPrompt }],
       messages,
-      toolConfig: {
-        tools: toolConfig.tools,
-      },
-      inferenceConfig: {
-        maxTokens,
-        temperature,
-      },
+      toolConfig: { tools: toolConfig.tools },
+      inferenceConfig: { maxTokens, temperature },
     });
 
     const response = await bedrockClient.send(command);
@@ -610,9 +711,8 @@ export async function generateMatchInsights(
       response.output && 'message' in response.output
         ? (response.output.message as Message)
         : undefined;
-    if (!assistantMessage) {
+    if (!assistantMessage)
       throw new Error('No assistant message received from Claude');
-    }
 
     messages.push(assistantMessage);
 
@@ -662,10 +762,7 @@ export async function generateMatchInsights(
           result: JSON.stringify(result),
         });
       }
-      messages.push({
-        role: 'user',
-        content: toolResults,
-      });
+      messages.push({ role: 'user', content: toolResults });
       continue;
     }
 
@@ -673,9 +770,7 @@ export async function generateMatchInsights(
     break;
   }
 
-  if (!finalMessage) {
-    finalMessage = messages[messages.length - 1];
-  }
+  if (!finalMessage) finalMessage = messages[messages.length - 1];
 
   const aiText = extractTextFromMessage(finalMessage);
   consola.info('[match-insights] AI response', finalMessage);
@@ -694,6 +789,16 @@ export async function generateMatchInsights(
       roleFocus: 'UNKNOWN',
       keyMoments: [],
       buildNotesV2: [],
+      buildPath: {
+        starting: [],
+        early: [],
+        boots: {
+          options: [{ id: 3047, reason: 'Default fallback', priority: 0.5 }],
+        },
+        core: [],
+        sellOrder: [],
+        rationale: '',
+      },
       macro: { objectives: [], rotations: [], vision: [] },
       drills: DEFAULT_DRILLS,
       confidence: 0,
