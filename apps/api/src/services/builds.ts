@@ -181,8 +181,9 @@ export async function getDDragonItemsData() {
   const ddragon = new DDragon();
   const itemsMapResponse = await ddragon.items();
   const itemsMap = itemsMapResponse.data as Record<string, Item>;
-  const ddragonCompletedItems = Object.keys(itemsMap)
-    .filter((itemId) => isCompletedItem(itemsMap[itemId]));
+  const ddragonCompletedItems = Object.keys(itemsMap).filter((itemId) =>
+    isCompletedItem(itemsMap[itemId]),
+  );
 
   return { itemsMap, ddragonCompletedItems };
 }
@@ -283,7 +284,7 @@ export function createItemsDataMapping(
   itemsMap: Record<string, Item>,
 ): Record<string, ItemData> {
   const itemsData: Record<string, ItemData> = {};
-  
+
   for (const id of allItemIds) {
     const item = itemsMap[id];
     if (item) {
@@ -314,7 +315,7 @@ export function collectAllItemIds(
   for (const id of Object.keys(subjectParticipant.finalBuild || {})) {
     allItemIds.add(id);
   }
-  
+
   const subjectItems = [
     subjectParticipant.item0,
     subjectParticipant.item1,
@@ -323,7 +324,7 @@ export function collectAllItemIds(
     subjectParticipant.item4,
     subjectParticipant.item5,
   ];
-  
+
   for (const id of subjectItems) {
     if (id && id !== 0) {
       allItemIds.add(String(id));
@@ -335,7 +336,7 @@ export function collectAllItemIds(
     for (const id of Object.keys(enemy.finalBuild || {})) {
       allItemIds.add(id);
     }
-    
+
     const enemyItems = [
       enemy.item0,
       enemy.item1,
@@ -344,7 +345,7 @@ export function collectAllItemIds(
       enemy.item4,
       enemy.item5,
     ];
-    
+
     for (const id of enemyItems) {
       if (id && id !== 0) {
         allItemIds.add(String(id));
@@ -468,7 +469,34 @@ export function createContextData(
 }
 
 export function generateSystemPrompt(): string {
-  return 'You are a League of Legends itemization expert.\n\nITEM METADATA UNDERSTANDING:\n- depth: Item tier (1=basic, 2=advanced, 3=legendary, 4=mythic)\n- tags: Item categories (e.g., "Boots", "Armor", "Damage", "Health")\n- from: Component items needed to build this item\n- into: Items this can be upgraded into\n- gold: Item cost information\n\nITEM CATEGORIZATION RULES:\n- Components: depth 1-2, have "into" field with upgrade paths\n- Completed Items: depth 3+, typically no "into" field\n- Boots: have "Boots" tag, only one pair allowed\n- Starter Items: low cost, early game items\n- Consumables: temporary effects (potions, wards)\n\nCRITICAL ITEM SUGGESTION RULES:\n- ONLY SUGGEST COMPLETED ITEMS: You may ONLY suggest items that are explicitly listed in the "Available Completed Items from Common Builds" section. NEVER suggest component items like Last Whisper, B.F. Sword, Pickaxe, Chain Vest, Bramble Vest, etc.\n- BOOTS REPLACEMENT RULE: When replacing an item with the "Boots" tag, you MUST replace it with another item that also has the "Boots" tag. NEVER replace boots with non-boots items. Similarly, NEVER replace non-boots items with boots items.\n- Suggest up to 3 changes.\n- PRIORITIZE EMPTY SLOTS: Add items to empty slots first.\n- STRICT REPLACEMENT POLICY: If no empty slots exist, you may ONLY replace items that are explicitly listed as "replaceable completed items" in the constraints section. NEVER replace component items, starter items, trinkets, or consumables.\n- Boots can only be replaced with other boots of same or higher tier.\n- USE COMMON BUILDS: Only suggest items that appear in the provided "Available Completed Items from Common Builds" list.\n- ITEM COMPATIBILITY: Respect item category compatibility and avoid mutually exclusive or redundant combinations.\n- OUTPUT FORMAT: Respond with ONLY a valid JSON object. Do NOT include any reasoning tags, comments, or explanations outside the JSON structure. The JSON must contain exactly two fields: suggestions[] and overallAnalysis (string).\n- JSON VALIDATION: Ensure your response is valid JSON that can be parsed directly. No extra text before or after the JSON object.';
+  return `You are a League of Legends itemization expert.
+  
+  ITEM METADATA UNDERSTANDING:
+  - depth: Item tier (1=basic, 2=advanced, 3=legendary, 4=mythic)
+  - tags: Item categories (e.g., "Boots", "Armor", "Damage", "Health")
+  - from: Component items needed to build this item
+  - into: Items this can be upgraded into
+  - gold: Item cost information
+  
+  ITEM CATEGORIZATION RULES:
+  - Components: depth 1-2, have "into" field with upgrade paths
+  - Completed Items: depth 3+, typically no "into" field
+  - Boots: have "Boots" tag, only one pair allowed
+  - Starter Items: low cost, early game items
+  - Consumables: temporary effects (potions, wards)
+  - Empowered Boots: boots with depth 3+
+  
+  CRITICAL ITEM SUGGESTION RULES:
+  - ONLY SUGGEST COMPLETED ITEMS: You may ONLY suggest items that are explicitly listed in the "Available Completed Items from Common Builds" section. NEVER suggest component items like Last Whisper, B.F. Sword, Pickaxe, Chain Vest, Bramble Vest, etc.
+  - BOOTS REPLACEMENT RULE: When replacing an item with the "Boots" tag, you MUST replace it with another item that also has the "Boots" tag. NEVER replace boots with non-boots items. Similarly, NEVER replace non-boots items with boots items.
+  - Suggest up to 3 changes.
+  - PRIORITIZE EMPTY SLOTS: Add items to empty slots first.
+  - STRICT REPLACEMENT POLICY: If no empty slots exist, you may ONLY replace items that are explicitly listed as "replaceable completed items" in the constraints section. NEVER replace component items, starter items, trinkets, or consumables.
+  - Boots can only be replaced with other boots of same tier (not lower or higher).
+  - USE COMMON BUILDS: Only suggest items that appear in the provided "Available Completed Items from Common Builds" list.
+  - ITEM COMPATIBILITY: Respect item category compatibility and avoid mutually exclusive or redundant combinations.
+  - OUTPUT FORMAT: Respond with ONLY a valid JSON object. Do NOT include any reasoning tags, comments, or explanations outside the JSON structure. The JSON must contain exactly two fields: suggestions[] and overallAnalysis (string).
+  - JSON VALIDATION: Ensure your response is valid JSON that can be parsed directly. No extra text before or after the JSON object.`;
 }
 
 export function generateUserPrompt(
@@ -477,7 +505,8 @@ export function generateUserPrompt(
   emptySlots: ItemSlotKey[],
   replaceableItems: ReplaceableItem[],
 ): string {
-  return `Context:\n- Champion: ${contextData.subject.championName} (${contextData.subject.teamPosition})\n- Current Build: ${contextData.subject.currentBuild.map((item) => item.name).join(', ')}\n- Current Item Slots: ${Object.entries(
+  return `Context:
+  - Champion: ${contextData.subject.championName} (${contextData.subject.teamPosition})\n- Current Build: ${contextData.subject.currentBuild.map((item) => item.name).join(', ')}\n- Current Item Slots: ${Object.entries(
     contextData.subject.itemSlots,
   )
     .map(
@@ -563,8 +592,7 @@ export async function getItemSuggestionsFromAI(
             consola.warn('Raw content:', content);
             itemSuggestions = {
               suggestions: [],
-              overallAnalysis:
-                'Failed to parse AI response. Please try again.',
+              overallAnalysis: 'Failed to parse AI response. Please try again.',
             };
           }
         } else {
@@ -627,9 +655,7 @@ export async function generateBuildSuggestions(
   );
 
   // Get empty slots and replaceable items
-  const emptySlots = getEmptySlots(
-    contextData.subject.itemSlots as ItemSlots,
-  );
+  const emptySlots = getEmptySlots(contextData.subject.itemSlots as ItemSlots);
   const replaceableItems = getReplaceableItems(
     contextData.subject.itemSlots as ItemSlots,
     itemsData,
