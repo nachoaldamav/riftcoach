@@ -19,15 +19,50 @@ export function zoneLabel(pos?: { x: number; y: number } | null): string {
   if (!pos) return 'unknown';
   const x = normCoordinate(pos.x);
   const y = normCoordinate(pos.y);
-  const distToDiag = Math.abs(x - (1 - y));
-  const nearRiver = distToDiag < 0.06;
-  const lane = y > 0.66 ? 'TOP' : y < 0.33 ? 'BOTTOM' : 'MIDDLE';
-  const nearLane =
-    (lane === 'TOP' && x < 0.6) ||
-    (lane === 'BOTTOM' && x > 0.4) ||
-    lane === 'MIDDLE';
-  if (nearRiver) return `${lane}_RIVER`;
-  return nearLane ? `${lane}_LANE` : `${lane}_JUNGLE`;
+
+  const dist = (cx: number, cy: number) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return Math.hypot(dx, dy);
+  };
+
+  const BLUE_NEXUS = { x: 0.08, y: 0.08 };
+  const RED_NEXUS = { x: 0.92, y: 0.92 };
+  const NEXUS_RADIUS = 0.11;
+  const BASE_RADIUS = 0.17;
+
+  if (dist(BLUE_NEXUS.x, BLUE_NEXUS.y) <= NEXUS_RADIUS) return 'BLUE_NEXUS';
+  if (dist(RED_NEXUS.x, RED_NEXUS.y) <= NEXUS_RADIUS) return 'RED_NEXUS';
+  if (dist(BLUE_NEXUS.x, BLUE_NEXUS.y) <= BASE_RADIUS) return 'BLUE_BASE';
+  if (dist(RED_NEXUS.x, RED_NEXUS.y) <= BASE_RADIUS) return 'RED_BASE';
+
+  const BARON_PIT = { x: 0.32, y: 0.73 };
+  const DRAGON_PIT = { x: 0.68, y: 0.27 };
+  const PIT_RADIUS = 0.05;
+
+  if (dist(BARON_PIT.x, BARON_PIT.y) <= PIT_RADIUS) return 'BARON_PIT';
+  if (dist(DRAGON_PIT.x, DRAGON_PIT.y) <= PIT_RADIUS) return 'DRAGON_PIT';
+
+  const rotAcross = (y - x) / Math.SQRT2;
+  const rotAlong = (x + y - 1) / Math.SQRT2;
+  const distToRiver = Math.abs(rotAlong) * Math.SQRT2;
+
+  if (distToRiver <= 0.045) {
+    if (rotAcross > 0.14) return 'TOP_RIVER';
+    if (rotAcross < -0.14) return 'BOTTOM_RIVER';
+    return 'MIDDLE_RIVER';
+  }
+
+  const absAcross = Math.abs(rotAcross);
+  const MID_LANE_BAND = 0.1;
+  const LANE_BAND = 0.33;
+  const MID_JUNGLE_BAND = 0.2;
+
+  if (absAcross <= MID_LANE_BAND) return 'MIDDLE_LANE';
+  if (rotAcross >= LANE_BAND) return 'TOP_LANE';
+  if (rotAcross <= -LANE_BAND) return 'BOTTOM_LANE';
+  if (absAcross <= MID_JUNGLE_BAND) return 'MIDDLE_JUNGLE';
+  return rotAcross > 0 ? 'TOP_JUNGLE' : 'BOTTOM_JUNGLE';
 }
 
 export function isEnemyHalf(
