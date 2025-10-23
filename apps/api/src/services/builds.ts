@@ -541,6 +541,7 @@ export async function getItemSuggestionsFromAI(
   }>;
   overallAnalysis: string;
 } | null> {
+  consola.debug('System prompt:', systemPrompt);
   consola.debug('User prompt:', userPrompt);
 
   let itemSuggestions = null;
