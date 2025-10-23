@@ -33,6 +33,22 @@ export interface Macro {
   vision: string[];
 }
 
+// Build suggestions interfaces from API
+export interface ItemSuggestion {
+  action: string;
+  targetSlot?: string;
+  suggestedItemId?: string;
+  suggestedItemName?: string;
+  replaceItemId?: string;
+  replaceItemName?: string;
+  reasoning: string;
+}
+
+export interface MatchBuildSuggestionsResponse {
+  suggestions: ItemSuggestion[];
+  overallAnalysis: string;
+}
+
 // Query options for match data
 export const getMatchDataQueryOptions = (
   region: string,
@@ -90,6 +106,25 @@ export const getMatchInsightsQueryOptions = (
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
+// Query options for build suggestions (requires authenticated API)
+export const getMatchBuildSuggestionsQueryOptions = (
+  region: string,
+  name: string,
+  tag: string,
+  matchId: string,
+) =>
+  queryOptions({
+    queryKey: ['match-builds', region, name, tag, matchId],
+    queryFn: () =>
+      http
+        .get<MatchBuildSuggestionsResponse>(
+          `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/match/${matchId}/builds`,
+          { timeout: 120_000 },
+        )
+        .then((res) => res.data),
+    staleTime: 1000 * 60 * 10,
+  });
+
 // Combined query options for all match data
 export const getAllMatchDataQueryOptions = (
   region: string,
@@ -100,4 +135,5 @@ export const getAllMatchDataQueryOptions = (
   match: getMatchDataQueryOptions(region, name, tag, matchId),
   timeline: getTimelineDataQueryOptions(region, name, tag, matchId),
   insights: getMatchInsightsQueryOptions(region, name, tag, matchId),
+  builds: getMatchBuildSuggestionsQueryOptions(region, name, tag, matchId),
 });

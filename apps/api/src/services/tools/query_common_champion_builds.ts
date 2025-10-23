@@ -19,6 +19,7 @@ type ItemMetadata = {
   into?: string[];
   from?: string[];
   depth?: number;
+  group?: string; // DDragon unique group
 };
 
 type ItemMetadataMap = Record<number, ItemMetadata>;
@@ -165,7 +166,11 @@ function summarizeBuilds(
   }
 
   return [...counts.values()]
-    .sort((a, b) => b.count - a.count)
+    .sort((a, b) => {
+      const lenDiff = b.items.length - a.items.length;
+      if (lenDiff !== 0) return lenDiff;
+      return b.count - a.count;
+    })
     .slice(0, limit)
     .map((entry) => ({
       completedItemIds: entry.items,
@@ -227,7 +232,7 @@ export const queryCommonChampionBuildsTool: ToolSpec = {
     const limit =
       typeof rawLimit === 'number' && Number.isFinite(rawLimit)
         ? Math.max(1, Math.min(10, Math.trunc(rawLimit)))
-        : 5;
+        : 10;
 
     const entries = await runAggregation(championName, role, limit);
     const ctxItems = runtimeCtx.ctx.items as { patch?: string } | undefined;

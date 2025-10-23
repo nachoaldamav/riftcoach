@@ -559,18 +559,10 @@ app.get(
     const { limit } = c.req.query();
     const matchLimit = limit ? Number(limit) : 10;
 
-    const cacheKey = `cache:recent-matches:${c.var.internalId}:${matchLimit}`;
-
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      return c.json(JSON.parse(cached));
-    }
-
     const matches = await collections.matches
       .aggregate(recentMatches(puuid, matchLimit))
       .toArray();
 
-    await redis.set(cacheKey, JSON.stringify(matches), 'EX', ms('10m'));
     return c.json(matches);
   },
 );
@@ -914,6 +906,17 @@ app.get(
     const { matchId } = c.req.param();
     const puuid = c.var.account.puuid;
 
+    const cacheKey = `cache:match-builds:${matchId}:${puuid}:v2`;
+
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return c.json(JSON.parse(cached) as MatchBuilds);
+      }
+    } catch (err) {
+      consola.warn('[match-builds-route] redis get failed', err);
+    }
+
     // Get match builds data
     const match = (await collections.matches
       .aggregate(
@@ -939,6 +942,18 @@ app.get(
       match,
       subjectParticipant,
     );
+
+    // Cache the result
+    try {
+      await redis.set(
+        cacheKey,
+        JSON.stringify(itemSuggestions),
+        'EX',
+        ms('365d'),
+      );
+    } catch (err) {
+      consola.warn('[match-builds-route] redis set failed', err);
+    }
 
     return c.json(itemSuggestions);
   },

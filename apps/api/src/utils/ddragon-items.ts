@@ -11,6 +11,8 @@ export type DDragonItem = {
   stats?: Record<string, number>;
   effect?: Record<string, string>;
   depth?: number;
+  // Added unique group metadata from DDragon (e.g., "LastWhisper")
+  group?: string;
 };
 
 export type ItemMap = Record<number, DDragonItem>;
@@ -81,8 +83,8 @@ export function resolveItemNames(ids: Array<number | null | undefined>, items: I
 export function pickItemMeta(
   ids: Array<number | null | undefined>,
   items: ItemMap,
-): Record<number, { name: string; plaintext?: string; tags?: string[]; goldTotal?: number; goldBase?: number }> {
-  const out: Record<number, { name: string; plaintext?: string; tags?: string[]; goldTotal?: number; goldBase?: number }> = {};
+): Record<number, { name: string; plaintext?: string; tags?: string[]; goldTotal?: number; goldBase?: number; group?: string }> {
+  const out: Record<number, { name: string; plaintext?: string; tags?: string[]; goldTotal?: number; goldBase?: number; group?: string }> = {};
   for (const id of ids) {
     if (typeof id !== 'number' || !Number.isFinite(id)) continue;
     const it = items[id];
@@ -93,6 +95,7 @@ export function pickItemMeta(
         tags: it.tags || [],
         goldTotal: it.gold?.total,
         goldBase: it.gold?.base,
+        group: it.group,
       };
     }
   }

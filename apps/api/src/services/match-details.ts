@@ -64,6 +64,7 @@ async function enrichMatchWithItems(
         depth: item.depth || null,
         from: item.from || [],
         into: item.into || [],
+        group: item.group || null,
       };
     }
   }

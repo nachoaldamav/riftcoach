@@ -1,10 +1,14 @@
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import { getAllMatchDataQueryOptions } from '@/queries/get-match-insights';
-import { Avatar, Card, CardBody, Chip, cn } from '@heroui/react';
+import {
+  type ItemSuggestion,
+  type MatchBuildSuggestionsResponse,
+  getAllMatchDataQueryOptions,
+} from '@/queries/get-match-insights';
+import { Avatar, Card, CardBody, Chip, Tooltip, cn } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
-import { Clock, Map as MapIcon, Target, Zap } from 'lucide-react';
+import { ChevronRight, Clock, Map as MapIcon, Target, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 
@@ -166,6 +170,9 @@ function MatchAnalysisComponent() {
   );
   const { data: insightsData, isLoading: isInsightsLoading } = useQuery(
     queryOptions.insights,
+  );
+  const { data: buildsData, isLoading: isBuildsLoading } = useQuery(
+    queryOptions.builds,
   );
 
   // Summoner Spells mapping (id -> spell key, e.g., 4 -> 'SummonerFlash')
@@ -469,7 +476,119 @@ function MatchAnalysisComponent() {
     return { width: `${w * 2}%`, height: `${h * 2}%` }; // diameter
   };
 
-  if (isLoading) {
+  // Subject participant and slot suggestions mapping
+  const subjectParticipant = useMemo(() => {
+    if (!matchData) return null;
+    const nameLc = name.toLowerCase();
+    const tagLc = tag.toLowerCase();
+
+    interface MaybeRiotId {
+      riotIdGameName?: string;
+      riotIdTagline?: string;
+    }
+
+    const byRiotId = matchData.info.participants.find((p) => {
+      const rp = p as MaybeRiotId;
+      return (
+        typeof rp.riotIdGameName === 'string' &&
+        typeof rp.riotIdTagline === 'string' &&
+        rp.riotIdGameName.toLowerCase() === nameLc &&
+        rp.riotIdTagline.toLowerCase() === tagLc
+      );
+    });
+    if (byRiotId) return byRiotId;
+
+    const bySummoner = matchData.info.participants.find(
+      (p) =>
+        typeof p.summonerName === 'string' &&
+        p.summonerName.toLowerCase() === nameLc,
+    );
+    return bySummoner ?? null;
+  }, [matchData, name, tag]);
+
+  const originalBuild = useMemo(() => {
+    if (!subjectParticipant) return [] as number[];
+    return [
+      subjectParticipant.item0 || 0,
+      subjectParticipant.item1 || 0,
+      subjectParticipant.item2 || 0,
+      subjectParticipant.item3 || 0,
+      subjectParticipant.item4 || 0,
+      subjectParticipant.item5 || 0,
+    ];
+  }, [subjectParticipant]);
+
+  const slotKeys = [
+    'item0',
+    'item1',
+    'item2',
+    'item3',
+    'item4',
+    'item5',
+  ] as const;
+
+  const slotColumns = useMemo(() => {
+    const baseItems = subjectParticipant
+      ? [
+          subjectParticipant.item0 || 0,
+          subjectParticipant.item1 || 0,
+          subjectParticipant.item2 || 0,
+          subjectParticipant.item3 || 0,
+          subjectParticipant.item4 || 0,
+          subjectParticipant.item5 || 0,
+        ]
+      : [0, 0, 0, 0, 0, 0];
+
+    const suggestions: ItemSuggestion[] = buildsData?.suggestions ?? [];
+
+    return slotKeys.map((slotKey, idx) => {
+      let baseId = baseItems[idx] || 0;
+
+      // Gather suggestions relevant to this slot
+      const slotSugs = suggestions.filter((s: ItemSuggestion) => {
+        if (s.action === 'add_to_slot' && s.targetSlot === slotKey) return true;
+        if (s.action === 'replace_item') {
+          const repStr = s.replaceItemId;
+          const repNum = repStr ? Number(repStr) : Number.NaN;
+          return Number.isFinite(repNum) && repNum === baseId;
+        }
+        return false;
+      });
+
+      // If we have an add_to_slot suggestion, treat it as overriding the base item
+      const addOverrides = slotSugs.filter(
+        (s: ItemSuggestion) => s.action === 'add_to_slot' && s.targetSlot === slotKey,
+      );
+      let overridden = false;
+      if (addOverrides.length > 0) {
+        const chosen = addOverrides[0];
+        const sugStr = chosen.suggestedItemId;
+        const sugNum = sugStr ? Number(sugStr) : 0;
+        baseId = Number.isFinite(sugNum) ? sugNum : 0;
+        overridden = true;
+      }
+
+      // Map remaining suggestions (exclude add_to_slot used as base override)
+      const mapped = slotSugs
+        .filter(
+          (s: ItemSuggestion) => !(s.action === 'add_to_slot' && s.targetSlot === slotKey),
+        )
+        .map((s: ItemSuggestion) => {
+          const sugStr = s.suggestedItemId;
+          const sugNum = sugStr ? Number(sugStr) : 0;
+          return {
+            id: Number.isFinite(sugNum) ? sugNum : 0,
+            name: s.suggestedItemName as string | undefined,
+            action: s.action as string,
+            reasoning: s.reasoning as string,
+          };
+        });
+
+      return { slotKey, baseId, suggestions: mapped, overridden };
+    });
+  }, [subjectParticipant, buildsData, slotKeys]);
+
+  if (isLoading || isBuildsLoading) {
     return (
       <div className="max-w-7xl mx-auto">
         <div className="animate-pulse space-y-6">
@@ -617,6 +736,97 @@ function MatchAnalysisComponent() {
                 </div>
               ))}
             </div>
+          </CardBody>
+        </Card>
+      </motion.div>
+
+      {/* Build Suggestions */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+      >
+        <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+          <CardBody className="p-6">
+            <div className="flex items-center gap-1 mb-4 flex-row">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                data-name="Your Icon"
+                viewBox="0 0 100 125"
+                x="0px"
+                y="0px"
+                className="size-8 text-white"
+                color="currentColor"
+                fill="currentColor"
+                stroke="transparent"
+              >
+                <title>Item Suggestions</title>
+                <path d="m90.64,59.09l-16.25-7.09c-3.93-1.71-7.06-4.85-8.77-8.77l-7.09-16.25c-.55-1.26-2.34-1.26-2.89,0l-7.09,16.25c-1.71,3.93-4.85,7.06-8.77,8.77l-16.27,7.1c-1.26.55-1.26,2.33,0,2.88l16.55,7.32c3.92,1.73,7.04,4.88,8.73,8.82l6.86,15.94c.54,1.27,2.34,1.27,2.89,0l7.08-16.22c1.71-3.93,4.85-7.06,8.77-8.77l16.25-7.09c1.26-.55,1.26-2.34,0-2.89Z" />
+                <path d="m25.28,48.51l3.32-7.61c.8-1.84,2.27-3.31,4.11-4.11l7.62-3.32c.59-.26.59-1.1,0-1.35l-7.62-3.32c-1.84-.8-3.31-2.27-4.11-4.11l-3.32-7.62c-.26-.59-1.1-.59-1.35,0l-3.32,7.62c-.8,1.84-2.27,3.31-4.11,4.11l-7.63,3.33c-.59.26-.59,1.09,0,1.35l7.76,3.43c1.84.81,3.3,2.29,4.09,4.13l3.22,7.47c.26.59,1.1.6,1.35,0Z" />
+                <path d="m39.89,13.95l4.12,1.82c.98.43,1.75,1.22,2.17,2.19l1.71,3.97c.14.32.58.32.72,0l1.76-4.04c.43-.98,1.21-1.76,2.18-2.18l4.04-1.76c.31-.14.31-.58,0-.72l-4.04-1.76c-.98-.43-1.76-1.21-2.18-2.18l-1.76-4.04c-.14-.31-.58-.31-.72,0l-1.76,4.04c-.43.98-1.21,1.76-2.18,2.18l-4.05,1.77c-.31.14-.31.58,0,.72Z" />
+              </svg>
+              <Tooltip content="AI generated item suggestions" showArrow>
+                <h2 className="text-2xl font-bold text-neutral-50 decoration-dotted underline">
+                  Item Suggestions
+                </h2>
+              </Tooltip>
+            </div>
+
+            {/* 6 columns: built item + suggestions */}
+            <div className="flex items-center gap-5 overflow-x-auto py-2">
+              {slotColumns.map((col, idx) => (
+                <>
+                  <div
+                    key={`col-${col.slotKey}`}
+                    className="flex flex-col items-start gap-3"
+                  >
+                    {/* Base item */}
+                    <div className="flex flex-col items-center">
+                      {col.baseId > 0 ? (
+                        <img
+                          src={getItemIcon(col.baseId)}
+                          alt={`Base ${col.slotKey}`}
+                          title={col.overridden ? 'AI override: component added to slot' : undefined}
+                          className={cn(
+                            'size-12 rounded-lg bg-neutral-900 border object-cover',
+                            col.overridden
+                              ? 'border-accent-yellow-500/70 ring-2 ring-accent-yellow-400'
+                              : 'border-neutral-700/70',
+                          )}
+                        />
+                      ) : (
+                        <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
+                      )}
+                    </div>
+
+                    {/* Suggestions stack */}
+                    <div className="flex flex-col gap-2">
+                      {col.suggestions.length > 0
+                        ? col.suggestions.map((sug, sidx) => (
+                            <img
+                              key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
+                              src={getItemIcon(sug.id)}
+                              alt={sug.name || 'Suggestion'}
+                              title={sug.reasoning}
+                              className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                            />
+                          ))
+                        : null}
+                    </div>
+                  </div>
+                  {idx < slotColumns.length - 1 && (
+                    <ChevronRight className="w-4 h-4 text-neutral-500" />
+                  )}
+                </>
+              ))}
+            </div>
+
+            {/* Overall analysis */}
+            {buildsData?.overallAnalysis && (
+              <p className="mt-4 text-sm text-neutral-300 leading-relaxed">
+                {buildsData.overallAnalysis}
+              </p>
+            )}
           </CardBody>
         </Card>
       </motion.div>
