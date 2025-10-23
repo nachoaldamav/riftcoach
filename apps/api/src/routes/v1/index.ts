@@ -1,4 +1,6 @@
+import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import {
+  DDragon,
   PlatformId,
   type RiotAPITypes,
   regionToCluster,
@@ -6,6 +8,7 @@ import {
 import { collections } from '@riftcoach/clients.mongodb';
 import { type Platform, type Region, riot } from '@riftcoach/clients.riot';
 import { queues } from '@riftcoach/queues';
+import type { Item } from '@riftcoach/shared.lol-types';
 import chalk from 'chalk';
 import consola from 'consola';
 import { Hono } from 'hono';
@@ -17,12 +20,15 @@ import z from 'zod';
 import { championInsights } from '../../aggregations/championInsights.js';
 import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
+import { getMatchBuilds } from '../../aggregations/matchBuilds.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
 import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
+import { bedrockClient } from '../../clients/bedrock.js';
 import { redis } from '../../clients/redis.js';
+import { generateBuildSuggestions } from '../../services/builds.js';
 import { generateChampionInsights } from '../../services/champion-insights.js';
 import { matchDetailsNode } from '../../services/match-details.js';
 import { generateMatchInsights } from '../../services/match-insights.js';
@@ -846,6 +852,93 @@ app.get(
       await redis.set(cacheKey, JSON.stringify(insights), 'EX', ms('12h'));
       return c.json(insights);
     }
+  },
+);
+
+// ---------- Types you already had ----------
+interface Player {
+  isActive: boolean;
+  championName: string;
+  role: string;
+  puuid: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  goldEarned: number;
+  totalDamageDealt: number;
+  win: boolean;
+  item0: number;
+  item1: number;
+  item2: number;
+  item3: number;
+  item4: number;
+  item5: number;
+  damageTypes: {
+    physicalPercent: number;
+    magicPercent: number;
+    truePercent: number;
+  };
+  damageTakenTypes: {
+    physicalPercent: number;
+    magicPercent: number;
+    truePercent: number;
+  };
+  finalBuild: Record<string, number | undefined>;
+  stats: {
+    timeCCingOthers: number;
+    totalHeal: number;
+    totalDamageDealtToChampions: number;
+    trueDamageDealtToChampions: number;
+    physicalDamageDealtToChampions: number;
+    magicDamageDealtToChampions: number;
+    totalDamageTaken: number;
+    physicalDamageTaken: number;
+    magicDamageTaken: number;
+    trueDamageTaken: number;
+    damageSelfMitigated: number;
+  };
+}
+
+type MatchBuilds = {
+  gameVersion: string;
+  gameMode: string;
+  gameDuration: number;
+  gameCreation: number;
+  allies: Player[];
+  enemies: Player[];
+};
+
+app.get(
+  '/:region/:tagName/:tagLine/match/:matchId/builds',
+  accountMiddleware,
+  async (c) => {
+    const { matchId } = c.req.param();
+    const puuid = c.var.account.puuid;
+
+    // Get match builds data
+    const match = (await collections.matches
+      .aggregate(
+        getMatchBuilds({
+          matchId,
+          puuid,
+        }),
+      )
+      .next()) as MatchBuilds | null;
+
+    if (!match) {
+      throw new HTTPException(404, { message: 'Match not found' });
+    }
+
+    // Find subject participant
+    const subjectParticipant = match.allies.find((p) => p.puuid === puuid);
+    if (!subjectParticipant) {
+      throw new HTTPException(404, { message: 'Player not found in match' });
+    }
+
+    // Use the builds service to generate suggestions
+    const itemSuggestions = await generateBuildSuggestions(match, subjectParticipant);
+
+    return c.json(itemSuggestions);
   },
 );
 

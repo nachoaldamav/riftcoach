@@ -264,9 +264,9 @@ export async function generateMatchInsights(
       for (const toolUse of toolUses) {
         const start = Date.now();
         const result = await executeToolUse(toolUse, runtimeCtx);
-        const content: ToolResultContentBlock[] =
+        const content =
           result.status === 'success'
-            ? [{ json: result.payload as Record<string, unknown> }]
+            ? [{ text: JSON.stringify(result.payload) }]
             : [{ text: String(result.payload) }];
         toolResults.push({
           toolResult: {
