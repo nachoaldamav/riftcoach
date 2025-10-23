@@ -1,7 +1,8 @@
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import { Card, CardBody, Chip, Tooltip } from '@heroui/react';
+import { Button, Card, CardBody, Chip, Tooltip } from '@heroui/react';
+import { useLocation, useNavigate, useParams } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
-import { Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 
 interface SummonerSummary {
   id: string;
@@ -36,6 +37,9 @@ export function ProfileHeader({
   isIdle,
   isBadgesFetching,
 }: ProfileHeaderProps) {
+  const { region } = useParams({
+    from: '/$region/$name/$tag',
+  });
   const { getProfileIconUrl } = useDataDragon();
 
   return (
@@ -45,7 +49,7 @@ export function ProfileHeader({
       transition={{ duration: 0.6 }}
       className="mb-8"
     >
-      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg">
+      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative">
         <CardBody className="p-6">
           <div className="flex items-center gap-6">
             {/* Profile Icon */}

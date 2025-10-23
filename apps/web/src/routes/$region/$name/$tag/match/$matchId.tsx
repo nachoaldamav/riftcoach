@@ -471,14 +471,12 @@ function MatchAnalysisComponent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 p-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="animate-pulse space-y-6">
-            <div className="h-8 bg-neutral-800 rounded w-1/3" />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="h-96 bg-neutral-800 rounded-xl" />
-              <div className="h-96 bg-neutral-800 rounded-xl" />
-            </div>
+      <div className="max-w-7xl mx-auto">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 bg-neutral-800 rounded w-1/3" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="h-96 bg-neutral-800 rounded-xl" />
+            <div className="h-96 bg-neutral-800 rounded-xl" />
           </div>
         </div>
       </div>
@@ -487,335 +485,329 @@ function MatchAnalysisComponent() {
 
   if (!matchData || !timelineData || !insightsData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 p-6">
-        <div className="max-w-7xl mx-auto">
-          <Card className="bg-red-900/20 border-red-500/30">
-            <CardBody className="p-8 text-center">
-              <Target className="w-12 h-12 mx-auto mb-4 text-red-400" />
-              <h2 className="text-xl font-bold text-red-400 mb-2">
-                Match Not Found
-              </h2>
-              <p className="text-neutral-400">
-                Unable to load match data. The match may not exist or there was
-                an error fetching the data.
-              </p>
-            </CardBody>
-          </Card>
-        </div>
+      <div className="max-w-7xl mx-auto">
+        <Card className="bg-red-900/20 border-red-500/30">
+          <CardBody className="p-8 text-center">
+            <Target className="w-12 h-12 mx-auto mb-4 text-red-400" />
+            <h2 className="text-xl font-bold text-red-400 mb-2">
+              Match Not Found
+            </h2>
+            <p className="text-neutral-400">
+              Unable to load match data. The match may not exist or there was an
+              error fetching the data.
+            </p>
+          </CardBody>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 p-6">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-4"
-        >
-          <h1 className="text-3xl font-bold text-neutral-50">Match Analysis</h1>
-          <Chip color="primary" variant="flat">
-            {matchData.info.gameMode}
-          </Chip>
-        </motion.div>
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center gap-4"
+      >
+        <h1 className="text-3xl font-bold text-neutral-50">Match Analysis</h1>
+        <Chip color="primary" variant="flat">
+          {matchData.info.gameMode}
+        </Chip>
+      </motion.div>
 
-        {/* Match Results (Scoreboard) */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
-            <CardBody className="p-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-neutral-50 flex items-center gap-3">
-                  <Target className="w-6 h-6 text-accent-blue-400" />
-                  Match Results
-                </h2>
-                <div className="flex items-center gap-2 text-sm text-neutral-400">
-                  <Clock className="w-4 h-4" />
-                  {Math.floor(matchData.info.gameDuration / 60)}m{' '}
-                  {matchData.info.gameDuration % 60}s
-                </div>
+      {/* Match Results (Scoreboard) */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+          <CardBody className="p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-neutral-50 flex items-center gap-3">
+                <Target className="w-6 h-6 text-accent-blue-400" />
+                Match Results
+              </h2>
+              <div className="flex items-center gap-2 text-sm text-neutral-400">
+                <Clock className="w-4 h-4" />
+                {Math.floor(matchData.info.gameDuration / 60)}m{' '}
+                {matchData.info.gameDuration % 60}s
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {matchData.info.teams.map((team: any) => (
-                  <div key={team.teamId} className="space-y-4">
-                    <div
-                      className={`text-center p-4 rounded-lg ${team.win ? 'bg-accent-emerald-900/30 border border-accent-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {matchData.info.teams.map((team) => (
+                <div key={team.teamId} className="space-y-4">
+                  <div
+                    className={`text-center p-4 rounded-lg ${team.win ? 'bg-accent-emerald-900/30 border border-accent-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}
+                  >
+                    <h3
+                      className={`text-lg font-bold ${team.win ? 'text-accent-emerald-400' : 'text-red-400'}`}
                     >
-                      <h3
-                        className={`text-lg font-bold ${team.win ? 'text-accent-emerald-400' : 'text-red-400'}`}
-                      >
-                        {team.win ? 'Victory' : 'Defeat'}
-                      </h3>
-                    </div>
+                      {team.win ? 'Victory' : 'Defeat'}
+                    </h3>
+                  </div>
 
-                    <div className="space-y-2">
-                      {matchData.info.participants
-                        .filter((p: any) => p.teamId === team.teamId)
-                        .map((p: any) => (
-                          <div
-                            key={`row-${p.puuid}`}
-                            className="flex items-center gap-3 p-3 bg-neutral-800/50 rounded-lg border border-neutral-700/40"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Avatar
-                                src={getChampionSquare(p.championName)}
-                                alt={p.championName}
-                                className="w-10 h-10"
+                  <div className="space-y-2">
+                    {matchData.info.participants
+                      .filter((p) => p.teamId === team.teamId)
+                      .map((p) => (
+                        <div
+                          key={`row-${p.puuid}`}
+                          className="flex items-center gap-3 p-3 bg-neutral-800/50 rounded-lg border border-neutral-700/40"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Avatar
+                              src={getChampionSquare(p.championName)}
+                              alt={p.championName}
+                              className="w-10 h-10"
+                            />
+                            <div className="flex flex-col gap-1">
+                              <img
+                                src={getSpellIcon(p.summoner1Id)}
+                                alt="S1"
+                                className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
                               />
-                              <div className="flex flex-col gap-1">
-                                <img
-                                  src={getSpellIcon(p.summoner1Id)}
-                                  alt="S1"
-                                  className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
-                                />
-                                <img
-                                  src={getSpellIcon(p.summoner2Id)}
-                                  alt="S2"
-                                  className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-neutral-200 truncate">
-                                {p.summonerName}
-                              </div>
-                              <div className="text-sm text-neutral-400">
-                                {p.kills}/{p.deaths}/{p.assists}
-                              </div>
-
-                              {/* Items */}
-                              <div className="flex items-center gap-1 mt-1">
-                                {[
-                                  p.item0,
-                                  p.item1,
-                                  p.item2,
-                                  p.item3,
-                                  p.item4,
-                                  p.item5,
-                                ].map((it: number | undefined, idx: number) => (
-                                  <img
-                                    key={`it-${p.puuid}-${idx}-${it}`}
-                                    src={getItemIcon(it)}
-                                    alt="item"
-                                    className={`w-5 h-5 rounded bg-neutral-900 border ${it ? 'border-neutral-700' : 'border-neutral-700/40 opacity-30'} object-cover`}
-                                  />
-                                ))}
-                                {/* Trinket */}
-                                <img
-                                  key={`it-${p.puuid}-trinket-${p.item6}`}
-                                  src={getItemIcon(p.item6)}
-                                  alt="trinket"
-                                  className="w-5 h-5 rounded bg-neutral-900 border border-amber-500/50 object-cover"
-                                />
-                              </div>
+                              <img
+                                src={getSpellIcon(p.summoner2Id)}
+                                alt="S2"
+                                className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
+                              />
                             </div>
                           </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardBody>
-          </Card>
-        </motion.div>
 
-        {/* Key Moments with Map */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
-            <CardBody className="p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <Zap className="w-6 h-6 text-accent-yellow-400" />
-                <h2 className="text-2xl font-bold text-neutral-50">
-                  Key Moments
-                </h2>
-              </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-neutral-200 truncate">
+                              {p.summonerName}
+                            </div>
+                            <div className="text-sm text-neutral-400">
+                              {p.kills}/{p.deaths}/{p.assists}
+                            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                {/* Map */}
-                <div className="md:col-span-3">
-                  <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
-                    {/* Transform layer: scales and pans the map and markers to center AOI */}
-                    <div
-                      className="absolute inset-0"
-                      style={getMapTransformStyle(1.75)}
-                    >
-                      <img
-                        src="/map.svg"
-                        alt="Summoner's Rift Map"
-                        className="absolute inset-0 w-full h-full opacity-70 contrast-90 filter brightness-75"
-                      />
-
-                      {/* Interpolated player markers at selected moment */}
-                      {eventSnapshot?.entries.map((pp) => (
-                        <div
-                          key={`pp-${pp.participantId}`}
-                          className="absolute"
-                          style={coordToStyle(pp.x, pp.y)}
-                        >
-                          {/* Uncertainty halo */}
-                          <div
-                            className="absolute rounded-full border border-white/10 bg-white/5"
-                            style={{
-                              ...radiusToStyle(pp.radius),
-                              left: '50%',
-                              top: '50%',
-                              transform: 'translate(-50%, -50%)',
-                              opacity: Math.max(
-                                0.25,
-                                Math.min(0.85, 1 - pp.confidence + 0.35),
-                              ),
-                              filter: 'blur(2px)',
-                            }}
-                          />
-                          {/* Avatar marker */}
-                          <Avatar
-                            src={getChampionSquare(pp.championName)}
-                            alt={pp.summonerName}
-                            className={cn(
-                              'w-6 h-6 ring-2',
-                              pp.teamId === 100
-                                ? 'ring-blue-400'
-                                : 'ring-red-400',
-                              'shadow-md z-20',
-                              !pp.isActor ? 'opacity-50' : '',
-                            )}
-                          />
+                            {/* Items */}
+                            <div className="flex items-center gap-1 mt-1">
+                              {[
+                                p.item0,
+                                p.item1,
+                                p.item2,
+                                p.item3,
+                                p.item4,
+                                p.item5,
+                              ].map((it: number | undefined, idx: number) => (
+                                <img
+                                  key={`it-${p.puuid}-${idx}-${it}`}
+                                  src={getItemIcon(it)}
+                                  alt="item"
+                                  className={`w-5 h-5 rounded bg-neutral-900 border ${it ? 'border-neutral-700' : 'border-neutral-700/40 opacity-30'} object-cover`}
+                                />
+                              ))}
+                              {/* Trinket */}
+                              <img
+                                key={`it-${p.puuid}-trinket-${p.item6}`}
+                                src={getItemIcon(p.item6)}
+                                alt="trinket"
+                                className="w-5 h-5 rounded bg-neutral-900 border border-amber-500/50 object-cover"
+                              />
+                            </div>
+                          </div>
                         </div>
                       ))}
-                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+      </motion.div>
 
-                    {/* Corner controls (outside of transform so UI doesn't scale) */}
-                    <div className="absolute top-4 right-4 flex items-center gap-2">
-                      <div className="px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
-                        <MapIcon className="w-3 h-3" />
-                        {eventSnapshot
-                          ? `t ${formatClock(eventSnapshot.ts)}`
-                          : '—'}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setAoiZoomEnabled((v) => !v)}
-                        className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
-                        title="Toggle Area-of-Interest zoom"
+      {/* Key Moments with Map */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+      >
+        <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+          <CardBody className="p-8">
+            <div className="flex items-center gap-3 mb-6">
+              <Zap className="w-6 h-6 text-accent-yellow-400" />
+              <h2 className="text-2xl font-bold text-neutral-50">
+                Key Moments
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+              {/* Map */}
+              <div className="md:col-span-3">
+                <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
+                  {/* Transform layer: scales and pans the map and markers to center AOI */}
+                  <div
+                    className="absolute inset-0"
+                    style={getMapTransformStyle(1.75)}
+                  >
+                    <img
+                      src="/map.svg"
+                      alt="Summoner's Rift Map"
+                      className="absolute inset-0 w-full h-full opacity-70 contrast-90 filter brightness-75"
+                    />
+
+                    {/* Interpolated player markers at selected moment */}
+                    {eventSnapshot?.entries.map((pp) => (
+                      <div
+                        key={`pp-${pp.participantId}`}
+                        className="absolute"
+                        style={coordToStyle(pp.x, pp.y)}
                       >
-                        {aoiZoomEnabled ? 'Zoom Out' : 'Zoom In'}
-                      </button>
-                    </div>
+                        {/* Uncertainty halo */}
+                        <div
+                          className="absolute rounded-full border border-white/10 bg-white/5"
+                          style={{
+                            ...radiusToStyle(pp.radius),
+                            left: '50%',
+                            top: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            opacity: Math.max(
+                              0.25,
+                              Math.min(0.85, 1 - pp.confidence + 0.35),
+                            ),
+                            filter: 'blur(2px)',
+                          }}
+                        />
+                        {/* Avatar marker */}
+                        <Avatar
+                          src={getChampionSquare(pp.championName)}
+                          alt={pp.summonerName}
+                          className={cn(
+                            'w-6 h-6 ring-2',
+                            pp.teamId === 100
+                              ? 'ring-blue-400'
+                              : 'ring-red-400',
+                            'shadow-md z-20',
+                            !pp.isActor ? 'opacity-50' : '',
+                          )}
+                        />
+                      </div>
+                    ))}
                   </div>
 
-                  {/* Selected moment details */}
-                  {selectedMoment && (
-                    <div className="mt-4 p-4 bg-neutral-800/60 rounded-lg border border-neutral-700/50">
-                      <div className="flex items-center justify-between mb-1">
-                        <h3 className="font-semibold text-neutral-100 truncate">
-                          {selectedMoment.title}
-                        </h3>
-                        <Chip
-                          size="sm"
-                          variant="flat"
-                          color={
-                            selectedMoment.enemyHalf ? 'danger' : 'default'
-                          }
-                        >
-                          {selectedMoment.zone}
-                        </Chip>
-                      </div>
-                      <p className="text-sm text-neutral-300">
-                        {selectedMoment.insight}
-                      </p>
-                      {selectedMoment.suggestion && (
-                        <p className="text-xs text-neutral-400 mt-1 italic">
-                          Suggestion: {selectedMoment.suggestion}
-                        </p>
-                      )}
+                  {/* Corner controls (outside of transform so UI doesn't scale) */}
+                  <div className="absolute top-4 right-4 flex items-center gap-2">
+                    <div className="px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
+                      <MapIcon className="w-3 h-3" />
+                      {eventSnapshot
+                        ? `t ${formatClock(eventSnapshot.ts)}`
+                        : '—'}
                     </div>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => setAoiZoomEnabled((v) => !v)}
+                      className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
+                      title="Toggle Area-of-Interest zoom"
+                    >
+                      {aoiZoomEnabled ? 'Zoom Out' : 'Zoom In'}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Moments list */}
-                <div className="space-y-3 md:col-span-2">
-                  {insightsData.keyMoments.map((moment: any, index: number) => {
-                    const isSelected = index === selectedMomentIndex;
-                    const versus = findKillParticipants(moment.ts);
-                    return (
-                      <motion.button
-                        key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
-                        type="button"
-                        onClick={() => setSelectedMomentIndex(index)}
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.03 }}
-                        className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
+                {/* Selected moment details */}
+                {selectedMoment && (
+                  <div className="mt-4 p-4 bg-neutral-800/60 rounded-lg border border-neutral-700/50">
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="font-semibold text-neutral-100 truncate">
+                        {selectedMoment.title}
+                      </h3>
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        color={selectedMoment.enemyHalf ? 'danger' : 'default'}
                       >
-                        {versus && (
-                          <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
-                            {/* Killer background (left side) */}
-                            <div
-                              className="absolute inset-0 w-1/2 bg-cover opacity-100"
-                              style={{
-                                backgroundImage: versus.killer
-                                  ? `url(${getChampionCentered(versus.killer)})`
-                                  : 'none',
-                                backgroundPosition: 'center 20%',
-                                maskImage:
-                                  'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                WebkitMaskImage:
-                                  'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                              }}
-                            />
-                            {/* Victim background (right side) */}
-                            <div
-                              className="absolute inset-0 left-1/2 w-1/2 bg-cover opacity-40 grayscale"
-                              style={{
-                                backgroundImage: versus.victim
-                                  ? `url(${getChampionCentered(versus.victim)})`
-                                  : 'none',
-                                backgroundPosition: 'center 20%',
-                                maskImage:
-                                  'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                WebkitMaskImage:
-                                  'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                              }}
-                            />
-                            <div className="absolute inset-0 bg-black/30" />
-                            <div className="relative flex items-center justify-center h-full">
-                              <span className="text-sm font-bold text-white drop-shadow-lg">
-                                VS
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-medium text-neutral-100 truncate">
-                            {moment.title}
-                          </h4>
-                          <span className="text-xs text-neutral-400 ml-2">
-                            {formatClock(moment.ts)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                          {moment.insight}
-                        </p>
-                      </motion.button>
-                    );
-                  })}
-                </div>
+                        {selectedMoment.zone}
+                      </Chip>
+                    </div>
+                    <p className="text-sm text-neutral-300">
+                      {selectedMoment.insight}
+                    </p>
+                    {selectedMoment.suggestion && (
+                      <p className="text-xs text-neutral-400 mt-1 italic">
+                        Suggestion: {selectedMoment.suggestion}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
-            </CardBody>
-          </Card>
-        </motion.div>
-      </div>
+
+              {/* Moments list */}
+              <div className="space-y-3 md:col-span-2">
+                {insightsData.keyMoments.map((moment, index: number) => {
+                  const isSelected = index === selectedMomentIndex;
+                  const versus = findKillParticipants(moment.ts);
+                  return (
+                    <motion.button
+                      key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
+                      type="button"
+                      onClick={() => setSelectedMomentIndex(index)}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
+                    >
+                      {versus && (
+                        <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
+                          {/* Killer background (left side) */}
+                          <div
+                            className="absolute inset-0 w-1/2 bg-cover opacity-100"
+                            style={{
+                              backgroundImage: versus.killer
+                                ? `url(${getChampionCentered(versus.killer)})`
+                                : 'none',
+                              backgroundPosition: 'center 20%',
+                              maskImage:
+                                'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                              WebkitMaskImage:
+                                'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                            }}
+                          />
+                          {/* Victim background (right side) */}
+                          <div
+                            className="absolute inset-0 left-1/2 w-1/2 bg-cover opacity-40 grayscale"
+                            style={{
+                              backgroundImage: versus.victim
+                                ? `url(${getChampionCentered(versus.victim)})`
+                                : 'none',
+                              backgroundPosition: 'center 20%',
+                              maskImage:
+                                'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                              WebkitMaskImage:
+                                'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black/30" />
+                          <div className="relative flex items-center justify-center h-full">
+                            <span className="text-sm font-bold text-white drop-shadow-lg">
+                              VS
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium text-neutral-100 truncate">
+                          {moment.title}
+                        </h4>
+                        <span className="text-xs text-neutral-400 ml-2">
+                          {formatClock(moment.ts)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
+                        {moment.insight}
+                      </p>
+                    </motion.button>
+                  );
+                })}
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      </motion.div>
     </div>
   );
 }

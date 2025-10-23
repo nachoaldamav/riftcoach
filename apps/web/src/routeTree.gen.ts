@@ -12,7 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RewindIdRouteImport } from './routes/rewind/$id'
 import { Route as QueueIdRouteImport } from './routes/queue/$id'
+import { Route as RegionNameTagRouteImport } from './routes/$region/$name/$tag'
 import { Route as RegionNameTagIndexRouteImport } from './routes/$region/$name/$tag/index'
+import { Route as RegionNameTagMatchesRouteImport } from './routes/$region/$name/$tag/matches'
+import { Route as RegionNameTagChampionsRouteImport } from './routes/$region/$name/$tag/champions'
 import { Route as RegionNameTagMatchMatchIdRouteImport } from './routes/$region/$name/$tag/match/$matchId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -30,29 +33,49 @@ const QueueIdRoute = QueueIdRouteImport.update({
   path: '/queue/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RegionNameTagIndexRoute = RegionNameTagIndexRouteImport.update({
-  id: '/$region/$name/$tag/',
-  path: '/$region/$name/$tag/',
+const RegionNameTagRoute = RegionNameTagRouteImport.update({
+  id: '/$region/$name/$tag',
+  path: '/$region/$name/$tag',
   getParentRoute: () => rootRouteImport,
+} as any)
+const RegionNameTagIndexRoute = RegionNameTagIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RegionNameTagRoute,
+} as any)
+const RegionNameTagMatchesRoute = RegionNameTagMatchesRouteImport.update({
+  id: '/matches',
+  path: '/matches',
+  getParentRoute: () => RegionNameTagRoute,
+} as any)
+const RegionNameTagChampionsRoute = RegionNameTagChampionsRouteImport.update({
+  id: '/champions',
+  path: '/champions',
+  getParentRoute: () => RegionNameTagRoute,
 } as any)
 const RegionNameTagMatchMatchIdRoute =
   RegionNameTagMatchMatchIdRouteImport.update({
-    id: '/$region/$name/$tag/match/$matchId',
-    path: '/$region/$name/$tag/match/$matchId',
-    getParentRoute: () => rootRouteImport,
+    id: '/match/$matchId',
+    path: '/match/$matchId',
+    getParentRoute: () => RegionNameTagRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/queue/$id': typeof QueueIdRoute
   '/rewind/$id': typeof RewindIdRoute
-  '/$region/$name/$tag': typeof RegionNameTagIndexRoute
+  '/$region/$name/$tag': typeof RegionNameTagRouteWithChildren
+  '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
+  '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
+  '/$region/$name/$tag/': typeof RegionNameTagIndexRoute
   '/$region/$name/$tag/match/$matchId': typeof RegionNameTagMatchMatchIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/queue/$id': typeof QueueIdRoute
   '/rewind/$id': typeof RewindIdRoute
+  '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
+  '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
   '/$region/$name/$tag': typeof RegionNameTagIndexRoute
   '/$region/$name/$tag/match/$matchId': typeof RegionNameTagMatchMatchIdRoute
 }
@@ -61,6 +84,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/queue/$id': typeof QueueIdRoute
   '/rewind/$id': typeof RewindIdRoute
+  '/$region/$name/$tag': typeof RegionNameTagRouteWithChildren
+  '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
+  '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
   '/$region/$name/$tag/': typeof RegionNameTagIndexRoute
   '/$region/$name/$tag/match/$matchId': typeof RegionNameTagMatchMatchIdRoute
 }
@@ -71,12 +97,17 @@ export interface FileRouteTypes {
     | '/queue/$id'
     | '/rewind/$id'
     | '/$region/$name/$tag'
+    | '/$region/$name/$tag/champions'
+    | '/$region/$name/$tag/matches'
+    | '/$region/$name/$tag/'
     | '/$region/$name/$tag/match/$matchId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/queue/$id'
     | '/rewind/$id'
+    | '/$region/$name/$tag/champions'
+    | '/$region/$name/$tag/matches'
     | '/$region/$name/$tag'
     | '/$region/$name/$tag/match/$matchId'
   id:
@@ -84,6 +115,9 @@ export interface FileRouteTypes {
     | '/'
     | '/queue/$id'
     | '/rewind/$id'
+    | '/$region/$name/$tag'
+    | '/$region/$name/$tag/champions'
+    | '/$region/$name/$tag/matches'
     | '/$region/$name/$tag/'
     | '/$region/$name/$tag/match/$matchId'
   fileRoutesById: FileRoutesById
@@ -92,8 +126,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   QueueIdRoute: typeof QueueIdRoute
   RewindIdRoute: typeof RewindIdRoute
-  RegionNameTagIndexRoute: typeof RegionNameTagIndexRoute
-  RegionNameTagMatchMatchIdRoute: typeof RegionNameTagMatchMatchIdRoute
+  RegionNameTagRoute: typeof RegionNameTagRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -119,29 +152,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QueueIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$region/$name/$tag/': {
-      id: '/$region/$name/$tag/'
+    '/$region/$name/$tag': {
+      id: '/$region/$name/$tag'
       path: '/$region/$name/$tag'
       fullPath: '/$region/$name/$tag'
-      preLoaderRoute: typeof RegionNameTagIndexRouteImport
+      preLoaderRoute: typeof RegionNameTagRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/$region/$name/$tag/': {
+      id: '/$region/$name/$tag/'
+      path: '/'
+      fullPath: '/$region/$name/$tag/'
+      preLoaderRoute: typeof RegionNameTagIndexRouteImport
+      parentRoute: typeof RegionNameTagRoute
+    }
+    '/$region/$name/$tag/matches': {
+      id: '/$region/$name/$tag/matches'
+      path: '/matches'
+      fullPath: '/$region/$name/$tag/matches'
+      preLoaderRoute: typeof RegionNameTagMatchesRouteImport
+      parentRoute: typeof RegionNameTagRoute
+    }
+    '/$region/$name/$tag/champions': {
+      id: '/$region/$name/$tag/champions'
+      path: '/champions'
+      fullPath: '/$region/$name/$tag/champions'
+      preLoaderRoute: typeof RegionNameTagChampionsRouteImport
+      parentRoute: typeof RegionNameTagRoute
     }
     '/$region/$name/$tag/match/$matchId': {
       id: '/$region/$name/$tag/match/$matchId'
-      path: '/$region/$name/$tag/match/$matchId'
+      path: '/match/$matchId'
       fullPath: '/$region/$name/$tag/match/$matchId'
       preLoaderRoute: typeof RegionNameTagMatchMatchIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof RegionNameTagRoute
     }
   }
 }
+
+interface RegionNameTagRouteChildren {
+  RegionNameTagChampionsRoute: typeof RegionNameTagChampionsRoute
+  RegionNameTagMatchesRoute: typeof RegionNameTagMatchesRoute
+  RegionNameTagIndexRoute: typeof RegionNameTagIndexRoute
+  RegionNameTagMatchMatchIdRoute: typeof RegionNameTagMatchMatchIdRoute
+}
+
+const RegionNameTagRouteChildren: RegionNameTagRouteChildren = {
+  RegionNameTagChampionsRoute: RegionNameTagChampionsRoute,
+  RegionNameTagMatchesRoute: RegionNameTagMatchesRoute,
+  RegionNameTagIndexRoute: RegionNameTagIndexRoute,
+  RegionNameTagMatchMatchIdRoute: RegionNameTagMatchMatchIdRoute,
+}
+
+const RegionNameTagRouteWithChildren = RegionNameTagRoute._addFileChildren(
+  RegionNameTagRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   QueueIdRoute: QueueIdRoute,
   RewindIdRoute: RewindIdRoute,
-  RegionNameTagIndexRoute: RegionNameTagIndexRoute,
-  RegionNameTagMatchMatchIdRoute: RegionNameTagMatchMatchIdRoute,
+  RegionNameTagRoute: RegionNameTagRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -82,6 +82,7 @@ Focus on:
 - Champion diversity and specialization
 - Consistency across different champions
 - Areas for improvement based on the data
+- In both "trends" and "recommendations", include the champion ids that are relevant to the trend or recommendation.
 
 Respond with valid JSON only in this exact format:
 {
@@ -91,7 +92,8 @@ Respond with valid JSON only in this exact format:
       "type": "improvement|decline|stable",
       "metric": "metric name",
       "description": "trend description",
-      "confidence": 85
+      "confidence": 85,
+      "champions": [<ids>]
     }
   ],
   "recommendations": [
@@ -99,7 +101,8 @@ Respond with valid JSON only in this exact format:
       "category": "champion_pool|playstyle|focus_areas",
       "title": "recommendation title",
       "description": "detailed recommendation",
-      "priority": "high|medium|low"
+      "priority": "high|medium|low",
+      "champions": [<ids>]
     }
   ],
   "confidence": 85

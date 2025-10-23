@@ -28,6 +28,7 @@ interface AIInsight {
   description: string;
   type: 'trend' | 'recommendation' | 'strength' | 'improvement';
   confidence: number;
+  champions: number[];
 }
 
 interface ChampionInsightsResponse {
@@ -39,12 +40,14 @@ interface ChampionInsightsResponse {
       metric: string;
       description: string;
       confidence: number;
+      champions: number[];
     }>;
     recommendations: Array<{
       category: string;
       title: string;
       description: string;
       priority: string;
+      champions: number[];
     }>;
   };
 }
@@ -88,6 +91,7 @@ export function ChampionInsightsCard({
                 ? 'trend'
                 : 'trend',
         confidence: trend.confidence || 85,
+        champions: trend.champions || [],
       });
     }
 
@@ -98,6 +102,7 @@ export function ChampionInsightsCard({
         description: rec.description,
         type: 'recommendation',
         confidence: 80, // Default confidence for recommendations
+        champions: rec.champions || [],
       });
     }
   }

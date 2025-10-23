@@ -537,19 +537,12 @@ app.get('/:region/:tagName/:tagLine/heatmap', accountMiddleware, async (c) => {
 app.get('/:region/:tagName/:tagLine/overview', accountMiddleware, async (c) => {
   const puuid = c.var.account.puuid;
   const { position } = c.req.query();
-  const cacheKey = `cache:overview:${c.var.internalId}:${position || 'all'}`;
-
-  const cached = await redis.get(cacheKey);
-  if (cached) {
-    return c.json(JSON.parse(cached));
-  }
 
   const overview = await collections.matches
     .aggregate(playerOverviewWithOpponents(puuid, position?.toUpperCase()))
     .toArray();
 
   const result = overview[0] || null;
-  await redis.set(cacheKey, JSON.stringify(result), 'EX', ms('1h'));
   return c.json(result);
 });
 
@@ -583,7 +576,7 @@ app.get(
   async (c) => {
     const puuid = c.var.account.puuid;
 
-    const cacheKey = `cache:champion-insights:${c.var.internalId}`;
+    const cacheKey = `cache:champion-insights:${c.var.internalId}:v1`;
 
     const cached = await redis.get(cacheKey);
     if (cached) {

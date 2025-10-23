@@ -1,8 +1,11 @@
 import { http, HttpError } from '@/clients/http';
 import { ProcessingLayout } from '@/components/layouts/ProcessingLayout';
-import { ProfileLayout } from '@/components/layouts/ProfileLayout';
+import { Navbar } from '@/components/navbar';
+import { ProfileHeader } from '@/components/profile-header';
+import { ProfileTabs } from '@/components/profile-tabs';
+import { ScanStatusBox } from '@/components/scan-status-box';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { Outlet, createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 
 export interface RewindStatusResponse {
@@ -29,7 +32,7 @@ export interface HeatmapData {
   grid: number;
 }
 
-export const Route = createFileRoute('/$region/$name/$tag/')({
+export const Route = createFileRoute('/$region/$name/$tag')({
   component: RouteComponent,
   loader: async ({ params }) => {
     const { region, name, tag } = params;
@@ -104,6 +107,7 @@ function RouteComponent() {
 
   // Track previous status to detect completion
   const [previousStatus, setPreviousStatus] = useState<string | null>(null);
+  const [showScanBox, setShowScanBox] = useState(false);
 
   // Handle status changes and query revalidation
   useEffect(() => {
@@ -136,9 +140,50 @@ function RouteComponent() {
         });
       }
 
+      if (
+        summoner &&
+        (status.status === 'processing' || status.status === 'listing')
+      ) {
+        setShowScanBox(true);
+      } else {
+        setShowScanBox(false);
+      }
+
       setPreviousStatus(status.status);
     }
-  }, [status, previousStatus, queryClient, region, name, tag]);
+  }, [status, previousStatus, queryClient, region, name, tag, summoner]);
+
+  // Fetch v1 badges when not actively listing/processing (i.e., completed/idle)
+  interface AIBadgeItem {
+    title: string;
+    description: string;
+    reason: string;
+    polarity?: 'good' | 'bad' | 'neutral';
+  }
+  interface AIBadgesResponse {
+    badges: AIBadgeItem[];
+  }
+  const isIdle =
+    !!status && status.status !== 'processing' && status.status !== 'listing';
+  const {
+    data: badgesData,
+    isLoading: isBadgesLoading,
+    isFetching: isBadgesFetching,
+  } = useQuery<AIBadgesResponse>({
+    queryKey: ['v1-badges', region, name, tag],
+    queryFn: async () => {
+      const res = await http.get<AIBadgesResponse>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/badges`,
+        { timeout: 120000 },
+      );
+      return res.data;
+    },
+    enabled: isIdle,
+    staleTime: 1000 * 60 * 60 * 12,
+    gcTime: 1000 * 60 * 60 * 24,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
 
   // WebSocket connection for live progress
   const [wsConnected, setWsConnected] = useState(false);
@@ -258,11 +303,32 @@ function RouteComponent() {
   }
 
   return (
-    <ProfileLayout
-      summoner={summoner as SummonerSummary}
-      region={region}
-      name={name}
-      tag={tag}
-    />
+    <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-800 relative">
+      <Navbar />
+      <div className="container mx-auto px-6 py-12 max-w-7xl">
+        <div className="space-y-8">
+          <ProfileHeader
+            summoner={summoner as SummonerSummary}
+            region={region}
+            name={name}
+            tag={tag}
+            badges={badgesData?.badges}
+            isBadgesLoading={isBadgesLoading}
+            isBadgesFetching={isBadgesFetching}
+            isIdle={isIdle}
+          />
+          <ProfileTabs region={region} name={name} tag={tag} />
+          <Outlet />
+        </div>
+      </div>
+
+      {showScanBox && status ? (
+        <ScanStatusBox
+          status={status}
+          wsConnected={wsConnected ?? false}
+          onClose={() => setShowScanBox(false)}
+        />
+      ) : null}
+    </div>
   );
 }
