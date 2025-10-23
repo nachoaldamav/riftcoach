@@ -26,7 +26,6 @@ import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
 import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
-import { bedrockClient } from '../../clients/bedrock.js';
 import { redis } from '../../clients/redis.js';
 import { generateBuildSuggestions } from '../../services/builds.js';
 import { generateChampionInsights } from '../../services/champion-insights.js';
@@ -936,7 +935,10 @@ app.get(
     }
 
     // Use the builds service to generate suggestions
-    const itemSuggestions = await generateBuildSuggestions(match, subjectParticipant);
+    const itemSuggestions = await generateBuildSuggestions(
+      match,
+      subjectParticipant,
+    );
 
     return c.json(itemSuggestions);
   },
