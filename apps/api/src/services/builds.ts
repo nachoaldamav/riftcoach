@@ -121,7 +121,11 @@ function isCompletedItem(item: Item): boolean {
   if (item.tags?.includes('Boots')) {
     return (item.depth ?? 0) >= 2;
   }
-  return (item.depth ?? 0) >= 3;
+  const isCompleted = (item.depth ?? 0) >= 3 || !item.into?.length;
+  consola.debug(
+    `${item.name} isCompleted: ${isCompleted} (depth: ${item.depth})`,
+  );
+  return isCompleted;
 }
 
 function getEmptySlots(
@@ -639,61 +643,69 @@ export function generateSystemPrompt(
 - You must reference items by their DDragon IDs and names provided.
 - Prefer high-presence items for the given champion/role and match context.
 
-  Rules:
-  - NEVER invent item names or IDs. Only use items present in the provided lists/maps.
-  - ID/Name Mapping: If you know the name, translate to ID via nameToId. If you know the ID, verify via idToName.
-  - BOOTS REPLACEMENT RULE: When replacing an item with the "Boots" tag, you MUST replace it with another item that also has the "Boots" tag. NEVER replace boots with non-boots items. Similarly, NEVER replace non-boots items with boots items.
-  - Suggest up to 3 changes.
-  - PRIORITIZE EMPTY SLOTS: Add items to empty slots first.
-  - STRICT REPLACEMENT POLICY: If no empty slots exist, you may ONLY replace items that are explicitly listed as "replaceable completed items" in the constraints section. NEVER replace component items, starter items, trinkets, or consumables.
-  - Boots can only be replaced with other boots of same tier (not lower or higher) and can only replace other boots.
-  - USE COMMON BUILDS: Only suggest items that appear in the provided "Available Completed Items from Common Builds" list.
-  - TREAT NON-COMPLETED ITEMS AS EMPTY: If a slot contains a non-completed item (component, starter, trinket, consumable), consider it EMPTY for the purpose of suggestions. Fill these before replacing completed items.
-  - ITEM GROUP UNIQUENESS: Do NOT include more than ONE item from the same DDragon 'group' (e.g., 'LastWhisper'). If a group is already present, you may swap within that group (e.g., Mortal Reminder ↔ Lord Dominik's Regards) but MUST NOT add a second item of the same group.
-  - ITEM COMPATIBILITY: Respect item category compatibility and avoid mutually exclusive or redundant combinations.
-  - OUTPUT FORMAT: Respond with ONLY a valid JSON object. Do NOT include any reasoning tags, comments, or explanations outside the JSON structure. The JSON must contain exactly two fields: suggestions[] and overallAnalysis (string).
-  - JSON VALIDATION: Ensure your response is valid JSON that can be parsed directly. No extra text before or after the JSON object.
-  - ITEM GROUPS: You can only include one item from each group (e.g. Fatality, Manaflow, Boots), but you are allowed to add more than one item from the same group to the same slot.
 
-  ADDITIONAL CONTEXT FOR ID LINKING:
-  - Use the following DDragon maps to translate between item names and IDs for the referenced items (player, allies, enemies, common builds).
-  - idToName: ${JSON.stringify(idToNameMap)}
-  - nameToId: ${JSON.stringify(nameToIdMap)}
-  - metaById: ${JSON.stringify(metaById)}
+Rules:
+- NEVER invent item names or IDs. Only use items present in the provided lists/maps.
+- ID/Name Mapping: If you know the name, translate to ID via nameToId. If you know the ID, verify via idToName.
+- BOOTS REPLACEMENT RULES (STRICT):
+• Boots can only replace other boots. Never replace boots with non-boots or vice-versa.
+• Do not add a second pair of boots under any circumstance.
+• Tier policy:
+- If the player currently has **Tier 2** boots, you may only upgrade to **Tier 3** if (and only if) **at least one ally already has Tier 3 boots**. If no ally has Tier 3 boots, do not suggest Tier 3 boots.
+- If the player currently has **Tier 3** boots, you may only replace them with **another Tier 3** boots variant (never downgrade to Tier 2 or "Boots").
+- Suggest up to 3 changes, but if no meaningful improvement exists, return **no changes**.
+- PRIORITIZE EMPTY SLOTS: Add items to empty slots first.
+- STRICT REPLACEMENT POLICY: If no empty slots exist, you may ONLY replace items that are explicitly listed as "replaceable completed items" in the constraints section. NEVER replace component items, starter items, trinkets, or consumables.
+- USE COMMON BUILDS: Only suggest items that appear in the provided "Available Completed Items from Common Builds" list.
+- TREAT NON-COMPLETED ITEMS AS EMPTY: If a slot contains a non-completed item (component, starter, trinket, consumable), consider it EMPTY for the purpose of suggestions. Fill these before replacing completed items.
+- ITEM GROUP UNIQUENESS: Do NOT include more than ONE item from the same DDragon 'group' (e.g., 'LastWhisper'). If a group is already present, you may swap within that group (e.g., Mortal Reminder ↔ Lord Dominik's Regards) but MUST NOT add a second item of the same group.
+- ITEM COMPATIBILITY: Respect item category compatibility and avoid mutually exclusive or redundant combinations.
+- OUTPUT FORMAT: Respond with ONLY a valid JSON object. Do NOT include any reasoning tags, comments, or explanations outside the JSON structure. The JSON must contain exactly two fields: suggestions[] and overallAnalysis (string).
+- JSON VALIDATION: Ensure your response is valid JSON that can be parsed directly. No extra text before or after the JSON object.
+- ITEM GROUPS: You can only include one item from each group (e.g. Fatality, Manaflow, Boots), but you are allowed to add more than one item from the same group to the same slot.
+- TRINKETS: Never add trinkets to the item slots, as they use a special slot and are not part of the main itemization process.
 
-  ITEM GROUPS:
-  Annul: Verdant Barrier, Banshee's Veil, Edge of Night
-  Blight: Abyssal Mask, Blighting Jewel, Bloodletter's Curse, Cryptbloom, Terminus, Void Staff
-  Boots: Berserker's Greaves, Boots, Boots of Swiftness, Ionian Boots of Lucidity, Mercury's Treads, Plated Steelcaps, Slightly Magical Boots, Sorcerer's Shoes, Symbiotic Soles, Synchronized Souls, Zephyr
-  Dirk: Serrated Dirk
-  Elixir: Elixir of Iron, Elixir of Sorcery, Elixir of Wrath
-  Eternity: Catalyst of Aeons, Rod of Ages
-  Fatality: Last Whisper, Black Cleaver, Lord Dominik's Regards, Mortal Reminder, Serylda's Grudge, Terminus
-  Glory: Dark Seal, Mejai's Soulstealer
-  Guardian: Guardian's Blade, Guardian's Hammer, Guardian's Horn, Guardian's Orb
-  Hydra: Tiamat, Profane Hydra, Ravenous Hydra, Stridebreaker, Titanic Hydra
-  Immolate: Bami's Cinder, Sunfire Aegis, Hollow Radiance
-  Jungle/Support: Bounty of Worlds, Bloodsong, Celestial Opposition, Dream Maker, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, Solstice Sleigh, Zaz'Zak's Realmspike
-  Lifeline: Archangel's Staff, Hexdrinker, Immortal Shieldbow, Maw of Malmortius, Seraph's Embrace, Sterak's Gage
-  Manaflow: Archangel's Staff, Fimbulwinter, Manamune, Muramana, Seraph's Embrace, Tear of the Goddess, Winter's Approach
-  Momentum: Dead Man's Plate, Trailblazer
-  Potion: Health Potion, Refillable Potion
-  Quicksilver: Mercurial Scimitar, Quicksilver Sash
-  Sightstone: Watchful Wardstone, Vigilant Wardstone
-  Spellblade: Sheen, Bloodsong, Iceborn Gauntlet, Lich Bane, Trinity Force
-  Starter: Doran's Blade, Doran's Ring, Doran's Shield, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, World Atlas, Runic Compass
-  Stasis: Seeker's Armguard, Shattered Armguard, Zhonya's Hourglass
-  Trinket: Farsight Alteration, Oracle Lens, Stealth Ward
+ADDITIONAL CONTEXT FOR ID LINKING:
+- Use the following DDragon maps to translate between item names and IDs for the referenced items (player, allies, enemies, common builds).
+- idToName: ${JSON.stringify(idToNameMap)}
+- nameToId: ${JSON.stringify(nameToIdMap)}
+- metaById: ${JSON.stringify(metaById)}
 
-  TIER 3 BOOTS:
-  Armored Advance
-  Chainlaced Crushers
-  Crimson Lucidity
-  Forever Forward
-  Gunmetal Greaves
-  Spellslinger's Shoes
-  Swiftmarch
-  Symbiotic Soles
+
+ITEM GROUPS:
+Annul: Verdant Barrier, Banshee's Veil, Edge of Night
+Blight: Abyssal Mask, Blighting Jewel, Bloodletter's Curse, Cryptbloom, Terminus, Void Staff
+Boots: Berserker's Greaves, Boots, Boots of Swiftness, Ionian Boots of Lucidity, Mercury's Treads, Plated Steelcaps, Slightly Magical Boots, Sorcerer's Shoes, Symbiotic Soles, Synchronized Souls, Zephyr
+Dirk: Serrated Dirk
+Elixir: Elixir of Iron, Elixir of Sorcery, Elixir of Wrath
+Eternity: Catalyst of Aeons, Rod of Ages
+Fatality: Last Whisper, Black Cleaver, Lord Dominik's Regards, Mortal Reminder, Serylda's Grudge, Terminus
+Glory: Dark Seal, Mejai's Soulstealer
+Guardian: Guardian's Blade, Guardian's Hammer, Guardian's Horn, Guardian's Orb
+Hydra: Tiamat, Profane Hydra, Ravenous Hydra, Stridebreaker, Titanic Hydra
+Immolate: Bami's Cinder, Sunfire Aegis, Hollow Radiance
+Jungle/Support: Bounty of Worlds, Bloodsong, Celestial Opposition, Dream Maker, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, Solstice Sleigh, Zaz'Zak's Realmspike
+Lifeline: Archangel's Staff, Hexdrinker, Immortal Shieldbow, Maw of Malmortius, Seraph's Embrace, Sterak's Gage
+Manaflow: Archangel's Staff, Fimbulwinter, Manamune, Muramana, Seraph's Embrace, Tear of the Goddess, Winter's Approach
+Momentum: Dead Man's Plate, Trailblazer
+Potion: Health Potion, Refillable Potion
+Quicksilver: Mercurial Scimitar, Quicksilver Sash
+Sightstone: Watchful Wardstone, Vigilant Wardstone
+Spellblade: Sheen, Bloodsong, Iceborn Gauntlet, Lich Bane, Trinity Force
+Starter: Doran's Blade, Doran's Ring, Doran's Shield, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, World Atlas, Runic Compass
+Stasis: Seeker's Armguard, Shattered Armguard, Zhonya's Hourglass
+Trinket: Farsight Alteration, Oracle Lens, Stealth Ward
+
+
+TIER 3 BOOTS:
+Armored Advance
+Chainlaced Crushers
+Crimson Lucidity
+Forever Forward
+Gunmetal Greaves
+Spellslinger's Shoes
+Swiftmarch
+Symbiotic Soles
 `;
 }
 
@@ -945,20 +957,20 @@ export async function generateBuildSuggestions(
       .filter((s) => {
         const sg = getGroup(s.suggestedId ?? undefined);
         if (!sg) return true;
+
         if (s.action === 'add_to_slot') {
           if ((groupCounts[sg] ?? 0) > 0) return false;
           groupCounts[sg] = (groupCounts[sg] ?? 0) + 1;
           return true;
-        } else if (s.action === 'replace_item') {
-          const rg = getGroup(s.replaceId ?? undefined);
-          if ((groupCounts[sg] ?? 0) > 0 && sg !== (rg ?? null)) {
-            return false; // would create a duplicate group
-          }
-          // apply change: decrement replaced group, increment suggested group
-          if (rg) groupCounts[rg] = Math.max(0, (groupCounts[rg] ?? 0) - 1);
-          groupCounts[sg] = (groupCounts[sg] ?? 0) + 1;
-          return true;
         }
+
+        const rg = getGroup(s.replaceId ?? undefined);
+        if ((groupCounts[sg] ?? 0) > 0 && sg !== (rg ?? null)) {
+          return false; // would create a duplicate group
+        }
+        // apply change: decrement replaced group, increment suggested group
+        if (rg) groupCounts[rg] = Math.max(0, (groupCounts[rg] ?? 0) - 1);
+        groupCounts[sg] = (groupCounts[sg] ?? 0) + 1;
         return true;
       })
       .slice(0, 3);

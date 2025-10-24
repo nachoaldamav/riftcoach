@@ -905,12 +905,13 @@ app.get(
   async (c) => {
     const { matchId } = c.req.param();
     const puuid = c.var.account.puuid;
+    const force = c.req.query('force') === 'true';
 
     const cacheKey = `cache:match-builds:${matchId}:${puuid}:v2`;
 
     try {
       const cached = await redis.get(cacheKey);
-      if (cached) {
+      if (cached && !force) {
         return c.json(JSON.parse(cached) as MatchBuilds);
       }
     } catch (err) {
