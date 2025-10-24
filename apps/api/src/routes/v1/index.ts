@@ -28,6 +28,7 @@ import { recentMatches } from '../../aggregations/recentMatches.js';
 import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
 import { generateBuildSuggestions } from '../../services/builds.js';
+import { ALLOWED_QUEUE_IDS, ROLES } from '@riftcoach/shared.constants';
 import { generateChampionInsights } from '../../services/champion-insights.js';
 import { matchDetailsNode } from '../../services/match-details.js';
 import { generateMatchInsights } from '../../services/match-insights.js';
@@ -573,7 +574,7 @@ app.get(
   async (c) => {
     const puuid = c.var.account.puuid;
 
-    const cacheKey = `cache:champion-insights:${c.var.internalId}:v1`;
+    const cacheKey = `cache:champion-insights:${c.var.internalId}:v2`;
 
     const cached = await redis.get(cacheKey);
     if (cached) {
@@ -638,7 +639,8 @@ app.get(
       },
     };
 
-    await redis.set(cacheKey, JSON.stringify(result), 'EX', ms('30m'));
+    if (aiInsights)
+      await redis.set(cacheKey, JSON.stringify(result), 'EX', ms('30m'));
     return c.json(result);
   },
 );
@@ -846,7 +848,6 @@ app.get(
   },
 );
 
-// ---------- Types you already had ----------
 interface Player {
   isActive: boolean;
   championName: string;
@@ -957,6 +958,351 @@ app.get(
     }
 
     return c.json(itemSuggestions);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/matches',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+
+    const qQueue = c.req.query('queue');
+    const qChampion = c.req.query('champion');
+    const qRole = c.req.query('role');
+    const qLimit = c.req.query('limit');
+    const qOffset = c.req.query('offset');
+
+    const limit = qLimit ? Math.min(Math.max(Number(qLimit), 1), 100) : 20;
+    const offset = qOffset ? Math.max(Number(qOffset), 0) : 0;
+
+    const parseNums = (s?: string): number[] => {
+      if (!s) return [];
+      return s
+        .split(',')
+        .map((x) => Number(x.trim()))
+        .filter((n) => Number.isFinite(n));
+    };
+
+    const requestedQueues = parseNums(qQueue);
+    const queueIds = requestedQueues.length > 0 ? requestedQueues : Array.from(ALLOWED_QUEUE_IDS as readonly number[]);
+
+    let championId: number | null = null;
+    let championName: string | null = null;
+    if (qChampion) {
+      const num = Number(qChampion);
+      if (Number.isFinite(num)) championId = num;
+      else championName = qChampion;
+    }
+
+    const role = qRole ? qRole.toUpperCase() : null;
+    const roleValid = !!role && (ROLES as readonly string[]).includes(role);
+
+    const preMatch: Record<string, unknown> = {
+      'info.participants.puuid': puuid,
+      'info.queueId': { $in: queueIds },
+    };
+
+    if (championId !== null || championName || roleValid) {
+      const elem: Record<string, unknown> = { puuid };
+      if (championId !== null) elem.championId = championId;
+      if (championName) elem.championName = championName;
+      if (roleValid) elem.teamPosition = role;
+      preMatch['info.participants'] = { $elemMatch: elem };
+    }
+
+    const basePipeline: Record<string, unknown>[] = [
+      { $match: preMatch },
+      {
+        $project: {
+          _id: 0,
+          matchId: '$metadata.matchId',
+          gameCreation: '$info.gameCreation',
+          gameDuration: '$info.gameDuration',
+          gameMode: '$info.gameMode',
+          queueId: '$info.queueId',
+          participants: {
+            $map: {
+              input: '$info.participants',
+              as: 'p',
+              in: {
+                puuid: '$$p.puuid',
+                championId: '$$p.championId',
+                championName: '$$p.championName',
+                teamId: '$$p.teamId',
+                teamPosition: { $ifNull: ['$$p.teamPosition', 'UNKNOWN'] },
+                kills: '$$p.kills',
+                deaths: '$$p.deaths',
+                assists: '$$p.assists',
+                totalMinionsKilled: {
+                  $add: ['$$p.totalMinionsKilled', '$$p.neutralMinionsKilled'],
+                },
+                goldEarned: '$$p.goldEarned',
+                totalDamageDealtToChampions: '$$p.totalDamageDealtToChampions',
+                visionScore: '$$p.visionScore',
+                win: '$$p.win',
+                // Spells
+                summoner1Id: '$$p.summoner1Id',
+                summoner2Id: '$$p.summoner2Id',
+                // Runes (primary/sub styles and keystone)
+                perkPrimaryStyle: {
+                  $let: {
+                    vars: { style0: { $arrayElemAt: ['$$p.perks.styles', 0] } },
+                    in: '$$style0.style',
+                  },
+                },
+                perkSubStyle: {
+                  $let: {
+                    vars: { style1: { $arrayElemAt: ['$$p.perks.styles', 1] } },
+                    in: '$$style1.style',
+                  },
+                },
+                perkKeystone: {
+                  $let: {
+                    vars: {
+                      style0: { $arrayElemAt: ['$$p.perks.styles', 0] },
+                    },
+                    in: {
+                      $let: {
+                        vars: {
+                          selections: { $ifNull: ['$$style0.selections', []] },
+                        },
+                        in: {
+                          $let: {
+                            vars: {
+                              sel0: { $arrayElemAt: ['$$selections', 0] },
+                            },
+                            in: '$$sel0.perk',
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                // Names for team lists
+                summonerName: '$$p.summonerName',
+                // Items
+                item0: '$$p.item0',
+                item1: '$$p.item1',
+                item2: '$$p.item2',
+                item3: '$$p.item3',
+                item4: '$$p.item4',
+                item5: '$$p.item5',
+                item6: '$$p.item6',
+              },
+            },
+          },
+        },
+      },
+      {
+        $set: {
+          player: {
+            $first: {
+              $filter: {
+                input: '$participants',
+                as: 'p',
+                cond: { $eq: ['$$p.puuid', puuid] },
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    if (roleValid || championId !== null || championName) {
+      const postFilter: Record<string, unknown> = {};
+      if (roleValid) postFilter['player.teamPosition'] = role;
+      if (championId !== null) postFilter['player.championId'] = championId;
+      if (championName) postFilter['player.championName'] = championName;
+      basePipeline.push({ $match: postFilter });
+    }
+
+    basePipeline.push(
+      {
+        $set: {
+          opponent: {
+            $first: {
+              $filter: {
+                input: '$participants',
+                as: 'p',
+                cond: {
+                  $and: [
+                    { $ne: ['$$p.puuid', puuid] },
+                    { $ne: ['$$p.teamId', '$player.teamId'] },
+                    { $eq: ['$$p.teamPosition', '$player.teamPosition'] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $set: {
+          kda: {
+            $round: [
+              {
+                $cond: [
+                  { $eq: ['$player.deaths', 0] },
+                  { $add: ['$player.kills', '$player.assists'] },
+                  {
+                    $divide: [
+                      { $add: ['$player.kills', '$player.assists'] },
+                      '$player.deaths',
+                    ],
+                  },
+                ],
+              },
+              2,
+            ],
+          },
+          csPerMin: {
+            $round: [
+              {
+                $divide: [
+                  '$player.totalMinionsKilled',
+                  { $divide: ['$gameDuration', 60] },
+                ],
+              },
+              1,
+            ],
+          },
+          goldPerMin: {
+            $round: [
+              {
+                $divide: ['$player.goldEarned', { $divide: ['$gameDuration', 60] }],
+              },
+              0,
+            ],
+          },
+          damagePerMin: {
+            $round: [
+              {
+                $divide: [
+                  '$player.totalDamageDealtToChampions',
+                  { $divide: ['$gameDuration', 60] },
+                ],
+              },
+              0,
+            ],
+          },
+          visionPerMin: {
+            $round: [
+              {
+                $divide: ['$player.visionScore', { $divide: ['$gameDuration', 60] }],
+              },
+              2,
+            ],
+          },
+        },
+      },
+      {
+        $project: {
+          matchId: 1,
+          gameCreation: 1,
+          gameDuration: 1,
+          gameMode: 1,
+          queueId: 1,
+          player: {
+            championId: '$player.championId',
+            championName: '$player.championName',
+            summonerName: '$player.summonerName',
+            teamPosition: '$player.teamPosition',
+            kills: '$player.kills',
+            deaths: '$player.deaths',
+            assists: '$player.assists',
+            cs: '$player.totalMinionsKilled',
+            gold: '$player.goldEarned',
+            damage: '$player.totalDamageDealtToChampions',
+            visionScore: '$player.visionScore',
+            win: '$player.win',
+            spells: {
+              s1: '$player.summoner1Id',
+              s2: '$player.summoner2Id',
+            },
+            runes: {
+              primaryStyle: '$player.perkPrimaryStyle',
+              subStyle: '$player.perkSubStyle',
+              keystone: '$player.perkKeystone',
+            },
+            items: [
+              '$player.item0',
+              '$player.item1',
+              '$player.item2',
+              '$player.item3',
+              '$player.item4',
+              '$player.item5',
+              '$player.item6',
+            ],
+          },
+          opponent: {
+            championId: '$opponent.championId',
+            championName: '$opponent.championName',
+            kills: '$opponent.kills',
+            deaths: '$opponent.deaths',
+            assists: '$opponent.assists',
+          },
+          allies: {
+            $map: {
+              input: {
+                $filter: {
+                  input: '$participants',
+                  as: 'p',
+                  cond: { $eq: ['$$p.teamId', '$player.teamId'] },
+                },
+              },
+              as: 'a',
+              in: { championId: '$$a.championId', championName: '$$a.championName', summonerName: '$$a.summonerName' },
+            },
+          },
+          enemies: {
+            $map: {
+              input: {
+                $filter: {
+                  input: '$participants',
+                  as: 'p',
+                  cond: { $ne: ['$$p.teamId', '$player.teamId'] },
+                },
+              },
+              as: 'e',
+              in: { championId: '$$e.championId', championName: '$$e.championName', summonerName: '$$e.summonerName' },
+            },
+          },
+          kda: 1,
+          csPerMin: 1,
+          goldPerMin: 1,
+          damagePerMin: 1,
+          visionPerMin: 1,
+        },
+      },
+      { $sort: { gameCreation: -1 } },
+      { $skip: offset },
+      { $limit: limit },
+    );
+
+    const [results, countDoc] = await Promise.all([
+      collections.matches
+        .aggregate(basePipeline, { allowDiskUse: true, maxTimeMS: 20_000 })
+        .toArray(),
+      collections.matches
+        .aggregate(
+          [
+            { $match: preMatch },
+            { $count: 'total' },
+          ],
+          { allowDiskUse: true, maxTimeMS: 20_000 },
+        )
+        .toArray(),
+    ]);
+
+    const total = (countDoc[0]?.total ?? 0) as number;
+    return c.json({
+      total,
+      limit,
+      offset,
+      results,
+      hasMore: offset + results.length < total,
+    });
   },
 );
 

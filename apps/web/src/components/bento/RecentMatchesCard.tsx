@@ -1,6 +1,6 @@
 import { http } from '@/clients/http';
 import { MatchHistoryIcon } from '@/components/icons/CustomIcons';
-import { useChampionImage } from '@/providers/data-dragon-provider';
+import { useChampionImage, useDataDragon } from '@/providers/data-dragon-provider';
 import { Avatar, Card, CardBody, Chip } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -26,6 +26,7 @@ interface RecentMatch {
     visionScore: number;
     win: boolean;
     items: number[];
+    spells?: { s1?: number; s2?: number };
   };
   opponent?: {
     championId: number;
@@ -67,6 +68,7 @@ function MatchItem({
   getTimeAgo,
 }: MatchItemProps) {
   const championImageUrl = useChampionImage(match.player.championId, 'square');
+  const { getSummonerSpellIconUrl } = useDataDragon();
 
   return (
     <Link
@@ -93,6 +95,19 @@ function MatchItem({
               match.player.win ? 'bg-accent-emerald-500' : 'bg-red-500'
             }`}
           />
+          <div className="absolute -bottom-1 -right-1 flex flex-col gap-1">
+            {/* Spells */}
+            <img
+              src={getSummonerSpellIconUrl(match.player.spells?.s1)}
+              alt="S1"
+              className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
+            />
+            <img
+              src={getSummonerSpellIconUrl(match.player.spells?.s2)}
+              alt="S2"
+              className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
+            />
+          </div>
         </div>
 
         <div className="flex-1 min-w-0">
@@ -138,12 +153,12 @@ export function RecentMatchesCard({
   tag,
 }: RecentMatchesCardProps) {
   const { data: matches, isLoading } = useQuery({
-    queryKey: ['recent-matches', region, name, tag],
+    queryKey: ['matches', region, name, tag, 5],
     queryFn: async () => {
-      const res = await http.get<RecentMatch[]>(
-        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/recent-matches?limit=5`,
+      const res = await http.get<{ results: RecentMatch[] }>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/matches?limit=5`,
       );
-      return res.data;
+      return res.data.results;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
   });

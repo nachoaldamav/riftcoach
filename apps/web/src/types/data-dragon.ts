@@ -77,4 +77,8 @@ export interface DataDragonContextType {
   getProfileIconUrl: (profileIconId: number) => string;
   getIconImageUrl: (iconId: number) => string;
   getItemImageUrl: (itemId: number) => string;
+  // New helpers for spells and runes
+  getSummonerSpellIconUrl: (spellId?: number) => string;
+  getRuneStyleIconUrl: (styleId?: number) => string;
+  getRunePerkIconUrl: (perkId?: number) => string;
 }

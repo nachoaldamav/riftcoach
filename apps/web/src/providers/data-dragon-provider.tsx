@@ -5,6 +5,9 @@ import {
   championDataQueryOptions,
   getChampionImageUrl as getImageUrl,
   versionsQueryOptions,
+  getSummonerSpellIconUrl as _getSummonerSpellIconUrl,
+  getRuneStyleIconUrl as _getRuneStyleIconUrl,
+  getRunePerkIconUrl as _getRunePerkIconUrl,
 } from '@/lib/data-dragon';
 import type { Champion, DataDragonContextType } from '@/types/data-dragon';
 import { useQuery } from '@tanstack/react-query';
@@ -30,6 +33,25 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
     isLoading: isChampionLoading,
     error: championError,
   } = useQuery(championDataQueryOptions(version || ''));
+
+  // Summoner Spells mapping (id -> key)
+  const { data: spellKeyById } = useQuery<{ [id: number]: string }>({
+    queryKey: ['ddragon-spells', version],
+    enabled: Boolean(version),
+    queryFn: async () => {
+      const res = await fetch(
+        `https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/summoner.json`,
+      );
+      const json = await res.json();
+      const map: Record<number, string> = {};
+      for (const key of Object.keys(json.data)) {
+        const s = json.data[key];
+        map[Number(s.key)] = s.id; // key is numeric id; id is spell filename base
+      }
+      return map;
+    },
+    staleTime: 1000 * 60 * 60 * 24,
+  });
 
   // Memoize the context value to prevent unnecessary re-renders
   const contextValue = useMemo<DataDragonContextType>(() => {
@@ -86,6 +108,21 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
       return _getIconImageUrl(iconId, version);
     };
 
+    // Function to get summoner spell icon URL from id
+    const getSummonerSpellIconUrl = (spellId?: number): string => {
+      return _getSummonerSpellIconUrl(spellId, version || null, spellKeyById || undefined);
+    };
+
+    // Function to get rune primary/sub style icon URL
+    const getRuneStyleIconUrl = (styleId?: number): string => {
+      return _getRuneStyleIconUrl(styleId);
+    };
+
+    // Function to get rune keystone/perk icon URL
+    const getRunePerkIconUrl = (perkId?: number): string => {
+      return _getRunePerkIconUrl(perkId);
+    };
+
     return {
       champions,
       version: version || null,
@@ -96,6 +133,9 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
       getProfileIconUrl,
       getIconImageUrl,
       getItemImageUrl,
+      getSummonerSpellIconUrl,
+      getRuneStyleIconUrl,
+      getRunePerkIconUrl,
     };
   }, [
     championData,
@@ -104,6 +144,7 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
     isChampionLoading,
     versionError,
     championError,
+    spellKeyById,
   ]);
 
   return (
