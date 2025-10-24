@@ -1081,6 +1081,8 @@ app.get(
                 },
                 // Names for team lists
                 summonerName: '$$p.summonerName',
+                riotIdGameName: '$$p.riotIdGameName',
+                riotIdTagline: '$$p.riotIdTagline',
                 // Items
                 item0: '$$p.item0',
                 item1: '$$p.item1',
@@ -1207,6 +1209,8 @@ app.get(
             championId: '$player.championId',
             championName: '$player.championName',
             summonerName: '$player.summonerName',
+            riotIdGameName: '$player.riotIdGameName',
+            riotIdTagline: '$player.riotIdTagline',
             teamPosition: '$player.teamPosition',
             kills: '$player.kills',
             deaths: '$player.deaths',
@@ -1252,7 +1256,7 @@ app.get(
                 },
               },
               as: 'a',
-              in: { championId: '$$a.championId', championName: '$$a.championName', summonerName: '$$a.summonerName' },
+              in: { championId: '$$a.championId', championName: '$$a.championName', summonerName: '$$a.summonerName', riotIdGameName: '$$a.riotIdGameName', riotIdTagline: '$$a.riotIdTagline' },
             },
           },
           enemies: {
@@ -1265,7 +1269,7 @@ app.get(
                 },
               },
               as: 'e',
-              in: { championId: '$$e.championId', championName: '$$e.championName', summonerName: '$$e.summonerName' },
+              in: { championId: '$$e.championId', championName: '$$e.championName', summonerName: '$$e.summonerName', riotIdGameName: '$$e.riotIdGameName', riotIdTagline: '$$e.riotIdTagline' },
             },
           },
           kda: 1,

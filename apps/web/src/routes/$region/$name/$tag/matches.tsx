@@ -1,21 +1,21 @@
 import { http } from '@/clients/http';
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import {
-  Avatar,
-  Card,
-  CardBody,
-  Select,
-  SelectItem,
   Autocomplete,
   AutocompleteItem,
-  Chip,
+  Avatar,
   Button,
+  Card,
+  CardBody,
+  Chip,
+  Select,
+  SelectItem,
 } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
 import { Clock } from 'lucide-react';
-import { useMemo, useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/$region/$name/$tag/matches')({
   component: MatchesComponent,
@@ -31,6 +31,8 @@ interface RecentMatch {
     championId: number;
     championName: string;
     summonerName?: string;
+    riotIdGameName?: string;
+    riotIdTagline?: string;
     teamPosition: string;
     kills: number;
     deaths: number;
@@ -51,8 +53,20 @@ interface RecentMatch {
     deaths: number;
     assists: number;
   };
-  allies?: Array<{ championId: number; championName: string; summonerName?: string }>;
-  enemies?: Array<{ championId: number; championName: string; summonerName?: string }>;
+  allies?: Array<{
+    championId: number;
+    championName: string;
+    summonerName?: string;
+    riotIdGameName?: string;
+    riotIdTagline?: string;
+  }>;
+  enemies?: Array<{
+    championId: number;
+    championName: string;
+    summonerName?: string;
+    riotIdGameName?: string;
+    riotIdTagline?: string;
+  }>;
   kda: number;
   csPerMin: number;
   goldPerMin: number;
@@ -85,7 +99,14 @@ const getRoleIconUrl = (roleKey: string) => {
 
 function MatchesComponent() {
   const { region, name, tag } = Route.useParams();
-  const { champions, getChampionImageUrl, getItemImageUrl, getSummonerSpellIconUrl, getRuneStyleIconUrl, getRunePerkIconUrl } = useDataDragon();
+  const {
+    champions,
+    getChampionImageUrl,
+    getItemImageUrl,
+    getSummonerSpellIconUrl,
+    getRuneStyleIconUrl,
+    getRunePerkIconUrl,
+  } = useDataDragon();
 
   const [selectedQueue, setSelectedQueue] = useState<string>('ALL');
   const [selectedRole, setSelectedRole] = useState<string>('ALL');
@@ -104,7 +125,16 @@ function MatchesComponent() {
   );
 
   const { data: matches, isLoading } = useQuery({
-    queryKey: ['matches', region, name, tag, selectedQueue, selectedRole, selectedChampionKey, pageSize],
+    queryKey: [
+      'matches',
+      region,
+      name,
+      tag,
+      selectedQueue,
+      selectedRole,
+      selectedChampionKey,
+      pageSize,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedQueue !== 'ALL') params.set('queue', selectedQueue);
@@ -122,9 +152,13 @@ function MatchesComponent() {
   const filteredMatches = useMemo(() => {
     if (!matches) return [] as RecentMatch[];
     return matches.filter((m) => {
-      const queueOk = selectedQueue === 'ALL' || m.queueId === Number(selectedQueue);
-      const roleOk = selectedRole === 'ALL' || m.player.teamPosition === selectedRole;
-      const champOk = !selectedChampionKey || String(m.player.championId) === selectedChampionKey;
+      const queueOk =
+        selectedQueue === 'ALL' || m.queueId === Number(selectedQueue);
+      const roleOk =
+        selectedRole === 'ALL' || m.player.teamPosition === selectedRole;
+      const champOk =
+        !selectedChampionKey ||
+        String(m.player.championId) === selectedChampionKey;
       return queueOk && roleOk && champOk;
     });
   }, [matches, selectedQueue, selectedRole, selectedChampionKey]);
@@ -222,7 +256,11 @@ function MatchesComponent() {
                     textValue={role.label}
                     startContent={
                       iconUrl ? (
-                        <img src={iconUrl} alt={role.label} className="w-4 h-4" />
+                        <img
+                          src={iconUrl}
+                          alt={role.label}
+                          className="w-4 h-4"
+                        />
                       ) : null
                     }
                   >
@@ -283,10 +321,18 @@ function MatchesComponent() {
               label="Page Size"
               size="sm"
             >
-              <SelectItem key="10" textValue="10">10</SelectItem>
-              <SelectItem key="20" textValue="20">20</SelectItem>
-              <SelectItem key="30" textValue="30">30</SelectItem>
-              <SelectItem key="50" textValue="50">50</SelectItem>
+              <SelectItem key="10" textValue="10">
+                10
+              </SelectItem>
+              <SelectItem key="20" textValue="20">
+                20
+              </SelectItem>
+              <SelectItem key="30" textValue="30">
+                30
+              </SelectItem>
+              <SelectItem key="50" textValue="50">
+                50
+              </SelectItem>
             </Select>
 
             {/* Clear Filters */}
@@ -349,7 +395,9 @@ function MatchesComponent() {
           ) : filteredMatches.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <p className="text-neutral-300">No matches found for filters.</p>
+                <p className="text-neutral-300">
+                  No matches found for filters.
+                </p>
               </div>
             </div>
           ) : (
@@ -367,7 +415,10 @@ function MatchesComponent() {
                   >
                     Previous
                   </Button>
-                  <Chip size="sm" className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300">
+                  <Chip
+                    size="sm"
+                    className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300"
+                  >
                     {`Page ${page} / ${totalPages}`}
                   </Chip>
                   <Button
@@ -393,123 +444,228 @@ function MatchesComponent() {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.2, delay: index * 0.02 }}
-                      className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-150 cursor-pointer ${
+                      className={`p-4 rounded-lg border transition-all duration-150 cursor-pointer space-y-2 ${
                         match.player.win
                           ? 'bg-accent-emerald-950/20 border-accent-emerald-800/30 hover:bg-accent-emerald-950/30'
                           : 'bg-red-950/20 border-red-800/30 hover:bg-red-950/30'
                       }`}
                     >
-                      {/* Champion Portrait */}
-                      <div className="relative flex-shrink-0">
-                        <Avatar
-                          src={getChampionImageUrl(match.player.championId, 'square')}
-                          alt={match.player.championName}
-                          className="w-12 h-12 border border-neutral-600"
-                          radius="md"
-                        />
+                      {/* Header: result + meta */}
+                      <div className="flex items-center gap-2 text-xs sm:text-sm">
+                        <span
+                          className={`font-semibold ${match.player.win ? 'text-accent-emerald-400' : 'text-red-400'}`}
+                        >
+                          {match.player.win ? 'Victory' : 'Defeat'}
+                        </span>
+                        <span className="text-neutral-500">•</span>
+                        <span className="text-neutral-300">
+                          {match.queueId === 420
+                            ? 'Ranked Solo'
+                            : match.queueId === 440
+                              ? 'Ranked Flex'
+                              : match.queueId === 400
+                                ? 'Normal Draft'
+                                : 'Queue'}
+                        </span>
+                        <span className="text-neutral-500">•</span>
+                        <span className="text-neutral-300">
+                          {Math.floor(match.gameDuration / 60)}:
+                          {String(match.gameDuration % 60).padStart(2, '0')}
+                        </span>
+                        <span className="text-neutral-500">•</span>
+                        <span className="text-neutral-300">
+                          {getTimeAgo(match.gameCreation)}
+                        </span>
                       </div>
 
-                      {/* Spells and Runes */}
-                      <div className="flex flex-col gap-1 flex-shrink-0">
-                        {/* Summoner Spells */}
-                        <div className="flex gap-1">
-                          <img
-                            src={getSummonerSpellIconUrl(match.player.spells?.s1)}
-                            alt="Spell 1"
-                            className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
-                          />
-                          <img
-                            src={getSummonerSpellIconUrl(match.player.spells?.s2)}
-                            alt="Spell 2"
-                            className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
+                      {/* Main row */}
+                      <div className="flex items-center gap-4">
+                        {/* Champion Portrait */}
+                        <div className="relative flex-shrink-0">
+                          <Avatar
+                            src={getChampionImageUrl(
+                              match.player.championId,
+                              'square',
+                            )}
+                            alt={match.player.championName}
+                            className="size-16 border border-neutral-600"
+                            radius="md"
                           />
                         </div>
-                        {/* Runes */}
-                        <div className="flex gap-1">
-                          {match.player.runes?.keystone ? (
+
+                        {/* Spells and Runes */}
+                        <div className="flex flex-col gap-1 flex-shrink-0">
+                          {/* Summoner Spells */}
+                          <div className="flex gap-1">
                             <img
-                              src={getRunePerkIconUrl(match.player.runes?.keystone)}
-                              alt="Keystone"
+                              src={getSummonerSpellIconUrl(
+                                match.player.spells?.s1,
+                              )}
+                              alt="Spell 1"
                               className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
                             />
-                          ) : (
-                            <div className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800" />
-                          )}
-                          {match.player.runes?.subStyle ? (
                             <img
-                              src={getRuneStyleIconUrl(match.player.runes?.subStyle)}
-                              alt="Secondary Rune"
+                              src={getSummonerSpellIconUrl(
+                                match.player.spells?.s2,
+                              )}
+                              alt="Spell 2"
                               className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
-                            />
-                          ) : (
-                            <div className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800" />
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Match Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-sm text-neutral-100">
-                            {match.player.championName}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                              match.player.win
-                                ? 'bg-accent-emerald-500 text-white'
-                                : 'bg-red-500 text-white'
-                            }`}
-                          >
-                            {match.player.win ? 'Victory' : 'Defeat'}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-3 text-xs text-neutral-400">
-                          <span className="font-medium">
-                            {match.player.kills}/{match.player.deaths}/{match.player.assists}
-                          </span>
-                          <span>•</span>
-                          <span>{formatGameDuration(match.gameDuration)}</span>
-                          <span>•</span>
-                          <span>{getTimeAgo(match.gameCreation)}</span>
-                        </div>
-                      </div>
-
-                      {/* Items */}
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {Array.from({ length: 6 }, (_, i) => {
-                          const itemId = match.player.items?.[i];
-                          const hasItem = itemId && itemId > 0;
-                          return (
-                            <div
-                              key={`item-${match.matchId}-${i}`}
-                              className="w-6 h-6 rounded border border-neutral-600 bg-neutral-800 overflow-hidden"
-                            >
-                              {hasItem ? (
-                                <img
-                                  src={getItemImageUrl(itemId)}
-                                  alt={`Item ${itemId}`}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Trinket */}
-                      <div className="flex-shrink-0">
-                        {match.player.items?.[6] && match.player.items[6] > 0 ? (
-                          <div className="w-6 h-6 rounded border border-neutral-600 bg-neutral-800 overflow-hidden">
-                            <img
-                              src={getItemImageUrl(match.player.items[6])}
-                              alt={`Trinket ${match.player.items[6]}`}
-                              className="w-full h-full object-cover"
                             />
                           </div>
-                        ) : (
-                          <div className="w-6 h-6 rounded border border-neutral-600 bg-neutral-800" />
-                        )}
+                          {/* Runes */}
+                          <div className="flex gap-1">
+                            {match.player.runes?.keystone ? (
+                              <img
+                                src={getRunePerkIconUrl(
+                                  match.player.runes?.keystone,
+                                )}
+                                alt="Keystone"
+                                className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
+                              />
+                            ) : (
+                              <div className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800" />
+                            )}
+                            {match.player.runes?.subStyle ? (
+                              <img
+                                src={getRuneStyleIconUrl(
+                                  match.player.runes?.subStyle,
+                                )}
+                                alt="Secondary Rune"
+                                className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
+                              />
+                            ) : (
+                              <div className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800" />
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Stats */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-6 mb-1">
+                            <span className="font-semibold text-sm text-neutral-100">
+                              {Number(match.kda).toFixed(1)} KDA
+                            </span>
+                            <span className="font-semibold text-sm text-neutral-100">
+                              {Number(match.csPerMin).toFixed(1)} CS/Min.
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-neutral-400">
+                            <span className="font-medium">
+                              {match.player.kills}/{match.player.deaths}/
+                              {match.player.assists}
+                            </span>
+                            <span>•</span>
+                            <span>{match.player.cs} CS</span>
+                          </div>
+                        </div>
+
+                        {/* Items */}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {Array.from({ length: 6 }, (_, i) => {
+                            const itemId = match.player.items?.[i];
+                            const hasItem = itemId && itemId > 0;
+                            return (
+                              <div
+                                key={`item-${match.matchId}-${i}`}
+                                className="size-9 rounded border border-neutral-600 bg-neutral-800 overflow-hidden"
+                              >
+                                {hasItem ? (
+                                  <img
+                                    src={getItemImageUrl(itemId)}
+                                    alt={`Item ${itemId}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Trinket */}
+                        <div className="flex-shrink-0">
+                          {match.player.items?.[6] &&
+                          match.player.items[6] > 0 ? (
+                            <div className="size-9 rounded border border-neutral-600 bg-neutral-800 overflow-hidden">
+                              <img
+                                src={getItemImageUrl(match.player.items[6])}
+                                alt={`Trinket ${match.player.items[6]}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-6 h-6 rounded border border-neutral-600 bg-neutral-800" />
+                          )}
+                        </div>
+
+                        {/* Rosters */}
+                        {match.allies && match.enemies ? (
+                          <div className="ml-4 grid grid-cols-2 gap-x-6">
+                            <div className="space-y-1">
+                              {match.allies.slice(0, 5).map((p, idx) => (
+                                <div
+                                  key={`ally-${idx}-${p.championId}-${p.riotIdGameName ?? p.summonerName ?? p.championName}`}
+                                  className="flex items-center gap-2"
+                                >
+                                  <img
+                                    src={getChampionImageUrl(
+                                      p.championId,
+                                      'square',
+                                    )}
+                                    alt={p.championName}
+                                    className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
+                                  />
+                                  <span
+                                    className={`text-xs truncate max-w-[8rem] ${
+                                      (
+                                        p.riotIdGameName &&
+                                          p.riotIdTagline &&
+                                          p.riotIdGameName ===
+                                            match.player.riotIdGameName &&
+                                          p.riotIdTagline ===
+                                            match.player.riotIdTagline
+                                      ) ||
+                                      (
+                                        p.summonerName &&
+                                          p.summonerName ===
+                                            match.player.summonerName
+                                      )
+                                        ? 'text-neutral-100 font-semibold'
+                                        : 'text-neutral-300'
+                                    }`}
+                                  >
+                                    {(p.riotIdGameName
+                                      ? `${p.riotIdGameName}`
+                                      : (p.summonerName ?? p.championName)
+                                    ).slice(0, 10)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="space-y-1">
+                              {match.enemies.slice(0, 5).map((p, idx) => (
+                                <div
+                                  key={`enemy-${idx}-${p.championId}-${p.riotIdGameName ?? p.summonerName ?? p.championName}`}
+                                  className="flex items-center gap-2"
+                                >
+                                  <img
+                                    src={getChampionImageUrl(
+                                      p.championId,
+                                      'square',
+                                    )}
+                                    alt={p.championName}
+                                    className="w-5 h-5 rounded border border-neutral-600 bg-neutral-800"
+                                  />
+                                  <span className="text-xs truncate max-w-[8rem] text-neutral-300">
+                                    {(p.riotIdGameName
+                                      ? `${p.riotIdGameName}`
+                                      : (p.summonerName ?? p.championName)
+                                    ).slice(0, 10)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </motion.div>
                   </Link>
@@ -529,7 +685,10 @@ function MatchesComponent() {
                   >
                     Previous
                   </Button>
-                  <Chip size="sm" className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300">
+                  <Chip
+                    size="sm"
+                    className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300"
+                  >
                     {`Page ${page} / ${totalPages}`}
                   </Chip>
                   <Button
