@@ -81,6 +81,7 @@ interface ContextData {
     gameCreation: number;
   };
   subject: ContextSubject;
+  allies: ContextEnemy[];
   enemies: ContextEnemy[];
   commonBuilds: Array<{ items: BuildItemRef[] }>;
   availableItems: ItemData[];
@@ -550,6 +551,42 @@ export function createContextData(
         item5: subjectParticipant?.item5 || 0,
       },
     },
+    allies: match.allies
+      .filter((ally: Player) => ally.puuid !== subjectParticipant.puuid)
+      .map((ally: Player) => ({
+        championName: ally.championName,
+        teamPosition: ally.role,
+        puuid: ally.puuid,
+        performance: {
+          kills: ally.kills || 0,
+          deaths: ally.deaths || 0,
+          assists: ally.assists || 0,
+          goldEarned: ally.goldEarned || 0,
+          totalDamageDealt: ally.totalDamageDealt || 0,
+          totalDamageDealtToChampions: ally.stats?.totalDamageDealtToChampions || 0,
+          win: ally.win || false,
+        },
+        build: Object.keys(ally.finalBuild ?? {}).map((id) => ({
+          id: String(id),
+          name: itemsData[String(id)]?.name || 'Unknown',
+          tags: itemsData[String(id)]?.tags || [],
+          depth: itemsData[String(id)]?.depth || null,
+          gold: itemsData[String(id)]?.gold || null,
+          from: itemsData[String(id)]?.from || [],
+          into: itemsData[String(id)]?.into || [],
+          description: itemsData[String(id)]?.description || null,
+          stats: itemsData[String(id)]?.stats || null,
+          group: itemsData[String(id)]?.group || null,
+        })),
+        itemSlots: {
+          item0: ally.item0 || 0,
+          item1: ally.item1 || 0,
+          item2: ally.item2 || 0,
+          item3: ally.item3 || 0,
+          item4: ally.item4 || 0,
+          item5: ally.item5 || 0,
+        },
+      })),
     enemies: match.enemies.map((enemy: Player) => ({
       championName: enemy.championName,
       teamPosition: enemy.role,
@@ -734,7 +771,7 @@ export function generateUserPrompt(
     )
     .join(
       ', ',
-    )}\n- Match Duration: ${Math.floor((contextData.match.gameDuration || 0) / 60)} minutes\n- Performance: ${contextData.subject.performance.kills}/${contextData.subject.performance.deaths}/${contextData.subject.performance.assists} KDA\n- Result: ${contextData.subject.performance.win ? 'Victory' : 'Defeat'}\n\nEnemy Team Composition:\n${contextData.enemies.map((enemy) => `- ${enemy.championName} (${enemy.teamPosition}): ${enemy.build.map((item) => item.name).join(', ')}`).join('\n')}\n\nCommon Successful Builds for this Champion/Role:\n${contextData.commonBuilds
+    )}\n- Match Duration: ${Math.floor((contextData.match.gameDuration || 0) / 60)} minutes\n- Performance: ${contextData.subject.performance.kills}/${contextData.subject.performance.deaths}/${contextData.subject.performance.assists} KDA\n- Result: ${contextData.subject.performance.win ? 'Victory' : 'Defeat'}\n\nAlly Team Composition:\n${contextData.allies.map((ally) => `- ${ally.championName} (${ally.teamPosition}): ${ally.build.map((item) => item.name).join(', ')}`).join('\n')}\n\nEnemy Team Composition:\n${contextData.enemies.map((enemy) => `- ${enemy.championName} (${enemy.teamPosition}): ${enemy.build.map((item) => item.name).join(', ')}`).join('\n')}\n\nCommon Successful Builds for this Champion/Role:\n${contextData.commonBuilds
     .sort((a, b) => b.items.length - a.items.length)
     .slice(0, 10)
     .map(
