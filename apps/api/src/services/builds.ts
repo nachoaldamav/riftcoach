@@ -118,6 +118,8 @@ interface MatchBuilds {
 }
 
 function isCompletedItem(item: Item): boolean {
+  if (!item.from?.length) return false;
+  if (item.consumed) return false;
   if (item.tags?.includes('Boots')) {
     return (item.depth ?? 0) >= 2;
   }
@@ -651,7 +653,7 @@ Rules:
 • Boots can only replace other boots. Never replace boots with non-boots or vice-versa.
 • Do not add a second pair of boots under any circumstance.
 • Tier policy:
-- If the player currently has **Tier 2** boots, you may only upgrade to **Tier 3** if (and only if) **at least one ally already has Tier 3 boots**. If no ally has Tier 3 boots, do not suggest Tier 3 boots.
+- If the player currently has **Tier 2** boots, you may only upgrade to **Tier 3** if (and only if) **at least one ally on the same team (not enemy) already has Tier 3 boots**. If no ally has Tier 3 boots, do not suggest Tier 3 boots.
 - If the player currently has **Tier 3** boots, you may only replace them with **another Tier 3** boots variant (never downgrade to Tier 2 or "Boots").
 - Suggest up to 3 changes, but if no meaningful improvement exists, return **no changes**.
 - PRIORITIZE EMPTY SLOTS: Add items to empty slots first.

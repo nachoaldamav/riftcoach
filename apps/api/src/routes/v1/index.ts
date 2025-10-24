@@ -909,14 +909,14 @@ app.get(
 
     const cacheKey = `cache:match-builds:${matchId}:${puuid}:v2`;
 
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached && !force) {
-        return c.json(JSON.parse(cached) as MatchBuilds);
-      }
-    } catch (err) {
-      consola.warn('[match-builds-route] redis get failed', err);
-    }
+    // try {
+    //   const cached = await redis.get(cacheKey);
+    //   if (cached && !force) {
+    //     return c.json(JSON.parse(cached) as MatchBuilds);
+    //   }
+    // } catch (err) {
+    //   consola.warn('[match-builds-route] redis get failed', err);
+    // }
 
     // Get match builds data
     const match = (await collections.matches
