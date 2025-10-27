@@ -1,11 +1,10 @@
+import { cn } from '@/lib/utils';
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import {
   type ItemSuggestion,
-  type MatchBuildSuggestionsResponse,
   getAllMatchDataQueryOptions,
 } from '@/queries/get-match-insights';
 import { Avatar, Card, CardBody, Chip, Tooltip } from '@heroui/react';
-import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
@@ -396,7 +395,8 @@ function MatchAnalysisComponent() {
     };
   };
 
-  const isLoading = isMatchLoading || isTimelineLoading || isInsightsLoading;
+  // Separate loading states - only block on essential match data
+  const isEssentialDataLoading = isMatchLoading || isTimelineLoading;
 
   // Helper functions
   const getChampionCentered = (championName: string) =>
@@ -507,18 +507,6 @@ function MatchAnalysisComponent() {
     return bySummoner ?? null;
   }, [matchData, name, tag]);
 
-  const originalBuild = useMemo(() => {
-    if (!subjectParticipant) return [] as number[];
-    return [
-      subjectParticipant.item0 || 0,
-      subjectParticipant.item1 || 0,
-      subjectParticipant.item2 || 0,
-      subjectParticipant.item3 || 0,
-      subjectParticipant.item4 || 0,
-      subjectParticipant.item5 || 0,
-    ];
-  }, [subjectParticipant]);
-
   const slotKeys = [
     'item0',
     'item1',
@@ -591,7 +579,7 @@ function MatchAnalysisComponent() {
     });
   }, [subjectParticipant, buildsData, slotKeys]);
 
-  if (isLoading || isBuildsLoading) {
+  if (isEssentialDataLoading) {
     return (
       <div className="max-w-7xl mx-auto">
         <div className="animate-pulse space-y-6">
@@ -605,7 +593,7 @@ function MatchAnalysisComponent() {
     );
   }
 
-  if (!matchData || !timelineData || !insightsData) {
+  if (!matchData || !timelineData) {
     return (
       <div className="max-w-7xl mx-auto">
         <Card className="bg-red-900/20 border-red-500/30">
@@ -680,17 +668,31 @@ function MatchAnalysisComponent() {
                     {matchData.info.participants
                       .filter((p) => p.teamId === team.teamId)
                       .map((p) => {
-                        const rp = p as { riotIdGameName?: string; riotIdTagline?: string };
+                        const rp = p as {
+                          riotIdGameName?: string;
+                          riotIdTagline?: string;
+                        };
                         const isSubject = subjectParticipant?.puuid === p.puuid;
                         const displayName = rp.riotIdGameName ?? p.summonerName;
-                        const displayTag = rp.riotIdTagline ?? (isSubject ? tag : undefined);
+                        const displayTag =
+                          rp.riotIdTagline ?? (isSubject ? tag : undefined);
                         const teamKills = matchData.info.participants
                           .filter((q) => q.teamId === team.teamId)
                           .reduce((acc, q) => acc + (q.kills ?? 0), 0);
-                        const minutes = Math.max(1, Math.floor(matchData.info.gameDuration / 60));
-                        const csTotal = (p.totalMinionsKilled ?? 0) + (p.neutralMinionsKilled ?? 0);
+                        const minutes = Math.max(
+                          1,
+                          Math.floor(matchData.info.gameDuration / 60),
+                        );
+                        const csTotal =
+                          (p.totalMinionsKilled ?? 0) +
+                          (p.neutralMinionsKilled ?? 0);
                         const csPerMin = csTotal / minutes;
-                        const kpPct = teamKills > 0 ? Math.round(((p.kills + p.assists) / teamKills) * 100) : 0;
+                        const kpPct =
+                          teamKills > 0
+                            ? Math.round(
+                                ((p.kills + p.assists) / teamKills) * 100,
+                              )
+                            : 0;
                         return (
                           <div
                             key={`row-${p.puuid}`}
@@ -725,28 +727,44 @@ function MatchAnalysisComponent() {
                             {/* Name + tagline + small stats */}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 truncate">
-                                <span className="font-medium text-neutral-200 truncate">{displayName}</span>
+                                <span className="font-medium text-neutral-200 truncate">
+                                  {displayName}
+                                </span>
                                 {displayTag && (
-                                  <span className="text-xs text-neutral-300 px-2 py-0.5 rounded border border-neutral-700/60 bg-neutral-800/60">#{displayTag}</span>
+                                  <span className="text-xs text-neutral-300 px-2 py-0.5 rounded border border-neutral-700/60 bg-neutral-800/60">
+                                    #{displayTag}
+                                  </span>
                                 )}
                               </div>
                               <div className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
                                 <span className="flex items-center gap-1">
                                   <span className="text-neutral-500">KDA</span>
-                                  <span className="text-neutral-300 font-semibold">{p.kills}/{p.deaths}/{p.assists}</span>
+                                  <span className="text-neutral-300 font-semibold">
+                                    {p.kills}/{p.deaths}/{p.assists}
+                                  </span>
                                 </span>
                                 <span className="flex items-center gap-1">
-                                  <span className="text-neutral-500">CS/min</span>
-                                  <span className="text-neutral-300 font-semibold">{csPerMin.toFixed(1)}</span>
+                                  <span className="text-neutral-500">
+                                    CS/min
+                                  </span>
+                                  <span className="text-neutral-300 font-semibold">
+                                    {csPerMin.toFixed(1)}
+                                  </span>
                                 </span>
                                 <span className="flex items-center gap-1">
-                                  <span className="text-neutral-500">Vision</span>
-                                  <span className="text-neutral-300 font-semibold">{p.visionScore ?? 0}</span>
+                                  <span className="text-neutral-500">
+                                    Vision
+                                  </span>
+                                  <span className="text-neutral-300 font-semibold">
+                                    {p.visionScore ?? 0}
+                                  </span>
                                 </span>
                                 {teamKills > 0 && (
                                   <span className="flex items-center gap-1">
                                     <span className="text-neutral-500">KP</span>
-                                    <span className="text-neutral-300 font-semibold">{kpPct}%</span>
+                                    <span className="text-neutral-300 font-semibold">
+                                      {kpPct}%
+                                    </span>
                                   </span>
                                 )}
                               </div>
@@ -829,55 +847,64 @@ function MatchAnalysisComponent() {
 
             {/* 6 columns: built item + suggestions */}
             <div className="flex items-center gap-4 overflow-x-auto py-2">
-              {slotColumns.map((col, idx) => (
-                <>
-                  <div
-                    key={`col-${col.slotKey}`}
-                    className="flex flex-col items-start gap-3 ml-2"
-                  >
-                    {/* Base item */}
-                    <div className="flex flex-col items-center">
-                      {col.baseId > 0 ? (
-                        <img
-                          src={getItemIcon(col.baseId)}
-                          alt={`Base ${col.slotKey}`}
-                          title={
-                            col.overridden
-                              ? 'AI override: component added to slot'
-                              : undefined
-                          }
-                          className={cn(
-                            'size-12 rounded-lg bg-neutral-900 border object-cover',
-                            col.overridden
-                              ? 'border-accent-yellow-500/70 ring-2 ring-accent-yellow-400'
-                              : 'border-neutral-700/70',
-                          )}
-                        />
-                      ) : (
-                        <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
-                      )}
-                    </div>
-
-                    {/* Suggestions stack */}
-                    <div className="flex flex-col gap-2">
-                      {col.suggestions.length > 0
-                        ? col.suggestions.map((sug, sidx) => (
-                            <img
-                              key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
-                              src={getItemIcon(sug.id)}
-                              alt={sug.name || 'Suggestion'}
-                              title={sug.reasoning}
-                              className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
-                            />
-                          ))
-                        : null}
-                    </div>
+              {isBuildsLoading ? (
+                <div className="flex items-center justify-center w-full py-8">
+                  <div className="flex items-center gap-3">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
+                    <span className="text-neutral-300">Generating build recommendation with AI...</span>
                   </div>
-                  {idx < slotColumns.length - 1 && (
-                    <ChevronRight className="w-4 h-4 text-neutral-500" />
-                  )}
-                </>
-              ))}
+                </div>
+              ) : (
+                slotColumns.map((col, idx) => (
+                  <div key={`col-wrapper-${col.slotKey}`} className="flex items-center gap-2">
+                    <div
+                      key={`col-${col.slotKey}`}
+                      className="flex flex-col items-start gap-3 ml-2"
+                    >
+                      {/* Base item */}
+                      <div className="flex flex-col items-center">
+                        {col.baseId > 0 ? (
+                          <img
+                            src={getItemIcon(col.baseId)}
+                            alt={`Base ${col.slotKey}`}
+                            title={
+                              col.overridden
+                                ? 'AI override: component added to slot'
+                                : undefined
+                            }
+                            className={cn(
+                              'size-12 rounded-lg bg-neutral-900 border object-cover',
+                              col.overridden
+                                ? 'border-accent-yellow-500/70 ring-2 ring-accent-yellow-400'
+                                : 'border-neutral-700/70',
+                            )}
+                          />
+                        ) : (
+                          <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
+                        )}
+                      </div>
+
+                      {/* Suggestions stack */}
+                      <div className="flex flex-col gap-2">
+                        {col.suggestions.length > 0
+                          ? col.suggestions.map((sug, sidx) => (
+                              <img
+                                key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
+                                src={getItemIcon(sug.id)}
+                                alt={sug.name || 'Suggestion'}
+                                title={sug.reasoning}
+                                className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                              />
+                            ))
+                          : null}
+                      </div>
+                    </div>
+                    {idx < slotColumns.length - 1 && (
+                      <ChevronRight className="w-4 h-4 text-neutral-500" />
+                    )}
+                  </div>
+                ))
+              )}
             </div>
 
             {/* Overall analysis */}
@@ -1007,20 +1034,28 @@ function MatchAnalysisComponent() {
 
               {/* Moments list */}
               <div className="space-y-3 md:col-span-2">
-                {insightsData.keyMoments.map((moment, index: number) => {
-                  const isSelected = index === selectedMomentIndex;
-                  const versus = findKillParticipants(moment.ts);
-                  return (
-                    <motion.button
-                      key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
-                      type="button"
-                      onClick={() => setSelectedMomentIndex(index)}
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
-                    >
-                      {versus && (
+                {isInsightsLoading ? (
+                  <div className="flex items-center justify-center w-full py-8">
+                    <div className="flex items-center gap-3">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
+                      <span className="text-neutral-300">Gathering key moments...</span>
+                    </div>
+                  </div>
+                ) : (
+                  insightsData?.keyMoments.map((moment, index: number) => {
+                    const isSelected = index === selectedMomentIndex;
+                    const versus = findKillParticipants(moment.ts);
+                    return (
+                      <motion.button
+                        key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
+                        type="button"
+                        onClick={() => setSelectedMomentIndex(index)}
+                        initial={{ opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
+                      >
+                        {versus && (
                         <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
                           {/* Killer background (left side) */}
                           <div
@@ -1071,7 +1106,8 @@ function MatchAnalysisComponent() {
                       </p>
                     </motion.button>
                   );
-                })}
+                })
+                )}
               </div>
             </div>
           </CardBody>

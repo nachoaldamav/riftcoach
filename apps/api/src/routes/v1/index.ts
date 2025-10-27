@@ -23,6 +23,7 @@ import { championInsights } from '../../aggregations/championInsights.js';
 import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
 import { getMatchBuilds } from '../../aggregations/matchBuilds.js';
+import { playerChampRoleStatsAggregation } from '../../aggregations/playerChampRoleStats.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
@@ -31,6 +32,12 @@ import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
 import { generateBuildSuggestions } from '../../services/builds.js';
 import { generateChampionInsights } from '../../services/champion-insights.js';
+import {
+  computeChampionRoleAlgoScore,
+  fetchCohortPercentiles,
+} from '../../services/champion-role-algo.js';
+import { generateChampionRoleAIScores } from '../../services/champion-role-score.js';
+import type { ChampionRoleStats } from '../../services/champion-role-score.js';
 import { matchDetailsNode } from '../../services/match-details.js';
 import { generateMatchInsights } from '../../services/match-insights.js';
 import {
@@ -216,7 +223,8 @@ app.get('/builds-order', async (c) => {
 
   function isCompletedItem(item: RiotAPITypes.DDragon.DDragonItemDTO) {
     if (!item.from?.length) return false;
-    if ((item as any).consumed) return false;
+    const consumed = (item as { consumed?: boolean }).consumed;
+    if (consumed) return false;
     if (item.tags?.includes('Boots')) {
       return (item.depth ?? 0) >= 2;
     }
@@ -245,7 +253,7 @@ app.get('/builds-order', async (c) => {
   const itemMeta = new Map<number, { name: string; icon?: string }>(
     items.map((i) => [
       Number(i.id),
-      { name: i.name, icon: (i.image as any)?.full },
+      { name: i.name, icon: (i.image as { full?: string } | undefined)?.full },
     ]),
   );
 
@@ -257,7 +265,7 @@ app.get('/builds-order', async (c) => {
 
   const matches = collections.matches;
 
-  const earlyMatch: any = {
+  const earlyMatch: Document = {
     'info.participants': {
       $elemMatch: {
         championName: champion,
@@ -513,6 +521,114 @@ app.get('/:region/:tagName/:tagLine', accountMiddleware, async (c) => {
     id: c.var.internalId,
   });
 });
+
+// Champion-role stats endpoint with pagination and AI score
+app.get(
+  '/:region/:tagName/:tagLine/champions-stats',
+  accountMiddleware,
+  async (c) => {
+    const account = c.var.account;
+    const page = Math.max(1, Number(c.req.query('page') ?? 1));
+    const pageSize = Math.min(
+      50,
+      Math.max(1, Number(c.req.query('pageSize') ?? 20)),
+    );
+    const skip = (page - 1) * pageSize;
+
+    // Base aggregation returns champion-role stats grouped by champion and normalized role
+    const fullAgg = playerChampRoleStatsAggregation(account.puuid);
+
+    // Count total distinct champion-role rows with a $facet to avoid re-running aggregation twice
+    const facetPipeline = [
+      ...fullAgg,
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: pageSize }],
+          meta: [{ $count: 'total' }],
+        },
+      },
+    ];
+
+    const cursor = collections.matches.aggregate<{
+      data: ChampionRoleStats[];
+      meta: Array<{ total: number }>;
+    }>(facetPipeline, { allowDiskUse: true });
+    const [facet] = await cursor.toArray();
+    const rows: ChampionRoleStats[] = Array.isArray(facet?.data)
+      ? (facet.data as ChampionRoleStats[])
+      : [];
+    const total: number =
+      typeof facet?.meta?.[0]?.total === 'number' ? facet.meta[0].total : 0;
+
+    // Compute algorithmic scores using cohort percentiles for each champion-role
+    // Limit concurrency to reduce CPU spikes on busy servers
+    const limit = 10; // parallel fetches
+    const cohortDocs: Array<
+      Awaited<ReturnType<typeof fetchCohortPercentiles>>
+    > = [];
+    for (let i = 0; i < rows.length; i += limit) {
+      const batch = rows.slice(i, i + limit);
+      const results = await Promise.all(
+        batch.map((r) => fetchCohortPercentiles(r.championName, r.role)),
+      );
+      cohortDocs.push(...results);
+    }
+    const data = rows.map((r, i) => ({
+      ...r,
+      aiScore: computeChampionRoleAlgoScore(r, cohortDocs[i] ?? null),
+    }));
+
+    return c.json({
+      page,
+      pageSize,
+      total,
+      data,
+    });
+  },
+);
+
+// Single champion-role AI scoring endpoint
+app.get(
+  '/:region/:tagName/:tagLine/champions/:championName/:role',
+  accountMiddleware,
+  async (c) => {
+    const account = c.var.account;
+    const championName = c.req.param('championName');
+    const role = c.req.param('role');
+
+    // Fetch player's champion-role stats and select the requested entry
+    const statsAgg = playerChampRoleStatsAggregation(account.puuid);
+    const aggCursor = collections.matches.aggregate<ChampionRoleStats>(
+      statsAgg,
+      { allowDiskUse: true },
+    );
+    const allStats = await aggCursor.toArray();
+    const target = allStats.find(
+      (d) => d.championName === championName && d.role === role,
+    );
+
+    if (!target) {
+      return c.json(
+        { message: 'Champion-role stats not found for player' },
+        404,
+      );
+    }
+
+    // Defer to AI scoring service for single champion-role
+    const aiScores = await generateChampionRoleAIScores(account.puuid, [
+      target,
+    ]);
+    const ai = aiScores[0] ?? null;
+
+    return c.json({
+      championName,
+      role,
+      aiScore: ai?.aiScore ?? null,
+      reasoning: ai?.reasoning ?? undefined,
+      stats: target,
+    });
+  },
+);
 
 app.post('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
   const rewindId = c.var.internalId;

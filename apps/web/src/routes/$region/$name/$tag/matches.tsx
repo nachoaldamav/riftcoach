@@ -273,7 +273,7 @@ function MatchesComponent() {
             {/* Champion Filter */}
             <Autocomplete
               aria-label="Champion"
-              className="max-w-md"
+              className="max-w-xs"
               label="Champion"
               size="sm"
               allowsCustomValue
@@ -307,33 +307,6 @@ function MatchesComponent() {
                 </AutocompleteItem>
               ))}
             </Autocomplete>
-
-            {/* Page Size */}
-            <Select
-              aria-label="Page Size"
-              selectedKeys={[String(pageSize)]}
-              onSelectionChange={(keys) => {
-                const val = Number(Array.from(keys)[0]);
-                setPageSize(val);
-                setPage(1);
-              }}
-              className="max-w-[140px]"
-              label="Page Size"
-              size="sm"
-            >
-              <SelectItem key="10" textValue="10">
-                10
-              </SelectItem>
-              <SelectItem key="20" textValue="20">
-                20
-              </SelectItem>
-              <SelectItem key="30" textValue="30">
-                30
-              </SelectItem>
-              <SelectItem key="50" textValue="50">
-                50
-              </SelectItem>
-            </Select>
 
             {/* Clear Filters */}
             <Button
