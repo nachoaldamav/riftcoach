@@ -1,5 +1,5 @@
 import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { DDragon, RiotAPITypes } from '@fightmegg/riot-api';
+import { DDragon } from '@fightmegg/riot-api';
 import { collections } from '@riftcoach/clients.mongodb';
 import type { Item } from '@riftcoach/shared.lol-types';
 import consola from 'consola';
@@ -530,10 +530,19 @@ export async function getChampionRoleBuildOrderColumns(
   if (!completedItemIds.length) {
     const ddragon = new DDragon();
     const itemsRaw = await ddragon.items();
+    type DDragonItemDTO = {
+      name: string;
+      from?: string[];
+      into?: string[];
+      depth?: number;
+      tags?: string[];
+      image?: { full?: string };
+      consumed?: boolean;
+    };
     const entries = Object.entries(itemsRaw.data) as Array<
-      [string, RiotAPITypes.DDragon.DDragonItemDTO]
+      [string, DDragonItemDTO]
     >;
-    function isCompletedItem(item: RiotAPITypes.DDragon.DDragonItemDTO) {
+    function isCompletedItem(item: DDragonItemDTO) {
       if (!item.from?.length) return false;
       const consumed = (item as { consumed?: boolean }).consumed;
       if (consumed) return false;
@@ -960,12 +969,39 @@ Hard rules:
 - NEVER invent item names or IDs; use only those provided.
 - Map IDs/names via idToName/nameToId and verify against metaById.
 - Use ONLY completed items present in the "Available Completed Items" list.
-- Respect item group uniqueness (e.g., only one from 'LastWhisper' group at any time).
+ - Respect item group uniqueness (only one item from a group may be equipped).
 - Boots policy:
   • Do not add more than one pair of boots.
-  • Boots upgrades must stay within boots variants; do not replace boots with non-boots.
-- Prefer items with higher pickrate for the given purchase ORDER column when reasonable.
+  • Boots changes must remain boots; do not replace boots with non-boots.
+  • Only replace tier-3 boots with tier-3 boots; NEVER upgrade from tier-2 to tier-3.
+  • Cassiopeia cannot buy Boots; ignore boots recommendations for her.
+ - Pickrate guidance: Use pickrate as guidance, not a mandate; adapt to match context (enemy damage profile, CC/healing/shielding, champion role/kit, and game state). Example (non-extensive): vs full AP team, avoid armor stacking for K'Sante; prefer MR-oriented choices.
 - Consider champion/role context, ally/enemy compositions, and match duration.
+
+Item Groups Catalog (uniqueness applies: only one per group):
+- Annul: Verdant Barrier, Banshee's Veil, Edge of Night
+- Blight: Blighting Jewel, Bloodletter's Curse, Cryptbloom, Terminus, Void Staff
+- Boots: Armored Advance, Berserker's Greaves, Boots, Boots of Swiftness, Chainlaced Crushers, Crimson Lucidity, Forever Forward, Gunmetal Greaves, Ionian Boots of Lucidity, Mercury's Treads, Plated Steelcaps, Slightly Magical Boots, Sorcerer's Shoes, Spellslinger's Shoes, Swiftmarch, Symbiotic Soles, Synchronized Souls
+- Dirk: Serrated Dirk
+- Elixir: Elixir of Iron, Elixir of Sorcery, Elixir of Wrath
+- Eternity: Catalyst of Aeons, Rod of Ages
+- Fatality: Last Whisper, Black Cleaver, Lord Dominik's Regards, Mortal Reminder, Serylda's Grudge, Terminus
+- Glory: Dark Seal, Mejai's Soulstealer
+- Guardian: Guardian's Blade, Guardian's Hammer, Guardian's Horn, Guardian's Orb
+- Hydra: Tiamat, Profane Hydra, Ravenous Hydra, Stridebreaker, Titanic Hydra
+- Immolate: Bami's Cinder, Sunfire Aegis, Hollow Radiance
+- Jungle/Support: Bounty of Worlds, Bloodsong, Celestial Opposition, Dream Maker, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, Solstice Sleigh, Zaz'Zak's Realmspike
+- Lifeline: Archangel's Staff, Hexdrinker, Immortal Shieldbow, Maw of Malmortius, Seraph's Embrace, Sterak's Gage
+- Manaflow: Archangel's Staff, Fimbulwinter, Manamune, Muramana, Seraph's Embrace, Tear of the Goddess, Winter's Approach
+- Momentum: Dead Man's Plate, Trailblazer
+- Potion: Health Potion, Refillable Potion
+- Quicksilver: Mercurial Scimitar, Quicksilver Sash
+- Sightstone: Watchful Wardstone, Vigilant Wardstone
+- Soul Anchor: Lifeline Spectral Cutlass
+- Spellblade: Sheen, Bloodsong, Iceborn Gauntlet, Lich Bane, Trinity Force
+- Starter: Doran's Blade, Doran's Ring, Doran's Shield, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, World Atlas, Runic Compass
+- Stasis: Seeker's Armguard, Shattered Armguard, Zhonya's Hourglass
+- Trinket: Farsight Alteration, Oracle Lens, Stealth Ward
 
 Output format:
 - Return a single valid JSON object with fields:
@@ -983,6 +1019,8 @@ ID maps for validation:
 - idToName: ${JSON.stringify(idToNameMap)}
 - nameToId: ${JSON.stringify(nameToIdMap)}
 - metaById: ${JSON.stringify(metaById)}
+
+
 `;
 }
 
@@ -1044,7 +1082,7 @@ Time-Sorted Build Columns (population pick order → item options):
 ${orderSummary}
 
 Task:
-- Recommend a PURCHASE ORDER (1..N) tailored to this match. Prefer high-pick items per column when sensible; justify deviations based on comps and performance.
+- Recommend a PURCHASE ORDER (1..N) tailored to this match. Treat pickrate as guidance, not a mandate; justify deviations based on enemy comp and performance (e.g., vs full AP, avoid armor on K'Sante; prefer MR options).
 - Respect boots policy and uniqueness of item groups.
 
 Return JSON with 'buildOrder' and 'overallAnalysis' only.`;
@@ -1057,6 +1095,29 @@ export async function getItemSuggestionsFromAI(
   buildOrder: BuildOrderEntry[];
   overallAnalysis: string;
 } | null> {
+  // Normalize a single build order entry from unknown input without using 'any'.
+  function toBuildOrderEntry(val: unknown): BuildOrderEntry | null {
+    if (typeof val !== 'object' || val === null) return null;
+    const obj = val as Record<string, unknown>;
+    const orderNum = Number(obj.order as number | string | undefined);
+    if (!Number.isFinite(orderNum)) return null;
+    const itemIdRaw = obj.itemId as number | string | undefined;
+    const itemIdStr = itemIdRaw === undefined ? '' : String(itemIdRaw);
+    if (!itemIdStr) return null;
+    const itemNameRaw = obj.itemName as unknown;
+    const itemNameStr =
+      typeof itemNameRaw === 'string' && itemNameRaw.length > 0
+        ? itemNameRaw
+        : itemIdStr;
+    const reasoningRaw = obj.reasoning as unknown;
+    const reasoningStr = typeof reasoningRaw === 'string' ? reasoningRaw : '';
+    return {
+      order: orderNum,
+      itemId: itemIdStr,
+      itemName: itemNameStr,
+      reasoning: reasoningStr,
+    };
+  }
   consola.debug('System prompt:', systemPrompt);
   consola.debug('User prompt:', userPrompt);
 
@@ -1094,15 +1155,12 @@ export async function getItemSuggestionsFromAI(
             .replace(/\/\/.*$/gm, '')
             .replace(/,(\s*[}\]])/g, '$1');
           const parsed = JSON.parse(cleanedJson);
-          const buildOrder: BuildOrderEntry[] = Array.isArray(
-            parsed?.buildOrder,
-          )
-            ? parsed.buildOrder.map((e: any) => ({
-                order: Number(e.order),
-                itemId: String(e.itemId),
-                itemName: String(e.itemName),
-                reasoning: String(e.reasoning ?? ''),
-              }))
+          const rawBuildOrder = (parsed as { buildOrder?: unknown })
+            ?.buildOrder;
+          const buildOrder: BuildOrderEntry[] = Array.isArray(rawBuildOrder)
+            ? (rawBuildOrder as unknown[])
+                .map(toBuildOrderEntry)
+                .filter((e): e is BuildOrderEntry => e !== null)
             : [];
           const overallAnalysis: string = String(parsed?.overallAnalysis ?? '');
           buildOrderResult = { buildOrder, overallAnalysis };
