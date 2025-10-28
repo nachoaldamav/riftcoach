@@ -1,6 +1,7 @@
 import { collections } from '@riftcoach/clients.mongodb';
 import consola from 'consola';
 import { cohortChampionRolePercentilesAggregation } from '../aggregations/cohortChampionRolePercentiles.js';
+import { bulkCohortChampionRolePercentilesAggregation } from '../aggregations/bulkCohortChampionRolePercentiles.js';
 import { redis } from '../clients/redis.js';
 import type { ChampionRoleStats } from './champion-role-score.js';
 
@@ -230,9 +231,17 @@ export async function fetchBulkCohortPercentiles(
       }
     }
 
-    // Fetch uncached results in parallel with controlled concurrency
+    // For uncached results, use individual queries if bulk would be too slow
+    // Bulk aggregation is only efficient for small batches due to complexity
     if (uncachedRequests.length > 0) {
-      const limit = 5; // Reduced concurrency for bulk operations
+      consola.debug(
+        '[champion-role-algo] fetching cohorts for',
+        uncachedRequests.length,
+        'champion-role combinations using individual queries',
+      );
+      
+      // Use individual queries with controlled concurrency for better performance
+      const limit = 5;
       const uncachedResults: Array<{
         key: string;
         doc: CohortPercentilesDoc | null;
@@ -260,11 +269,6 @@ export async function fetchBulkCohortPercentiles(
                 sortDesc: true,
               });
 
-              consola.debug(
-                '[champion-role-algo] getting cohorts for',
-                req.championName,
-                req.role,
-              );
               const start = Date.now();
               const docs = await collections.matches
                 .aggregate<CohortPercentilesDoc>(pipeline, {
@@ -275,7 +279,9 @@ export async function fetchBulkCohortPercentiles(
               consola.debug(
                 '[champion-role-algo] cohort percentile aggregation took',
                 end - start,
-                'ms',
+                'ms for',
+                req.championName,
+                req.role,
               );
 
               const doc = docs[0] ?? null;
