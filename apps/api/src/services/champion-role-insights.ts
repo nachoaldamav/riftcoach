@@ -44,7 +44,33 @@ function buildPrompt(
     cohortPercentiles: percentiles,
   };
 
-  return `You are an elite League of Legends analyst. Evaluate the player's performance on ${stats.championName} (${stats.role}). Use the provided cohort percentiles (p50, p75, p90, p95) to determine how this player compares to other players on the same champion-role. Identify the strongest advantages and the most critical weaknesses.\n\nReturn ONLY valid JSON in the following structure:\n{\n  "summary": "One sentence overview",\n  "strengths": ["Strength highlighting metric comparison"],\n  "weaknesses": ["Weakness highlighting metric comparison"]\n}\n\nRules:\n- Cite specific metrics and numbers when explaining strengths/weaknesses.\n- Limit to at most 3 strengths and 3 weaknesses.\n- If there is insufficient data for a metric, say so rather than guessing.\n- Focus on differences that are meaningfully above p75/p90 or below p50 percentiles.\n\nPlayer data:\n${JSON.stringify(payload, null, 2)}\n`;
+  return `You are a supportive League of Legends coach. Give a concise, human, friendly analysis of the player's performance on ${stats.championName} (${stats.role}). Use the cohort percentiles only to calibrate comparisons internally — do not mention the words "percentile", "p75", "p90", or "cohort" in the output. Prefer plain-English phrases and helpful context.
+
+Return ONLY valid JSON:
+{
+  "summary": "One-sentence overview in plain English",
+  "strengths": ["Human-friendly insight with simple numbers"],
+  "weaknesses": ["Human-friendly insight with simple numbers"]
+}
+
+Style and rules:
+- Speak directly to the player using "you".
+- Translate percentile comparisons into everyday phrases:
+  - ≥ p95: "best-in-class", "among the very top"
+  - p90–p95: "elite"
+  - p75–p90: "strong", "better than most players"
+  - p50–p75: "solid", "slightly above average"
+  - p25–p50: "about average"
+  - < p25: "needs improvement", "below most players"
+- Do NOT use technical terms like "percentile", "p75/p90", or "cohort" in the output.
+- Cite at most one key metric per bullet.
+- Prefer clean numbers: round decimals; convert rates to intuitive units (e.g., say "about one death every 7 minutes" instead of "0.148 deaths/min").
+- Keep each bullet to 1–2 short sentences. Limit to max 3 strengths and 3 weaknesses.
+- If data is insufficient for a metric, say so instead of guessing.
+
+Player data:
+${JSON.stringify(payload, null, 2)}
+`;
 }
 
 export async function generateChampionRoleInsights(
