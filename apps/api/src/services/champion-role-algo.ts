@@ -106,38 +106,71 @@ export function computeChampionRoleAlgoScore(
   const mods = getRoleMods(stats.role);
 
   // Positive metrics
-  const posWins = contribPositive(stats.winRate, { p50: 0.5, p75: 0.55, p90: 0.6 });
+  const posWins = contribPositive(stats.winRate, {
+    p50: 0.5,
+    p75: 0.55,
+    p90: 0.6,
+  });
   const posKda = contribPositive(stats.kda, { p50: 2.0, p75: 3.0, p90: 4.0 });
   const posDpm = contribPositive(stats.avgDpm, getP('dpm')) * mods.dpmWeight;
   const posKpm = contribPositive(stats.avgKpm, getP('kpm'));
   const posApm = contribPositive(stats.avgApm, getP('apm')) * mods.apmWeight;
-  const posGold10 = contribPositive(stats.avgGoldAt10, getP('goldAt10')) * mods.csWeight;
-  const posCs10 = contribPositive(stats.avgCsAt10, getP('csAt10')) * mods.csWeight;
-  const posGold15 = contribPositive(stats.avgGoldAt15, getP('goldAt15')) * mods.csWeight;
-  const posCs15 = contribPositive(stats.avgCsAt15, getP('csAt15')) * mods.csWeight;
+  const posGold10 =
+    contribPositive(stats.avgGoldAt10, getP('goldAt10')) * mods.csWeight;
+  const posCs10 =
+    contribPositive(stats.avgCsAt10, getP('csAt10')) * mods.csWeight;
+  const posGold15 =
+    contribPositive(stats.avgGoldAt15, getP('goldAt15')) * mods.csWeight;
+  const posCs15 =
+    contribPositive(stats.avgCsAt15, getP('csAt15')) * mods.csWeight;
 
   // Additional positives if available
-  const posDmgShare = typeof stats.avgDamageShare === 'number'
-    ? contribPositive(stats.avgDamageShare, { p50: 0.22, p75: 0.26, p90: 0.3 }) * (mods.dpmWeight * 0.5)
-    : 0;
-  const posObjPart = typeof stats.avgObjectiveParticipationPct === 'number'
-    ? contribPositive(stats.avgObjectiveParticipationPct, { p50: 0.3, p75: 0.4, p90: 0.5 }) * mods.objWeight
-    : 0;
+  const posDmgShare =
+    typeof stats.avgDamageShare === 'number'
+      ? contribPositive(stats.avgDamageShare, {
+          p50: 0.22,
+          p75: 0.26,
+          p90: 0.3,
+        }) *
+        (mods.dpmWeight * 0.5)
+      : 0;
+  const posObjPart =
+    typeof stats.avgObjectiveParticipationPct === 'number'
+      ? contribPositive(stats.avgObjectiveParticipationPct, {
+          p50: 0.3,
+          p75: 0.4,
+          p90: 0.5,
+        }) * mods.objWeight
+      : 0;
 
-  const posTotal = mods.posScale * (
-    posWins + posKda + posDpm + posKpm + posApm + posGold10 + posCs10 + posGold15 + posCs15 + posDmgShare + posObjPart
-  );
+  const posTotal =
+    mods.posScale *
+    (posWins +
+      posKda +
+      posDpm +
+      posKpm +
+      posApm +
+      posGold10 +
+      posCs10 +
+      posGold15 +
+      posCs15 +
+      posDmgShare +
+      posObjPart);
   score += posTotal;
 
   // Negative metrics
-  const negDeaths = contribNegative(stats.avgDeathsPerMin, getP('deathsPerMin')) * mods.dpminWeight;
+  const negDeaths =
+    contribNegative(stats.avgDeathsPerMin, getP('deathsPerMin')) *
+    mods.dpminWeight;
   // dtpm is role/context dependent; penalize lightly and role-adjusted
-  const negDtpm = (contribNegative(stats.avgDtpm, getP('dtpm')) / 2) * mods.dtpmWeight;
+  const negDtpm =
+    (contribNegative(stats.avgDtpm, getP('dtpm')) / 2) * mods.dtpmWeight;
 
   // Optional early gank death penalty (very light)
-  const earlyPenalty = typeof stats.earlyGankDeathRateSmart === 'number'
-    ? Math.max(0, stats.earlyGankDeathRateSmart - 0.35) * -4 // small penalty above 35%
-    : 0;
+  const earlyPenalty =
+    typeof stats.earlyGankDeathRateSmart === 'number'
+      ? Math.max(0, stats.earlyGankDeathRateSmart - 0.35) * -4 // small penalty above 35%
+      : 0;
 
   const negTotal = mods.negScale * (negDeaths + negDtpm) + earlyPenalty;
   score += negTotal;
@@ -152,6 +185,144 @@ export function computeChampionRoleAlgoScore(
   if (!Number.isFinite(score)) score = 50;
   score = Math.max(0, Math.min(100, Math.round(score)));
   return score;
+}
+
+export async function fetchBulkCohortPercentiles(
+  requests: Array<{ championName: string; role: string }>,
+): Promise<Array<CohortPercentilesDoc | null>> {
+  try {
+    // Group unique champion-role combinations to avoid duplicate queries
+    const uniqueRequests = Array.from(
+      new Map(
+        requests.map((req) => [`${req.championName}:${req.role}`, req]),
+      ).values(),
+    );
+
+    // Try to get as many as possible from cache first
+    const cacheKeys = uniqueRequests.map(
+      (req) =>
+        `cache:cohort:percentiles:v2:${req.championName}:${req.role}:2025:wins:limit100`,
+    );
+
+    const cachedResults = await redis.mget(...cacheKeys);
+    const results = new Map<string, CohortPercentilesDoc | null>();
+    const uncachedRequests: Array<{
+      championName: string;
+      role: string;
+      index: number;
+    }> = [];
+
+    // Process cached results
+    for (let i = 0; i < uniqueRequests.length; i++) {
+      const req = uniqueRequests[i];
+      const key = `${req.championName}:${req.role}`;
+      const cached = cachedResults[i];
+
+      if (cached) {
+        try {
+          results.set(key, JSON.parse(cached) as CohortPercentilesDoc);
+        } catch {
+          // Cache parse error, need to recompute
+          uncachedRequests.push({ ...req, index: i });
+        }
+      } else {
+        uncachedRequests.push({ ...req, index: i });
+      }
+    }
+
+    // Fetch uncached results in parallel with controlled concurrency
+    if (uncachedRequests.length > 0) {
+      const limit = 5; // Reduced concurrency for bulk operations
+      const uncachedResults: Array<{
+        key: string;
+        doc: CohortPercentilesDoc | null;
+        cacheKey: string;
+      }> = [];
+
+      for (let i = 0; i < uncachedRequests.length; i += limit) {
+        const batch = uncachedRequests.slice(i, i + limit);
+        const batchResults = await Promise.all(
+          batch.map(async (req) => {
+            const key = `${req.championName}:${req.role}`;
+            const cacheKey = `cache:cohort:percentiles:v2:${req.championName}:${req.role}:2025:wins:limit100`;
+
+            try {
+              const startTs = Date.UTC(2025, 0, 1);
+              const endTs = Date.UTC(2026, 0, 1);
+
+              const pipeline = cohortChampionRolePercentilesAggregation({
+                championName: req.championName,
+                role: req.role,
+                startTs,
+                endTs,
+                winsOnly: true,
+                sampleLimit: 100,
+                sortDesc: true,
+              });
+
+              consola.debug(
+                '[champion-role-algo] getting cohorts for',
+                req.championName,
+                req.role,
+              );
+              const start = Date.now();
+              const docs = await collections.matches
+                .aggregate<CohortPercentilesDoc>(pipeline, {
+                  allowDiskUse: true,
+                })
+                .toArray();
+              const end = Date.now();
+              consola.debug(
+                '[champion-role-algo] cohort percentile aggregation took',
+                end - start,
+                'ms',
+              );
+
+              const doc = docs[0] ?? null;
+              return { key, doc, cacheKey };
+            } catch (e) {
+              consola.warn(
+                '[champion-role-algo] cohort percentile aggregation failed for',
+                req.championName,
+                req.role,
+                e,
+              );
+              return { key, doc: null, cacheKey };
+            }
+          }),
+        );
+        uncachedResults.push(...batchResults);
+      }
+
+      // Cache the results and update our results map
+      const cacheOperations = uncachedResults
+        .filter(({ doc }) => doc !== null)
+        .map(({ cacheKey, doc }) =>
+          redis.set(cacheKey, JSON.stringify(doc), 'EX', 60 * 30),
+        );
+
+      if (cacheOperations.length > 0) {
+        await Promise.all(cacheOperations);
+      }
+
+      // Update results map
+      for (const { key, doc } of uncachedResults) {
+        results.set(key, doc);
+      }
+    }
+
+    // Map back to original request order
+    return requests.map((req) => {
+      const key = `${req.championName}:${req.role}`;
+      return results.get(key) ?? null;
+    });
+  } catch (e) {
+    consola.warn('[champion-role-algo] bulk cohort percentiles failed', e);
+    // Fallback to individual fetches
+    return Promise.all(
+      requests.map((req) => fetchCohortPercentiles(req.championName, req.role)),
+    );
+  }
 }
 
 export async function fetchCohortPercentiles(

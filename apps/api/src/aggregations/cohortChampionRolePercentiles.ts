@@ -1,7 +1,8 @@
 import consola from 'consola';
 import type { Document } from 'mongodb';
+import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
 
-export const cohortChampionRolePercentilesAggregation = (opts: {
+export const cohortChampionRolePercentilesAggregation = (params: {
   championName: string;
   role: string;
   startTs?: number;
@@ -11,11 +12,11 @@ export const cohortChampionRolePercentilesAggregation = (opts: {
   sortDesc?: boolean; // true -> newest first
 }): Document[] => {
   const sampleLimit =
-    typeof opts.sampleLimit === 'number' ? opts.sampleLimit : 500;
-  const sortDirection = opts.sortDesc === false ? 1 : -1;
+    typeof params.sampleLimit === 'number' ? params.sampleLimit : 500;
+  const sortDirection = params.sortDesc === false ? 1 : -1;
 
   const roleAliases = (() => {
-    switch (opts.role) {
+    switch (params.role) {
       case 'TOP':
         return ['TOP'];
       case 'JUNGLE':
@@ -27,33 +28,46 @@ export const cohortChampionRolePercentilesAggregation = (opts: {
       case 'UTILITY':
         return ['UTILITY', 'SUPPORT', 'SUP'];
       default:
-        return [opts.role];
+        return [params.role];
     }
   })();
 
-  // ── Pushdown: combine time + participant predicates using $elemMatch ─────
+  // ── Optimized pushdown: combine time + participant predicates using $elemMatch ─────
   const firstMatch: Document = {
     'info.participants': {
       $elemMatch: {
-        ...(opts.winsOnly ? { win: true } : {}),
-        championName: opts.championName,
+        ...(params.winsOnly ? { win: true } : {}),
+        championName: params.championName,
         teamPosition: { $in: roleAliases },
       },
     },
+    // Add queue filter early for better index usage
+    'info.queueId': { $in: ALLOWED_QUEUE_IDS },
   };
-  if (typeof opts.startTs === 'number' && typeof opts.endTs === 'number') {
-    firstMatch['info.gameCreation'] = { $gte: opts.startTs, $lt: opts.endTs };
+  if (typeof params.startTs === 'number' && typeof params.endTs === 'number') {
+    firstMatch['info.gameCreation'] = { $gte: params.startTs, $lt: params.endTs };
   }
 
   const pipeline: Document[] = [
     { $match: firstMatch },
 
+    // Early projection to reduce document size
+    {
+      $project: {
+        _id: 0,
+        'metadata.matchId': 1,
+        'info.participants': 1,
+        'info.gameCreation': 1,
+        'info.gameDuration': 1,
+      },
+    },
+
     // Unwind and re-check exact participant (guards against other array elems)
     { $unwind: '$info.participants' },
     {
       $match: {
-        ...(opts.winsOnly ? { 'info.participants.win': true } : {}),
-        'info.participants.championName': opts.championName,
+        ...(params.winsOnly ? { 'info.participants.win': true } : {}),
+        'info.participants.championName': params.championName,
         'info.participants.teamPosition': { $in: roleAliases },
       },
     },
@@ -587,8 +601,6 @@ export const cohortChampionRolePercentilesAggregation = (opts: {
 
     { $sort: { championName: 1, role: 1 } },
   ];
-
-  consola.debug('cohortChampionRolePercentilesAggregation pipeline', pipeline);
 
   return pipeline;
 };

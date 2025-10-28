@@ -34,6 +34,7 @@ import { generateBuildSuggestions } from '../../services/builds.js';
 import { generateChampionInsights } from '../../services/champion-insights.js';
 import {
   computeChampionRoleAlgoScore,
+  fetchBulkCohortPercentiles,
   fetchCohortPercentiles,
 } from '../../services/champion-role-algo.js';
 import { generateChampionRoleAIScores } from '../../services/champion-role-score.js';
@@ -561,18 +562,10 @@ app.get(
       typeof facet?.meta?.[0]?.total === 'number' ? facet.meta[0].total : 0;
 
     // Compute algorithmic scores using cohort percentiles for each champion-role
-    // Limit concurrency to reduce CPU spikes on busy servers
-    const limit = 10; // parallel fetches
-    const cohortDocs: Array<
-      Awaited<ReturnType<typeof fetchCohortPercentiles>>
-    > = [];
-    for (let i = 0; i < rows.length; i += limit) {
-      const batch = rows.slice(i, i + limit);
-      const results = await Promise.all(
-        batch.map((r) => fetchCohortPercentiles(r.championName, r.role)),
-      );
-      cohortDocs.push(...results);
-    }
+    // Use bulk fetching for better performance
+    const cohortDocs = await fetchBulkCohortPercentiles(
+      rows.map((r) => ({ championName: r.championName, role: r.role }))
+    );
     const data = rows.map((r, i) => ({
       ...r,
       aiScore: computeChampionRoleAlgoScore(r, cohortDocs[i] ?? null),
