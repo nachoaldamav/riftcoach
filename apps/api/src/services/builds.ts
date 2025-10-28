@@ -1,8 +1,9 @@
 import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { DDragon } from '@fightmegg/riot-api';
+import { DDragon, RiotAPITypes } from '@fightmegg/riot-api';
 import { collections } from '@riftcoach/clients.mongodb';
 import type { Item } from '@riftcoach/shared.lol-types';
 import consola from 'consola';
+import type { Document } from 'mongodb';
 import { bedrockClient } from '../clients/bedrock.js';
 
 // Types
@@ -116,6 +117,14 @@ interface MatchBuilds {
   gameCreation: number;
   allies: Player[];
   enemies: Player[];
+}
+
+// Build-order recommendation entry (time-sorted purchase order)
+interface BuildOrderEntry {
+  order: number;
+  itemId: string;
+  itemName: string;
+  reasoning: string;
 }
 
 function isCompletedItem(item: Item): boolean {
@@ -483,6 +492,270 @@ export async function getChampionRoleItemPresence(
   };
 }
 
+// Aggregates time-sorted purchase columns for a champion/role across matches,
+// mirroring the /v1/builds-order route logic.
+export async function getChampionRoleBuildOrderColumns(
+  championName: string,
+  role: string,
+  options?: {
+    maxOrder?: number;
+    minDurationSec?: number;
+    maxDurationSec?: number;
+    sortDirection?: 1 | -1; // gameCreation order
+    queueId?: number;
+    winFilter?: 'true' | 'false' | undefined;
+    completedItemIdsNumeric?: number[]; // optional override
+  },
+): Promise<
+  Array<{
+    order: number | { $numberLong: string };
+    items: Array<{
+      itemId: number;
+      games: number;
+      winrate: number;
+      pickrate: number;
+      name?: string | null;
+      icon?: string | null;
+    }>;
+  }>
+> {
+  const maxOrder = options?.maxOrder ?? 6;
+  const minDuration = options?.minDurationSec ?? 600;
+  const maxDuration = options?.maxDurationSec ?? 4800;
+  const sortDirection = options?.sortDirection ?? -1;
+
+  // Build completed item list from DDragon if not provided
+  let completedItemIds: number[] = options?.completedItemIdsNumeric ?? [];
+  let itemMeta = new Map<number, { name: string; icon?: string }>();
+  if (!completedItemIds.length) {
+    const ddragon = new DDragon();
+    const itemsRaw = await ddragon.items();
+    const entries = Object.entries(itemsRaw.data) as Array<
+      [string, RiotAPITypes.DDragon.DDragonItemDTO]
+    >;
+    function isCompletedItem(item: RiotAPITypes.DDragon.DDragonItemDTO) {
+      if (!item.from?.length) return false;
+      const consumed = (item as { consumed?: boolean }).consumed;
+      if (consumed) return false;
+      if (item.tags?.includes('Boots')) {
+        return (item.depth ?? 0) >= 2;
+      }
+      const isCompleted = (item.depth ?? 0) >= 3 || !item.into?.length;
+      return isCompleted;
+    }
+    completedItemIds = entries
+      .filter(([, item]) => isCompletedItem(item))
+      .map(([id]) => Number(id));
+    itemMeta = new Map<number, { name: string; icon?: string }>(
+      entries.map(([id, i]) => [
+        Number(id),
+        {
+          name: i.name,
+          icon: (i.image as { full?: string } | undefined)?.full,
+        },
+      ]),
+    );
+  }
+
+  const earlyMatch: Document = {
+    'info.participants': {
+      $elemMatch: {
+        championName: championName,
+        teamPosition: role,
+      },
+    },
+    'info.gameDuration': { $gte: minDuration, $lte: maxDuration },
+  };
+  if (options?.queueId !== undefined)
+    earlyMatch['info.queueId'] = options.queueId;
+  if (options?.winFilter === 'true' || options?.winFilter === 'false') {
+    earlyMatch['info.participants.win'] = options.winFilter === 'true';
+  }
+
+  const pipeline: Document[] = [
+    { $match: earlyMatch },
+    { $sort: { 'info.gameCreation': sortDirection } },
+    {
+      $project: {
+        metadata: 1,
+        'info.gameCreation': 1,
+        participant: {
+          $first: {
+            $filter: {
+              input: '$info.participants',
+              as: 'p',
+              cond: {
+                $and: [
+                  { $eq: ['$$p.championName', championName] },
+                  { $eq: ['$$p.teamPosition', role] },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    { $match: { participant: { $type: 'object' } } },
+    { $limit: 5000 },
+    {
+      $lookup: {
+        from: 'timelines',
+        let: { mid: '$metadata.matchId', pid: '$participant.participantId' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$metadata.matchId', '$$mid'] } } },
+          {
+            $project: {
+              events: {
+                $reduce: {
+                  input: '$info.frames',
+                  initialValue: [],
+                  in: { $concatArrays: ['$$value', '$$this.events'] },
+                },
+              },
+            },
+          },
+          { $unwind: '$events' },
+          {
+            $match: {
+              'events.type': 'ITEM_PURCHASED',
+              $expr: { $eq: ['$events.participantId', '$$pid'] },
+              'events.itemId': { $in: completedItemIds },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              ts: '$events.timestamp',
+              itemId: '$events.itemId',
+            },
+          },
+          { $sort: { ts: 1 } },
+          { $limit: maxOrder },
+        ],
+        as: 'build',
+      },
+    },
+    { $match: { build: { $ne: [] } } },
+    {
+      $addFields: {
+        build: {
+          $reduce: {
+            input: '$build',
+            initialValue: { seen: [], out: [] },
+            in: {
+              seen: {
+                $cond: [
+                  { $in: ['$$this.itemId', '$$value.seen'] },
+                  '$$value.seen',
+                  { $concatArrays: ['$$value.seen', ['$$this.itemId']] },
+                ],
+              },
+              out: {
+                $cond: [
+                  { $in: ['$$this.itemId', '$$value.seen'] },
+                  '$$value.out',
+                  { $concatArrays: ['$$value.out', ['$$this']] },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    { $set: { build: '$build.out' } },
+    { $unwind: { path: '$build', includeArrayIndex: 'order' } },
+    {
+      $group: {
+        _id: {
+          champion: '$participant.championName',
+          role: '$participant.teamPosition',
+          order: '$order',
+          itemId: '$build.itemId',
+        },
+        games: { $sum: 1 },
+        wins: { $sum: { $cond: ['$participant.win', 1, 0] } },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          champion: '$_id.champion',
+          role: '$_id.role',
+          order: '$_id.order',
+        },
+        totalGames: { $sum: '$games' },
+        items: {
+          $push: { itemId: '$_id.itemId', games: '$games', wins: '$wins' },
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        champion: '$_id.champion',
+        role: '$_id.role',
+        order: { $add: ['$_id.order', 1] },
+        items: {
+          $map: {
+            input: '$items',
+            as: 'i',
+            in: {
+              itemId: '$$i.itemId',
+              games: '$$i.games',
+              winrate: {
+                $cond: [
+                  { $gt: ['$$i.games', 0] },
+                  { $divide: ['$$i.wins', '$$i.games'] },
+                  0,
+                ],
+              },
+              pickrate: {
+                $cond: [
+                  { $gt: ['$totalGames', 0] },
+                  { $divide: ['$$i.games', '$totalGames'] },
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      $set: {
+        items: { $sortArray: { input: '$items', sortBy: { pickrate: -1 } } },
+      },
+    },
+    { $sort: { order: 1 } },
+  ];
+
+  const rows = await collections.matches
+    .aggregate<{
+      champion: string;
+      role: string;
+      order: { $numberLong: string } | number;
+      items: Array<{
+        itemId: number;
+        games: number;
+        winrate: number;
+        pickrate: number;
+      }>;
+    }>(pipeline, { allowDiskUse: true })
+    .toArray();
+
+  // Enrich items with names/icons for readability
+  const columns = rows.map((r) => ({
+    order: r.order,
+    items: r.items.map((x) => ({
+      ...x,
+      name: itemMeta.get(x.itemId)?.name ?? String(x.itemId),
+      icon: itemMeta.get(x.itemId)?.icon ?? null,
+    })),
+  }));
+
+  return columns;
+}
+
 export function createContextData(
   match: MatchBuilds,
   subjectParticipant: Player,
@@ -563,7 +836,8 @@ export function createContextData(
           assists: ally.assists || 0,
           goldEarned: ally.goldEarned || 0,
           totalDamageDealt: ally.totalDamageDealt || 0,
-          totalDamageDealtToChampions: ally.stats?.totalDamageDealtToChampions || 0,
+          totalDamageDealtToChampions:
+            ally.stats?.totalDamageDealtToChampions || 0,
           win: ally.win || false,
         },
         build: Object.keys(ally.finalBuild ?? {}).map((id) => ({
@@ -680,79 +954,52 @@ export function generateSystemPrompt(
 
   return `You are an expert League of Legends itemization assistant.
 - You must reference items by their DDragon IDs and names provided.
-- Prefer high-presence items for the given champion/role and match context.
+- Recommend a time-sorted PURCHASE ORDER (first → last), not slot replacements.
 
+Hard rules:
+- NEVER invent item names or IDs; use only those provided.
+- Map IDs/names via idToName/nameToId and verify against metaById.
+- Use ONLY completed items present in the "Available Completed Items" list.
+- Respect item group uniqueness (e.g., only one from 'LastWhisper' group at any time).
+- Boots policy:
+  • Do not add more than one pair of boots.
+  • Boots upgrades must stay within boots variants; do not replace boots with non-boots.
+- Prefer items with higher pickrate for the given purchase ORDER column when reasonable.
+- Consider champion/role context, ally/enemy compositions, and match duration.
 
-Rules:
-- NEVER invent item names or IDs. Only use items present in the provided lists/maps.
-- ID/Name Mapping: If you know the name, translate to ID via nameToId. If you know the ID, verify via idToName.
-- BOOTS REPLACEMENT RULES (STRICT):
-• Boots can only replace other boots. Never replace boots with non-boots or vice-versa.
-• Do not add a second pair of boots under any circumstance.
-• Tier policy:
-- If the player currently has **Tier 2** boots, you may only upgrade to **Tier 3** if (and only if) **at least one ally on the same team (not enemy) already has Tier 3 boots**. If no ally has Tier 3 boots, do not suggest Tier 3 boots.
-- If the player currently has **Tier 3** boots, you may only replace them with **another Tier 3** boots variant (never downgrade to Tier 2 or "Boots").
-- Suggest up to 3 changes, but if no meaningful improvement exists, return **no changes**.
-- PRIORITIZE EMPTY SLOTS: Add items to empty slots first.
-- STRICT REPLACEMENT POLICY: If no empty slots exist, you may ONLY replace items that are explicitly listed as "replaceable completed items" in the constraints section. NEVER replace component items, starter items, trinkets, or consumables.
-- USE COMMON BUILDS: Only suggest items that appear in the provided "Available Completed Items from Common Builds" list.
-- TREAT NON-COMPLETED ITEMS AS EMPTY: If a slot contains a non-completed item (component, starter, trinket, consumable), consider it EMPTY for the purpose of suggestions. Fill these before replacing completed items.
-- ITEM GROUP UNIQUENESS: Do NOT include more than ONE item from the same DDragon 'group' (e.g., 'LastWhisper'). If a group is already present, you may swap within that group (e.g., Mortal Reminder ↔ Lord Dominik's Regards) but MUST NOT add a second item of the same group.
-- ITEM COMPATIBILITY: Respect item category compatibility and avoid mutually exclusive or redundant combinations.
-- OUTPUT FORMAT: Respond with ONLY a valid JSON object. Do NOT include any reasoning tags, comments, or explanations outside the JSON structure. The JSON must contain exactly two fields: suggestions[] and overallAnalysis (string).
-- JSON VALIDATION: Ensure your response is valid JSON that can be parsed directly. No extra text before or after the JSON object.
-- ITEM GROUPS: You can only include one item from each group (e.g. Fatality, Manaflow, Boots), but you are allowed to add more than one item from the same group to the same slot.
-- TRINKETS: Never add trinkets to the item slots, as they use a special slot and are not part of the main itemization process.
+Output format:
+- Return a single valid JSON object with fields:
+  {
+    "buildOrder": [
+      { "order": 1, "itemId": "3006", "itemName": "Berserker's Greaves", "reasoning": "..." },
+      { "order": 2, "itemId": "6673", "itemName": "Immortal Shieldbow", "reasoning": "..." },
+      { "order": 3, "itemId": "3036", "itemName": "Lord Dominik's Regards", "reasoning": "..." }
+    ],
+    "overallAnalysis": "..."
+  }
+- No extra text, tags, or comments outside the JSON.
 
-ADDITIONAL CONTEXT FOR ID LINKING:
-- Use the following DDragon maps to translate between item names and IDs for the referenced items (player, allies, enemies, common builds).
+ID maps for validation:
 - idToName: ${JSON.stringify(idToNameMap)}
 - nameToId: ${JSON.stringify(nameToIdMap)}
 - metaById: ${JSON.stringify(metaById)}
-
-
-ITEM GROUPS:
-Annul: Verdant Barrier, Banshee's Veil, Edge of Night
-Blight: Abyssal Mask, Blighting Jewel, Bloodletter's Curse, Cryptbloom, Terminus, Void Staff
-Boots: Berserker's Greaves, Boots, Boots of Swiftness, Ionian Boots of Lucidity, Mercury's Treads, Plated Steelcaps, Slightly Magical Boots, Sorcerer's Shoes, Symbiotic Soles, Synchronized Souls, Zephyr
-Dirk: Serrated Dirk
-Elixir: Elixir of Iron, Elixir of Sorcery, Elixir of Wrath
-Eternity: Catalyst of Aeons, Rod of Ages
-Fatality: Last Whisper, Black Cleaver, Lord Dominik's Regards, Mortal Reminder, Serylda's Grudge, Terminus
-Glory: Dark Seal, Mejai's Soulstealer
-Guardian: Guardian's Blade, Guardian's Hammer, Guardian's Horn, Guardian's Orb
-Hydra: Tiamat, Profane Hydra, Ravenous Hydra, Stridebreaker, Titanic Hydra
-Immolate: Bami's Cinder, Sunfire Aegis, Hollow Radiance
-Jungle/Support: Bounty of Worlds, Bloodsong, Celestial Opposition, Dream Maker, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, Solstice Sleigh, Zaz'Zak's Realmspike
-Lifeline: Archangel's Staff, Hexdrinker, Immortal Shieldbow, Maw of Malmortius, Seraph's Embrace, Sterak's Gage
-Manaflow: Archangel's Staff, Fimbulwinter, Manamune, Muramana, Seraph's Embrace, Tear of the Goddess, Winter's Approach
-Momentum: Dead Man's Plate, Trailblazer
-Potion: Health Potion, Refillable Potion
-Quicksilver: Mercurial Scimitar, Quicksilver Sash
-Sightstone: Watchful Wardstone, Vigilant Wardstone
-Spellblade: Sheen, Bloodsong, Iceborn Gauntlet, Lich Bane, Trinity Force
-Starter: Doran's Blade, Doran's Ring, Doran's Shield, Gustwalker Hatchling, Mosstomper Seedling, Scorchclaw Pup, World Atlas, Runic Compass
-Stasis: Seeker's Armguard, Shattered Armguard, Zhonya's Hourglass
-Trinket: Farsight Alteration, Oracle Lens, Stealth Ward
-
-
-TIER 3 BOOTS:
-Armored Advance
-Chainlaced Crushers
-Crimson Lucidity
-Forever Forward
-Gunmetal Greaves
-Spellslinger's Shoes
-Swiftmarch
-Symbiotic Soles
 `;
 }
 
 export function generateUserPrompt(
   contextData: ContextData,
   itemsData: Record<string, ItemData>,
-  emptySlots: ItemSlotKey[],
-  replaceableItems: ReplaceableItem[],
+  columns: Array<{
+    order: number | { $numberLong: string };
+    items: Array<{
+      itemId: number;
+      games: number;
+      winrate: number;
+      pickrate: number;
+      name?: string | null;
+      icon?: string | null;
+    }>;
+  }>,
   presence: Array<{ id: string; name: string; pct: number }>,
 ): string {
   const presenceStr = presence
@@ -761,47 +1008,62 @@ export function generateUserPrompt(
     .map((p) => `${p.name} (${Math.round(p.pct)}%)`)
     .join(', ');
 
+  const orderSummary = columns
+    .map((col) => {
+      const order =
+        typeof col.order === 'object' && '$numberLong' in col.order
+          ? Number(col.order.$numberLong)
+          : Number(col.order);
+      const top = (col.items || [])
+        .slice(0, 6)
+        .map(
+          (i) =>
+            `${i.name ?? String(i.itemId)} (${Math.round(i.pickrate * 100)}% pick, ${Math.round(i.winrate * 100)}% win)`,
+        )
+        .join(', ');
+      return `Order ${order}: ${top}`;
+    })
+    .join('\n');
+
   return `Context:
-  - Champion: ${contextData.subject.championName} (${contextData.subject.teamPosition})\n- Current Build: ${contextData.subject.currentBuild.map((item) => item.name).join(', ')}\n- Current Item Slots: ${Object.entries(
-    contextData.subject.itemSlots,
-  )
-    .map(
-      ([slot, itemId]) =>
-        `${slot}: ${itemId === 0 ? 'Empty' : itemsData[String(itemId)]?.name || 'Unknown'}`,
-    )
-    .join(
-      ', ',
-    )}\n- Match Duration: ${Math.floor((contextData.match.gameDuration || 0) / 60)} minutes\n- Performance: ${contextData.subject.performance.kills}/${contextData.subject.performance.deaths}/${contextData.subject.performance.assists} KDA\n- Result: ${contextData.subject.performance.win ? 'Victory' : 'Defeat'}\n\nAlly Team Composition:\n${contextData.allies.map((ally) => `- ${ally.championName} (${ally.teamPosition}): ${ally.build.map((item) => item.name).join(', ')}`).join('\n')}\n\nEnemy Team Composition:\n${contextData.enemies.map((enemy) => `- ${enemy.championName} (${enemy.teamPosition}): ${enemy.build.map((item) => item.name).join(', ')}`).join('\n')}\n\nCommon Successful Builds for this Champion/Role:\n${contextData.commonBuilds
-    .sort((a, b) => b.items.length - a.items.length)
-    .slice(0, 10)
-    .map(
-      (build, i) =>
-        `Build ${i + 1}: ${build.items.map((item) => item.name).join(', ')}`,
-    )
-    .join(
-      '\n',
-    )}\n\nItem Presence (Champion/Role): ${presenceStr}\n\nAvailable Completed Items from Common Builds: ${contextData.availableItems.map((item) => item.name).join(', ')}\n\nConstraints:\n- Empty slots available: ${emptySlots.length > 0 ? emptySlots.join(', ') : 'None'}\n- Replaceable completed items (ONLY these may be replaced if no empty slots): ${replaceableItems.length > 0 ? replaceableItems.map((item) => `${item.name} (${item.slot})`).join(', ') : 'None - no items can be replaced'}\n\nRespond with JSON like:\n{\n  \"suggestions\": [\n    {\n      \"action\": \"add_to_slot\",\n      \"targetSlot\": \"item2\",\n      \"suggestedItemId\": \"3033\",\n      \"suggestedItemName\": \"Lord Dominik's Regards\",\n      \"reasoning\": \"Fills empty slot with high armor penetration to counter the enemy's heavy armor composition.\"\n    },\n    {\n      \"action\": \"replace_item\",\n      \"replaceItemId\": \"unknown_glowing_mote\",\n      \"replaceItemName\": \"Glowing Mote\",\n      \"targetSlot\": \"item4\",\n      \"suggestedItemId\": \"3006\",\n      \"suggestedItemName\": \"Berserker's Greaves\",\n      \"reasoning\": \"Replaces starter consumable with boots to provide attack speed and movement speed.\"\n    },\n    {\n      \"action\": \"replace_item\",\n      \"replaceItemId\": \"unknown_long_sword\",\n      \"replaceItemName\": \"Long Sword\",\n      \"targetSlot\": \"item5\",\n      \"suggestedItemId\": \"6675\",\n      \"suggestedItemName\": \"The Collector\",\n      \"reasoning\": \"Upgrades starter item to a high-damage execution item while keeping core items.\"\n    }\n  ],\n  \"overallAnalysis\": \"The build now adds needed armor penetration, proper boots, and stronger damage execution while keeping core items.\"\n}`;
+  - Champion: ${contextData.subject.championName} (${contextData.subject.teamPosition})
+  - Match Duration: ${Math.floor((contextData.match.gameDuration || 0) / 60)} minutes
+  - Performance: ${contextData.subject.performance.kills}/${contextData.subject.performance.deaths}/${contextData.subject.performance.assists} KDA
+  - Result: ${contextData.subject.performance.win ? 'Victory' : 'Defeat'}
+
+Ally Team:
+${contextData.allies.map((ally) => `- ${ally.championName} (${ally.teamPosition}): ${ally.build.map((item) => item.name).join(', ')}`).join('\n')}
+
+Enemy Team:
+${contextData.enemies.map((enemy) => `- ${enemy.championName} (${enemy.teamPosition}): ${enemy.build.map((item) => item.name).join(', ')}`).join('\n')}
+
+Available Completed Items (from common builds): ${contextData.availableItems.map((item) => item.name).join(', ')}
+Item Presence (Champion/Role): ${presenceStr}
+
+Time-Sorted Build Columns (population pick order → item options):
+${orderSummary}
+
+Task:
+- Recommend a PURCHASE ORDER (1..N) tailored to this match. Prefer high-pick items per column when sensible; justify deviations based on comps and performance.
+- Respect boots policy and uniqueness of item groups.
+
+Return JSON with 'buildOrder' and 'overallAnalysis' only.`;
 }
 
 export async function getItemSuggestionsFromAI(
   systemPrompt: string,
   userPrompt: string,
 ): Promise<{
-  suggestions: Array<{
-    action: string;
-    targetSlot?: string;
-    suggestedItemId?: string;
-    suggestedItemName?: string;
-    replaceItemId?: string;
-    replaceItemName?: string;
-    reasoning: string;
-  }>;
+  buildOrder: BuildOrderEntry[];
   overallAnalysis: string;
 } | null> {
   consola.debug('System prompt:', systemPrompt);
   consola.debug('User prompt:', userPrompt);
 
-  let itemSuggestions = null;
+  let buildOrderResult: {
+    buildOrder: BuildOrderEntry[];
+    overallAnalysis: string;
+  } | null = null;
   try {
     const command = new InvokeModelCommand({
       modelId: 'openai.gpt-oss-120b-1:0',
@@ -822,50 +1084,46 @@ export async function getItemSuggestionsFromAI(
 
     const content = responseBody?.choices?.[0]?.message?.content;
     if (typeof content === 'string') {
-      // First try to parse the content directly as JSON
-      try {
-        itemSuggestions = JSON.parse(content.split('</reasoning>')[1]);
-      } catch (directParseError) {
-        // If direct parsing fails, try to extract JSON from the content
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            // Clean up common issues in the extracted JSON
-            let cleanedJson = jsonMatch[0];
-
-            // Remove any reasoning tags or comments that might be embedded
-            cleanedJson = cleanedJson.replace(
-              /<reasoning>[\s\S]*?<\/reasoning>/g,
-              '',
-            );
-            cleanedJson = cleanedJson.replace(/\/\*[\s\S]*?\*\//g, '');
-            cleanedJson = cleanedJson.replace(/\/\/.*$/gm, '');
-
-            // Try to fix common JSON issues
-            cleanedJson = cleanedJson.replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas
-
-            itemSuggestions = JSON.parse(cleanedJson);
-          } catch (parseError) {
-            consola.warn('Failed to parse extracted JSON:', parseError);
-            consola.warn('Raw content:', content);
-            itemSuggestions = {
-              suggestions: [],
-              overallAnalysis: 'Failed to parse AI response. Please try again.',
-            };
-          }
-        } else {
-          itemSuggestions = {
-            suggestions: [],
-            overallAnalysis: content,
+      // Extract JSON object from content
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const cleanedJson = jsonMatch[0]
+            .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, '')
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/\/\/.*$/gm, '')
+            .replace(/,(\s*[}\]])/g, '$1');
+          const parsed = JSON.parse(cleanedJson);
+          const buildOrder: BuildOrderEntry[] = Array.isArray(
+            parsed?.buildOrder,
+          )
+            ? parsed.buildOrder.map((e: any) => ({
+                order: Number(e.order),
+                itemId: String(e.itemId),
+                itemName: String(e.itemName),
+                reasoning: String(e.reasoning ?? ''),
+              }))
+            : [];
+          const overallAnalysis: string = String(parsed?.overallAnalysis ?? '');
+          buildOrderResult = { buildOrder, overallAnalysis };
+        } catch (parseError) {
+          consola.warn('Failed to parse AI JSON for buildOrder:', parseError);
+          consola.warn('Raw content:', content);
+          buildOrderResult = {
+            buildOrder: [],
+            overallAnalysis: 'Failed to parse AI response. Please try again.',
           };
         }
+      } else {
+        // No JSON object found; treat entire content as analysis
+        buildOrderResult = { buildOrder: [], overallAnalysis: content };
       }
     }
   } catch (error) {
-    consola.error('Failed to get item suggestions from OpenAI:', error);
+    consola.error('Failed to get build order from model:', error);
   }
 
-  return itemSuggestions;
+  return buildOrderResult;
 }
 
 // Main service function that orchestrates the entire builds analysis
@@ -873,6 +1131,13 @@ export async function generateBuildSuggestions(
   match: MatchBuilds,
   subjectParticipant: Player,
 ): Promise<{
+  buildOrder: Array<{
+    order: number;
+    itemId: number;
+    itemName: string;
+    reasoning: string;
+  }>;
+  overallAnalysis: string;
   suggestions: Array<{
     action: string;
     targetSlot?: string;
@@ -882,7 +1147,6 @@ export async function generateBuildSuggestions(
     replaceItemName?: string;
     reasoning: string;
   }>;
-  overallAnalysis: string;
 } | null> {
   // Get DDragon data
   const { itemsMap, ddragonCompletedItems } = await getDDragonItemsData();
@@ -928,15 +1192,18 @@ export async function generateBuildSuggestions(
       pct: Math.round((count / Math.max(1, totalMatches)) * 100),
     }));
 
-  // Get empty slots and replaceable items
-  const emptySlots = getEmptySlots(
-    contextData.subject.itemSlots as ItemSlots,
-    itemsMap,
-  );
-  const replaceableItems = getReplaceableItems(
-    contextData.subject.itemSlots as ItemSlots,
-    itemsData,
-    itemsMap,
+  // Aggregate time-sorted build columns (population pick order)
+  const completedItemIdsNumeric = ddragonCompletedItems.map((id) => Number(id));
+  const columns = await getChampionRoleBuildOrderColumns(
+    subjectParticipant.championName,
+    subjectParticipant.role,
+    {
+      maxOrder: 6,
+      minDurationSec: 600,
+      maxDurationSec: 4800,
+      sortDirection: -1,
+      completedItemIdsNumeric,
+    },
   );
 
   // Generate prompts (with DDragon ID/name mapping)
@@ -944,81 +1211,47 @@ export async function generateBuildSuggestions(
   const userPrompt = generateUserPrompt(
     contextData,
     itemsData,
-    emptySlots,
-    replaceableItems,
+    columns,
     presence,
   );
 
-  // Get AI suggestions
-  const itemSuggestions = await getItemSuggestionsFromAI(
-    systemPrompt,
-    userPrompt,
-  );
+  // Get AI build order recommendation
+  const aiBuildOrder = await getItemSuggestionsFromAI(systemPrompt, userPrompt);
 
-  // Enforce group uniqueness constraint post-processing
-  if (itemSuggestions && Array.isArray(itemSuggestions.suggestions)) {
-    const nameToId: Record<string, string> = Object.fromEntries(
-      Object.entries(itemsData).map(([id, it]) => [it.name, id]),
+  if (!aiBuildOrder) return null;
+
+  // Enforce group uniqueness across the recommended build order
+  const getGroup = (idStr: string | undefined): string | null => {
+    if (!idStr) return null;
+    return (
+      itemsData[idStr]?.group ??
+      (itemsMap[idStr] as unknown as { group?: string })?.group ??
+      null
     );
-    const getGroup = (idStr: string | undefined): string | null => {
-      if (!idStr) return null;
-      return (
-        itemsData[idStr]?.group ??
-        (itemsMap[idStr] as unknown as { group?: string })?.group ??
-        null
-      );
-    };
+  };
 
-    const groupCounts: Record<string, number> = {};
-    const slots = contextData.subject.itemSlots as ItemSlots;
-    for (const [, itemId] of Object.entries(slots)) {
-      if (!itemId || itemId === 0) continue;
-      const gid = String(itemId);
-      const g = getGroup(gid);
-      if (g) groupCounts[g] = (groupCounts[g] ?? 0) + 1;
-    }
+  const seenGroups: Record<string, number> = {};
+  const sanitized = aiBuildOrder.buildOrder.filter((entry) => {
+    const g = getGroup(entry.itemId);
+    if (!g) return true;
+    const allowedCount = 1; // enforce single unique per group (e.g., LastWhisper)
+    const cur = seenGroups[g] ?? 0;
+    if (cur >= allowedCount) return false;
+    seenGroups[g] = cur + 1;
+    return true;
+  });
 
-    const resolvedSuggestions = itemSuggestions.suggestions
-      .map((s) => {
-        const suggestedIdRaw = s.suggestedItemId ?? null;
-        const suggestedId =
-          (suggestedIdRaw && /^[0-9]+$/.test(suggestedIdRaw)
-            ? suggestedIdRaw
-            : null) ??
-          (s.suggestedItemName ? nameToId[s.suggestedItemName] : null);
-        const replaceIdRaw = s.replaceItemId ?? null;
-        const replaceId =
-          (replaceIdRaw && /^[0-9]+$/.test(replaceIdRaw)
-            ? replaceIdRaw
-            : null) ?? (s.replaceItemName ? nameToId[s.replaceItemName] : null);
-        return { ...s, suggestedId, replaceId };
-      })
-      .filter((s) => {
-        const sg = getGroup(s.suggestedId ?? undefined);
-        if (!sg) return true;
+  const buildOrderOut = sanitized.map((e) => ({
+    order: Number(e.order),
+    itemId: Number(e.itemId),
+    itemName: e.itemName,
+    reasoning: e.reasoning,
+  }));
 
-        if (s.action === 'add_to_slot') {
-          if ((groupCounts[sg] ?? 0) > 0) return false;
-          groupCounts[sg] = (groupCounts[sg] ?? 0) + 1;
-          return true;
-        }
-
-        const rg = getGroup(s.replaceId ?? undefined);
-        if ((groupCounts[sg] ?? 0) > 0 && sg !== (rg ?? null)) {
-          return false; // would create a duplicate group
-        }
-        // apply change: decrement replaced group, increment suggested group
-        if (rg) groupCounts[rg] = Math.max(0, (groupCounts[rg] ?? 0) - 1);
-        groupCounts[sg] = (groupCounts[sg] ?? 0) + 1;
-        return true;
-      })
-      .slice(0, 3);
-
-    if (resolvedSuggestions.length !== itemSuggestions.suggestions.length) {
-      itemSuggestions.suggestions = resolvedSuggestions;
-      itemSuggestions.overallAnalysis = `${itemSuggestions.overallAnalysis} (Adjusted to enforce unique item group rule.)`;
-    }
-  }
-
-  return itemSuggestions;
+  return {
+    buildOrder: buildOrderOut,
+    overallAnalysis: aiBuildOrder.overallAnalysis,
+    // maintain legacy field for UI compatibility
+    suggestions: [],
+  };
 }

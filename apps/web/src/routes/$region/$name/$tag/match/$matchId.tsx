@@ -854,6 +854,27 @@ function MatchAnalysisComponent() {
                     <span className="text-neutral-300">Generating build recommendation with AI...</span>
                   </div>
                 </div>
+              ) : buildsData?.buildOrder && buildsData.buildOrder.length > 0 ? (
+                buildsData.buildOrder.map((entry, idx) => (
+                  <div key={`bo-${entry.order}-${entry.itemId}`} className="flex items-center gap-2">
+                    <div className="flex flex-col items-center">
+                      {entry.itemId > 0 ? (
+                        <img
+                          src={getItemIcon(entry.itemId)}
+                          alt={entry.itemName}
+                          title={entry.reasoning}
+                          className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                        />
+                      ) : (
+                        <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
+                      )}
+                      <span className="mt-1 text-xs text-neutral-400">#{entry.order} {entry.itemName}</span>
+                    </div>
+                    {idx < buildsData.buildOrder.length - 1 && (
+                      <ChevronRight className="w-4 h-4 text-neutral-500" />
+                    )}
+                  </div>
+                ))
               ) : (
                 slotColumns.map((col, idx) => (
                   <div key={`col-wrapper-${col.slotKey}`} className="flex items-center gap-2">

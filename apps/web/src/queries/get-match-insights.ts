@@ -45,6 +45,12 @@ export interface ItemSuggestion {
 }
 
 export interface MatchBuildSuggestionsResponse {
+  buildOrder: Array<{
+    order: number;
+    itemId: number;
+    itemName: string;
+    reasoning: string;
+  }>;
   suggestions: ItemSuggestion[];
   overallAnalysis: string;
 }

@@ -564,7 +564,7 @@ app.get(
     // Compute algorithmic scores using cohort percentiles for each champion-role
     // Use bulk fetching for better performance
     const cohortDocs = await fetchBulkCohortPercentiles(
-      rows.map((r) => ({ championName: r.championName, role: r.role }))
+      rows.map((r) => ({ championName: r.championName, role: r.role })),
     );
     const data = rows.map((r, i) => ({
       ...r,
@@ -1308,7 +1308,7 @@ app.get(
     const puuid = c.var.account.puuid;
     const force = c.req.query('force') === 'true';
 
-    const cacheKey = `cache:match-builds:${matchId}:${puuid}:v3`;
+    const cacheKey = `cache:match-builds:${matchId}:${puuid}:v4`;
 
     try {
       const cached = await redis.get(cacheKey);
