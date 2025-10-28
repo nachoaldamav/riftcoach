@@ -1,7 +1,8 @@
 import { collections } from '@riftcoach/clients.mongodb';
 import consola from 'consola';
-import { cohortChampionRolePercentilesAggregation } from '../aggregations/cohortChampionRolePercentiles.js';
+import ms from 'ms';
 import { bulkCohortChampionRolePercentilesAggregation } from '../aggregations/bulkCohortChampionRolePercentiles.js';
+import { cohortChampionRolePercentilesAggregation } from '../aggregations/cohortChampionRolePercentiles.js';
 import { redis } from '../clients/redis.js';
 import type { ChampionRoleStats } from './champion-role-score.js';
 
@@ -239,7 +240,7 @@ export async function fetchBulkCohortPercentiles(
         uncachedRequests.length,
         'champion-role combinations using individual queries',
       );
-      
+
       // Use individual queries with controlled concurrency for better performance
       const limit = 5;
       const uncachedResults: Array<{
@@ -379,8 +380,8 @@ export async function fetchCohortPercentiles(
     );
     const doc = docs[0] ?? null;
     if (doc) {
-      // Cache for 30 minutes
-      await redis.set(cacheKey, JSON.stringify(doc), 'EX', 60 * 30);
+      // Cache for 7 days
+      await redis.set(cacheKey, JSON.stringify(doc), 'EX', ms('7d'));
     }
     return doc;
   } catch (e) {

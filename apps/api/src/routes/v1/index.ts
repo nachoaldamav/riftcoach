@@ -1313,7 +1313,7 @@ app.get(
     const puuid = c.var.account.puuid;
     const force = c.req.query('force') === 'true';
 
-    const cacheKey = `cache:match-builds:${matchId}:${puuid}:v4`;
+    const cacheKey = `cache:match-builds:${matchId}:${puuid}:v5`;
 
     try {
       const cached = await redis.get(cacheKey);

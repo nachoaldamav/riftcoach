@@ -975,8 +975,12 @@ Hard rules:
   • Boots changes must remain boots; do not replace boots with non-boots.
   • Only replace tier-3 boots with tier-3 boots; NEVER upgrade from tier-2 to tier-3.
   • Cassiopeia cannot buy Boots; ignore boots recommendations for her.
- - Pickrate guidance: Use pickrate as guidance, not a mandate; adapt to match context (enemy damage profile, CC/healing/shielding, champion role/kit, and game state). Example (non-extensive): vs full AP team, avoid armor stacking for K'Sante; prefer MR-oriented choices.
-- Consider champion/role context, ally/enemy compositions, and match duration.
+- Pickrate guidance: Use pickrate as guidance, not a mandate; adapt to match context (enemy damage profile, CC/healing/shielding, champion role/kit, and game state). Example (non-extensive): vs full AP team, avoid armor stacking for K'Sante; prefer MR-oriented choices.
+- Tank early defense match: If the subject is a tank/frontliner (e.g., K'Sante), the FIRST TWO purchases must counter the lane enemy damage type:
+  • Vs AP-heavy teams: prioritize MR boots and an MR defensive item before armor choices.
+  • Vs AD-heavy teams: prioritize armor boots and an armor defensive item before MR choices.
+  • For mixed comps, choose versatile defense or target the most fed/high damage threat.
+- Consider champion/role context, ally/enemy compositions, role-opponent champion and match duration.
 
 Item Groups Catalog (uniqueness applies: only one per group):
 - Annul: Verdant Barrier, Banshee's Veil, Edge of Night
