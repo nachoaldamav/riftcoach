@@ -37,6 +37,7 @@ import {
   fetchBulkCohortPercentiles,
   fetchCohortPercentiles,
 } from '../../services/champion-role-algo.js';
+import { generateChampionRoleInsights } from '../../services/champion-role-insights.js';
 import { generateChampionRoleAIScores } from '../../services/champion-role-score.js';
 import type { ChampionRoleStats } from '../../services/champion-role-score.js';
 import { matchDetailsNode } from '../../services/match-details.js';
@@ -608,10 +609,12 @@ app.get(
     }
 
     // Defer to AI scoring service for single champion-role
-    const aiScores = await generateChampionRoleAIScores(account.puuid, [
-      target,
+    const [cohort, aiScores] = await Promise.all([
+      fetchCohortPercentiles(championName, role),
+      generateChampionRoleAIScores(account.puuid, [target]),
     ]);
     const ai = aiScores[0] ?? null;
+    const insights = await generateChampionRoleInsights(target, cohort);
 
     return c.json({
       championName,
@@ -619,6 +622,8 @@ app.get(
       aiScore: ai?.aiScore ?? null,
       reasoning: ai?.reasoning ?? undefined,
       stats: target,
+      cohort,
+      insights,
     });
   },
 );
