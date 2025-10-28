@@ -1,3 +1,4 @@
+import consola from 'consola';
 import type { Document } from 'mongodb';
 
 export const cohortChampionRolePercentilesAggregation = (opts: {
@@ -586,6 +587,8 @@ export const cohortChampionRolePercentilesAggregation = (opts: {
 
     { $sort: { championName: 1, role: 1 } },
   ];
+
+  consola.debug('cohortChampionRolePercentilesAggregation pipeline', pipeline);
 
   return pipeline;
 };

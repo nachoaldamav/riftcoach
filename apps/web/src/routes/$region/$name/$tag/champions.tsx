@@ -1,18 +1,9 @@
 import { http } from '@/clients/http';
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import {
-  Avatar,
-  Button,
-  Card,
-  CardBody,
-  Chip,
-  Select,
-  SelectItem,
-} from '@heroui/react';
+import { Avatar, Button, Card, CardBody, Chip } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
-import { Crown, Flame } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/$region/$name/$tag/champions')({
@@ -62,15 +53,16 @@ const getRoleIconUrl = (roleKey: string) => {
   return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-${roleKey.toLowerCase()}.png`;
 };
 
+const pageSize = 20;
+
 function ChampionsComponent() {
   const { region, name, tag } = Route.useParams();
   const { getChampionImageUrl } = useDataDragon();
 
   const [page, setPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(20);
 
   const { data: championsData, isLoading } = useQuery<ChampionsApiResponse>({
-    queryKey: ['v1-champions-stats', region, name, tag, page, pageSize],
+    queryKey: ['v1-champions-stats', region, name, tag, page],
     queryFn: async () => {
       const res = await http.get<ChampionsApiResponse>(
         `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/champions-stats?page=${page}&pageSize=${pageSize}`,
@@ -84,7 +76,7 @@ function ChampionsComponent() {
   const total = championsData?.total ?? 0;
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
-    [total, pageSize],
+    [total],
   );
 
   const softColorForScore = (score?: number) => {
