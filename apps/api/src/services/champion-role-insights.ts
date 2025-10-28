@@ -68,7 +68,9 @@ export async function generateChampionRoleInsights(
     const response = await bedrockClient.send(command);
     if (!response.body) throw new Error('No response body from Bedrock');
 
-    const raw = JSON.parse(new TextDecoder().decode(response.body as Uint8Array));
+    const raw = JSON.parse(
+      new TextDecoder().decode(response.body as Uint8Array),
+    );
     const text: string = raw.outputs?.[0]?.text ?? '{}';
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');

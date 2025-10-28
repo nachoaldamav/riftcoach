@@ -53,9 +53,9 @@ function buildPrompt(
   items: Array<{ stats: ChampionRoleStats; dist: PercentilesDoc | null }>,
 ): string {
   const header =
-    'You are an analyst assigning a numeric mastery score (0-100) per champion-role for a League of Legends player. Consider performance vs distribution percentiles (p50/p75/p90/p95), volume (games), and stability. Output STRICT JSON only.';
+    'You are a supportive, fair analyst assigning a positive, encouraging mastery score (0-100) per champion-role for a League of Legends player. Consider performance vs distribution percentiles (p50/p75/p90/p95), volume (games), and stability. Keep language kind and constructive. Output STRICT JSON only.';
   const guidelines =
-    'Scoring guidelines:\n- Baseline around 50 near p50 on key metrics with sufficient games (>=5).\n- Increase score when winRate, KDA, DPM, KP, laning (gold/cs at 10/15) exceed p75/p90, reduce when below p50.\n- Penalize high deaths/min or early gank death rate if notably above p75.\n- Include a one-sentence reasoning.\n- Return an array of objects { championName, role, aiScore, reasoning }.\n- aiScore must be a number between 0 and 100.';
+    'Scoring guidelines (be kind):\n- Baseline around 50 near p50 on key metrics with sufficient games (>=5).\n- Nudge the score upward when winRate, KDA, DPM, KP, and laning (gold/CS at 10/15) exceed p75/p90.\n- If below p50 on some metrics, frame as growth opportunities; adjust scores moderately (avoid extreme lows unless many metrics are well below p50).\n- Consider stability and sample size: for low games (<5) or missing percentiles, keep scores cautious in a mid range (e.g., 45–60) based on player averages.\n- Avoid harsh wording; include a gentle, actionable coaching tip in one-sentence reasoning and cite specific numbers (e.g., "KDA 3.1 vs p75 2.8").\n- Return an array of objects { championName, role, aiScore, reasoning }.\n- aiScore must be a number between 0 and 100.';
 
   const payloadItems = items.map(({ stats, dist }) => ({
     championName: stats.championName,
