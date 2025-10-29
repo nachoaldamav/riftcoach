@@ -48,7 +48,21 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        title: 'Riftcoach | League of Legends Insights & Rewind',
+      },
+      {
+        name: 'description',
+        content:
+          'Riftcoach helps League of Legends players analyze their performance, celebrate achievements, and unlock data-driven insights.',
+      },
+      {
+        property: 'og:title',
+        content: 'Riftcoach | League of Legends Insights & Rewind',
+      },
+      {
+        property: 'og:description',
+        content:
+          'Track your League of Legends progress with personalized rewinds, performance analytics, and actionable coaching insights.',
       },
     ],
     links: [

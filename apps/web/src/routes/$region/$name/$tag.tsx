@@ -66,6 +66,53 @@ export const Route = createFileRoute('/$region/$name/$tag')({
       };
     }
   },
+  head: ({ loaderData }) => {
+    const summonerName = loaderData?.summoner?.name ?? loaderData?.name ?? null;
+    const tag = loaderData?.tag ?? null;
+    const status = loaderData?.initialStatus?.status ?? null;
+
+    const title =
+      summonerName && tag
+        ? `Riftcoach | ${summonerName}#${tag} Rewind Overview`
+        : 'Riftcoach | Player Rewind Overview';
+
+    const descriptionSegments: string[] = [];
+    if (summonerName && tag) {
+      descriptionSegments.push(
+        `Dive into ${summonerName}#${tag}'s League of Legends performance with personalized rewind analytics and champion insights.`,
+      );
+    } else {
+      descriptionSegments.push(
+        'Explore personalized League of Legends performance insights, champion trends, and rewind progress with Riftcoach.',
+      );
+    }
+
+    if (status) {
+      descriptionSegments.push(`Current rewind status: ${status}.`);
+    }
+
+    const description = descriptionSegments.join(' ');
+
+    return {
+      meta: [
+        {
+          title,
+        },
+        {
+          name: 'description',
+          content: description,
+        },
+        {
+          property: 'og:title',
+          content: title,
+        },
+        {
+          property: 'og:description',
+          content: description,
+        },
+      ],
+    };
+  },
 });
 
 interface ProcessedMatch {
