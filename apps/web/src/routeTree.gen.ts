@@ -10,8 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as RewindIdRouteImport } from './routes/rewind/$id'
-import { Route as QueueIdRouteImport } from './routes/queue/$id'
 import { Route as RegionNameTagRouteImport } from './routes/$region/$name/$tag'
 import { Route as RegionNameTagIndexRouteImport } from './routes/$region/$name/$tag/index'
 import { Route as RegionNameTagMatchesRouteImport } from './routes/$region/$name/$tag/matches'
@@ -21,16 +19,6 @@ import { Route as RegionNameTagMatchMatchIdRouteImport } from './routes/$region/
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RewindIdRoute = RewindIdRouteImport.update({
-  id: '/rewind/$id',
-  path: '/rewind/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const QueueIdRoute = QueueIdRouteImport.update({
-  id: '/queue/$id',
-  path: '/queue/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RegionNameTagRoute = RegionNameTagRouteImport.update({
@@ -62,8 +50,6 @@ const RegionNameTagMatchMatchIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/queue/$id': typeof QueueIdRoute
-  '/rewind/$id': typeof RewindIdRoute
   '/$region/$name/$tag': typeof RegionNameTagRouteWithChildren
   '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
   '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
@@ -72,8 +58,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/queue/$id': typeof QueueIdRoute
-  '/rewind/$id': typeof RewindIdRoute
   '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
   '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
   '/$region/$name/$tag': typeof RegionNameTagIndexRoute
@@ -82,8 +66,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/queue/$id': typeof QueueIdRoute
-  '/rewind/$id': typeof RewindIdRoute
   '/$region/$name/$tag': typeof RegionNameTagRouteWithChildren
   '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
   '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
@@ -94,8 +76,6 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/queue/$id'
-    | '/rewind/$id'
     | '/$region/$name/$tag'
     | '/$region/$name/$tag/champions'
     | '/$region/$name/$tag/matches'
@@ -104,8 +84,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/queue/$id'
-    | '/rewind/$id'
     | '/$region/$name/$tag/champions'
     | '/$region/$name/$tag/matches'
     | '/$region/$name/$tag'
@@ -113,8 +91,6 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/queue/$id'
-    | '/rewind/$id'
     | '/$region/$name/$tag'
     | '/$region/$name/$tag/champions'
     | '/$region/$name/$tag/matches'
@@ -124,8 +100,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  QueueIdRoute: typeof QueueIdRoute
-  RewindIdRoute: typeof RewindIdRoute
   RegionNameTagRoute: typeof RegionNameTagRouteWithChildren
 }
 
@@ -136,20 +110,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/rewind/$id': {
-      id: '/rewind/$id'
-      path: '/rewind/$id'
-      fullPath: '/rewind/$id'
-      preLoaderRoute: typeof RewindIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/queue/$id': {
-      id: '/queue/$id'
-      path: '/queue/$id'
-      fullPath: '/queue/$id'
-      preLoaderRoute: typeof QueueIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$region/$name/$tag': {
@@ -210,8 +170,6 @@ const RegionNameTagRouteWithChildren = RegionNameTagRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  QueueIdRoute: QueueIdRoute,
-  RewindIdRoute: RewindIdRoute,
   RegionNameTagRoute: RegionNameTagRouteWithChildren,
 }
 export const routeTree = rootRouteImport

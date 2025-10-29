@@ -1,6 +1,5 @@
-import { RewindForm } from '@/components/rewind-form';
 import { Navbar } from '@/components/navbar';
-import { Card, CardBody, CardHeader } from '@heroui/react';
+import { RewindForm } from '@/components/rewind-form';
 import { createFileRoute } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/')({
@@ -69,7 +68,9 @@ function App() {
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center space-x-2">
                 <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-accent-blue-500 to-accent-blue-600" />
-                <span className="text-xl font-bold text-neutral-50">Riftcoach</span>
+                <span className="text-xl font-bold text-neutral-50">
+                  Riftcoach
+                </span>
               </div>
               <p className="mt-4 text-sm text-neutral-300 max-w-md">
                 Your ultimate companion for League of Legends performance
@@ -78,7 +79,9 @@ function App() {
               </p>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-neutral-50">Features</h3>
+              <h3 className="text-sm font-semibold text-neutral-50">
+                Features
+              </h3>
               <ul className="mt-4 space-y-2">
                 <li>
                   <a
