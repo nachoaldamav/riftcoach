@@ -18,6 +18,9 @@ const config = defineConfig({
     }),
     viteReact(),
   ],
+  optimizeDeps: {
+    exclude: ['@resvg/resvg-wasm'],
+  },
 })
 
 export default config

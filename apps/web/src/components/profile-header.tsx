@@ -78,7 +78,7 @@ export function ProfileHeader({
       className="mb-8"
     >
       <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative">
-        <div className="absolute right-6 top-6 flex items-center gap-3">
+        <div className="absolute right-6 top-6 z-30 flex items-center gap-3">
           <ProfileShareButton
             region={region}
             name={name}

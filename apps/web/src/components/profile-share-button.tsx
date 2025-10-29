@@ -4,6 +4,7 @@ import { generateProfileShareCard, type ShareMetric } from '@/utils/profile-shar
 import { Button } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, Loader2, Share2, X } from 'lucide-react';
 
 interface SummonerSummary {
@@ -247,29 +248,30 @@ export function ProfileShareButton({
         Share Profile
       </Button>
 
-      {isOpen ? (
-        <div className="fixed inset-0 z-[70]">
-          <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            role="button"
-            tabIndex={0}
-            aria-label="Close share preview"
-            onClick={() => setIsOpen(false)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+      {isOpen && typeof document !== 'undefined'
+        ? createPortal(
+          <div className="fixed inset-0 z-[70]">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              role="button"
+              tabIndex={0}
+              aria-label="Close share preview"
+              onClick={() => setIsOpen(false)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+                  setIsOpen(false);
+                }
+              }}
+            />
+            <dialog
+              open
+              className="absolute left-1/2 top-1/2 flex w-[95vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-neutral-700/70 bg-neutral-950/95 shadow-2xl"
+              aria-label="Share profile preview"
+              onCancel={(event) => {
+                event.preventDefault();
                 setIsOpen(false);
-              }
-            }}
-          />
-          <dialog
-            open
-            className="absolute left-1/2 top-1/2 flex w-[95vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-neutral-700/70 bg-neutral-950/95 shadow-2xl"
-            aria-label="Share profile preview"
-            onCancel={(event) => {
-              event.preventDefault();
-              setIsOpen(false);
-            }}
-          >
+              }}
+            >
             <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-4">
               <div className="flex flex-col">
                 <span className="text-lg font-semibold text-neutral-50">Shareable Highlight Card</span>
@@ -419,7 +421,8 @@ export function ProfileShareButton({
               </div>
             </div>
           </dialog>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </>
   );

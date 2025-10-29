@@ -1,5 +1,7 @@
 /** @jsxImportSource react */
 import satori from 'satori';
+import { Resvg, initWasm } from '@resvg/resvg-wasm';
+import resvgWasmUrl from '@resvg/resvg-wasm/index_bg.wasm?url';
 
 export interface ShareMetric {
   label: string;
@@ -32,76 +34,85 @@ const CANVAS_HEIGHT = 630;
 const fontCache = new Map<string, ArrayBuffer>();
 const imageCache = new Map<string, string>();
 
-async function loadFont(url: string): Promise<ArrayBuffer> {
-  if (fontCache.has(url)) {
-    const cached = fontCache.get(url);
-    if (cached) {
-      return cached;
-    }
-  }
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to load font from ${url}`);
-  }
-
-  const buffer = await response.arrayBuffer();
-  fontCache.set(url, buffer);
-  return buffer;
+async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch: ${url}`);
+  return res.arrayBuffer();
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
+async function fetchImageAsDataUrl(url: string): Promise<string> {
+  const cached = imageCache.get(url);
+  if (cached) return cached;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch image: ${url}`);
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        imageCache.set(url, reader.result);
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to convert image to data URL'));
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
-async function loadImageAsDataUrl(url: string): Promise<string> {
-  if (imageCache.has(url)) {
-    const cached = imageCache.get(url);
-    if (cached) {
-      return cached;
-    }
+async function loadFont(url: string, cacheKey: string): Promise<ArrayBuffer | null> {
+  const cached = fontCache.get(cacheKey);
+  if (cached) return cached;
+  try {
+    const data = await fetchArrayBuffer(url);
+    fontCache.set(cacheKey, data);
+    return data;
+  } catch (err) {
+    console.warn(`[share-card] font fetch failed for ${cacheKey}:`, err);
+    return null;
   }
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to load image from ${url}`);
-  }
-
-  const contentType = response.headers.get('content-type') ?? 'image/png';
-  const buffer = await response.arrayBuffer();
-  const base64 = arrayBufferToBase64(buffer);
-  const dataUrl = `data:${contentType};base64,${base64}`;
-  imageCache.set(url, dataUrl);
-  return dataUrl;
 }
 
-function formatMetricValue(value: number, suffix?: string) {
-  const formatted = Math.abs(value) >= 100
-    ? Math.round(value).toString()
-    : value.toFixed(1);
-  return suffix ? `${formatted}${suffix}` : formatted;
-}
+const interRegularUrl = '/fonts/inter/Inter-Regular.ttf';
+const interBoldUrl = '/fonts/inter/Inter-Bold.ttf';
+const interItalicUrl = '/fonts/inter/Inter-Italic.ttf';
+const interBoldItalicUrl = '/fonts/inter/Inter-BoldItalic.ttf';
+const interSemiBoldUrl =
+  '/fonts/inter/InterVariable-Italic.ttf';
 
-export async function generateProfileShareCard(
-  options: ProfileShareCardOptions,
-): Promise<{ svg: string; pngBlob: Blob }> {
-  const [interRegular, interSemiBold] = await Promise.all([
-    loadFont('/fonts/Inter-Regular.ttf'),
-    loadFont('/fonts/Inter-SemiBold.ttf'),
+export async function generateProfileShareCard(options: {
+  playerName: string;
+  tagLine: string;
+  profileIconUrl: string;
+  backgroundUrl: string;
+  champion: ChampionHighlight;
+  metrics: ShareMetric[];
+  badges?: string[];
+}): Promise<{ svg: string; pngBlob: Blob }> {
+  const [interRegular, interBold, interItalic, interBoldItalic] = await Promise.all([
+    loadFont(interRegularUrl, 'inter-regular'),
+    loadFont(interBoldUrl, 'inter-bold'),
+    loadFont(interItalicUrl, 'inter-italic'),
+    loadFont(interBoldItalicUrl, 'inter-bold-italic'),
   ]);
 
-  const [profileIcon, backgroundImage, championSplash] = await Promise.all([
-    loadImageAsDataUrl(options.profileIconUrl),
-    loadImageAsDataUrl(options.backgroundUrl),
-    loadImageAsDataUrl(options.champion.splashUrl),
-  ]);
+  const profileIcon = await fetchImageAsDataUrl(options.profileIconUrl);
+  const backgroundImage = await fetchImageAsDataUrl(options.backgroundUrl);
+
+  const fontsConfig: Array<{ name: string; data: ArrayBuffer; weight: number; style: 'normal' | 'italic' }> = [];
+  if (interRegular) {
+    fontsConfig.push({ name: 'Inter', data: interRegular, weight: 400, style: 'normal' });
+  }
+  if (interBold) {
+    fontsConfig.push({ name: 'Inter', data: interBold, weight: 700, style: 'normal' });
+  }
+  if (interItalic) {
+    fontsConfig.push({ name: 'Inter', data: interItalic, weight: 400, style: 'italic' });
+  }
+  if (interBoldItalic) {
+    fontsConfig.push({ name: 'Inter', data: interBoldItalic, weight: 700, style: 'italic' });
+  }
 
   const svg = await satori(
     (
@@ -111,109 +122,95 @@ export async function generateProfileShareCard(
           height: CANVAS_HEIGHT,
           display: 'flex',
           flexDirection: 'column',
+          backgroundColor: '#0B1220',
           position: 'relative',
-          backgroundColor: '#05070f',
-          color: '#f8fafc',
-          fontFamily: 'Inter',
-          overflow: 'hidden',
         }}
       >
+        <img
+          src={backgroundImage}
+          alt="background"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            opacity: 0.2,
+            filter: 'blur(12px)',
+            display: 'flex',
+          }}
+        />
+
         <div
           style={{
             position: 'absolute',
             inset: 0,
+            background:
+              'radial-gradient(1200px 630px at 1000px 315px, rgba(30,64,175,0.5), transparent)',
+            display: 'flex',
           }}
-        >
-          <img
-            src={backgroundImage}
-            alt="background"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              filter: 'blur(8px) brightness(0.65)',
-              transform: 'scale(1.05)',
-            }}
-          />
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background:
-                'linear-gradient(135deg, rgba(5,7,15,0.92) 0%, rgba(15,23,42,0.88) 40%, rgba(30,41,59,0.85) 100%)',
-            }}
-          />
-        </div>
+        />
 
         <div
           style={{
-            position: 'absolute',
-            right: -120,
-            bottom: -60,
-            opacity: 0.45,
-            filter: 'drop-shadow(0px 18px 40px rgba(15,23,42,0.35))',
-          }}
-        >
-          <img
-            src={championSplash}
-            alt={options.champion.name}
-            style={{
-              height: 720,
-              width: 720,
-              objectFit: 'cover',
-              mixBlendMode: 'screen',
-              borderRadius: 360,
-              border: '3px solid rgba(148,163,184,0.25)',
-            }}
-          />
-        </div>
-
-        <div
-          style={{
-            position: 'relative',
             display: 'flex',
             flexDirection: 'column',
-            flex: 1,
-            padding: '64px 72px',
+            justifyContent: 'space-between',
+            height: '100%',
+            padding: 40,
           }}
         >
+          {/* Header */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              marginBottom: 48,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
               <div
                 style={{
-                  position: 'relative',
-                  width: 120,
-                  height: 120,
-                  borderRadius: 28,
+                  display: 'flex',
+                  width: 72,
+                  height: 72,
+                  borderRadius: 16,
                   overflow: 'hidden',
-                  border: '4px solid rgba(96,165,250,0.6)',
-                  boxShadow: '0 20px 35px rgba(30,64,175,0.35)',
+                  border: '2px solid rgba(147,197,253,0.5)',
+                  backgroundColor: 'rgba(30,41,59,0.6)',
                 }}
               >
                 <img
                   src={profileIcon}
-                  alt={`${options.playerName} icon`}
-                  style={{ width: '100%', height: '100%' }}
+                  alt={`${options.playerName} icon}`}
+                  style={{ width: '100%', height: '100%', display: 'flex' }}
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span
                   style={{
                     fontSize: 48,
                     fontWeight: 700,
                     letterSpacing: '-0.02em',
+                    display: 'flex',
+                    color: '#FFFFFF',
                   }}
                 >
                   {options.playerName}
-                  <span style={{ color: 'rgba(148,163,184,0.9)' }}>#{options.tagLine}</span>
                 </span>
+                  <span
+                    style={{
+                      fontSize: 48,
+                      fontWeight: 700,
+                      letterSpacing: '-0.02em',
+                      color: 'rgba(148,163,184,0.9)',
+                      display: 'flex',
+                    }}
+                  >
+                    #{options.tagLine}
+                  </span>
+                </div>
                 <span
                   style={{
                     fontSize: 20,
@@ -221,6 +218,7 @@ export async function generateProfileShareCard(
                     marginTop: 6,
                     letterSpacing: '0.08em',
                     textTransform: 'uppercase',
+                    display: 'flex',
                   }}
                 >
                   Riftcoach Performance Snapshot
@@ -242,200 +240,184 @@ export async function generateProfileShareCard(
                   color: 'rgba(148,163,184,0.8)',
                   textTransform: 'uppercase',
                   letterSpacing: '0.2em',
+                  display: 'flex',
                 }}
               >
-                Featured Champion
+                Champion Highlight
               </span>
               <span
                 style={{
-                  fontSize: 36,
+                  fontSize: 26,
                   fontWeight: 700,
-                  color: '#f8fafc',
-                  letterSpacing: '-0.01em',
+                  color: 'rgba(219,234,254,0.95)',
+                  display: 'flex',
                 }}
               >
                 {options.champion.name}
               </span>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 18,
-                  fontSize: 18,
-                  color: 'rgba(148,163,184,0.9)',
-                }}
-              >
-                <span>{options.champion.games} games</span>
-                <span>· {Math.round(options.champion.winRate)}% WR</span>
-                <span>· {options.champion.kda.toFixed(2)} KDA</span>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', color: 'rgba(148,163,184,0.9)' }}>
+                  <span style={{ display: 'flex' }}>Games:</span>
+                  <span style={{ color: 'rgba(219,234,254,0.95)', fontWeight: 700, display: 'flex' }}>{options.champion.games}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', color: 'rgba(148,163,184,0.9)' }}>
+                  <span style={{ display: 'flex' }}>Win Rate:</span>
+                  <span style={{ color: 'rgba(219,234,254,0.95)', fontWeight: 700, display: 'flex' }}>{options.champion.winRate}%</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', color: 'rgba(148,163,184,0.9)' }}>
+                  <span style={{ display: 'flex' }}>KDA:</span>
+                  <span style={{ color: 'rgba(219,234,254,0.95)', fontWeight: 700, display: 'flex' }}>{options.champion.kda.toFixed(2)}</span>
+                </div>
               </div>
             </div>
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1.5fr 1fr',
-              gap: 32,
-              flex: 1,
-            }}
-          >
-            <div
-              style={{
-                background: 'rgba(15,23,42,0.72)',
-                borderRadius: 28,
-                padding: 32,
-                border: '1px solid rgba(94,234,212,0.12)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                boxShadow: '0 24px 48px rgba(15,118,110,0.18)',
-              }}
-            >
-              <div>
-                <span
-                  style={{
-                    fontSize: 20,
-                    color: 'rgba(45,212,191,0.95)',
-                    letterSpacing: '0.15em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Cohort Comparison
-                </span>
-                <span
-                  style={{
-                    display: 'block',
-                    marginTop: 12,
-                    fontSize: 32,
-                    fontWeight: 600,
-                    letterSpacing: '-0.01em',
-                  }}
-                >
-                  Performance Metrics
-                </span>
-              </div>
-              <div style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>
-                {options.metrics.map((metric) => {
-                  const diff = metric.player - metric.cohort;
-                  return (
-                    <div
-                      key={metric.label}
+          {/* Middle content */}
+          <div style={{ display: 'flex', gap: 24 }}>
+              <div style={{ display: 'flex', flex: 1 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 16,
+                }}
+              >
+                {options.metrics.map((m) => (
+                  <div
+                    key={m.label}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                      padding: 16,
+                      borderRadius: 12,
+                      backgroundColor: 'rgba(23,37,84,0.6)',
+                      border: '1px solid rgba(147,197,253,0.3)',
+                      width: '50%',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <span
                       style={{
+                        fontSize: 16,
+                        color: 'rgba(148,163,184,0.9)',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        background: 'rgba(15,118,110,0.12)',
-                        borderRadius: 18,
-                        padding: '16px 20px',
-                        border: '1px solid rgba(94,234,212,0.16)',
                       }}
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <span
-                          style={{
-                            fontSize: 18,
-                            color: 'rgba(190,242,255,0.95)',
-                            letterSpacing: '0.04em',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          {metric.label}
-                        </span>
-                        <span style={{ fontSize: 26, fontWeight: 600 }}>
-                          {formatMetricValue(metric.player, metric.suffix)}
-                          <span style={{
-                            fontSize: 18,
-                            color: 'rgba(148,163,184,0.85)',
-                            marginLeft: 12,
-                          }}>
-                            vs {formatMetricValue(metric.cohort, metric.suffix)} cohort
-                          </span>
-                        </span>
-                      </div>
-                      <div
+                      {m.label}
+                    </span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}
+                    >
+                      <span
                         style={{
-                          fontSize: 22,
-                          fontWeight: 600,
-                          color: diff >= 0 ? 'rgba(52,211,153,0.95)' : 'rgba(248,113,113,0.95)',
-                          letterSpacing: '0.05em',
+                          fontSize: 42,
+                          fontWeight: 700,
+                          color: 'rgba(219,234,254,0.95)',
+                          display: 'flex',
                         }}
                       >
-                        {diff >= 0 ? '▲' : '▼'} {formatMetricValue(Math.abs(diff), metric.suffix)}
-                      </div>
+                        {m.player.toFixed(1)}{m.suffix ?? ''}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 18,
+                          color: 'rgba(148,163,184,0.8)',
+                          display: 'flex',
+                        }}
+                      >
+                        Cohort: {m.cohort.toFixed(1)}{m.suffix ?? ''}
+                      </span>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
 
             <div
               style={{
-                background: 'rgba(15,23,42,0.68)',
-                borderRadius: 28,
-                padding: 32,
-                border: '1px solid rgba(96,165,250,0.18)',
                 display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                gap: 24,
-                boxShadow: '0 24px 48px rgba(30,64,175,0.25)',
+                width: 480,
+                height: 270,
+                borderRadius: 16,
+                overflow: 'hidden',
+                border: '2px solid rgba(147,197,253,0.5)',
+                backgroundColor: 'rgba(23,37,84,0.6)',
               }}
             >
-              <div>
-                <span
-                  style={{
-                    fontSize: 20,
-                    letterSpacing: '0.18em',
-                    textTransform: 'uppercase',
-                    color: 'rgba(96,165,250,0.95)',
-                  }}
-                >
-                  Playstyle Traits
-                </span>
-                <span
-                  style={{
-                    display: 'block',
-                    marginTop: 12,
-                    fontSize: 30,
-                    fontWeight: 600,
-                    letterSpacing: '-0.015em',
-                  }}
-                >
-                  AI-Identified Highlights
-                </span>
+              <img
+                src={backgroundImage}
+                alt="champion splash"
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'flex' }}
+              />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            {options.badges && options.badges.length > 0 && (
+              <div style={{ display: 'flex', gap: 12 }}>
+                {options.badges.map((rawBadge) => {
+                  const [type, label] = rawBadge.includes(':')
+                    ? [rawBadge.split(':')[0].trim().toLowerCase(), rawBadge.split(':').slice(1).join(':').trim()]
+                    : [rawBadge.trim().toLowerCase(), rawBadge.trim()];
+                  const palette: Record<string, { bg: string; border: string; color: string }> = {
+                    mvp: { bg: 'rgba(24,119,242,0.2)', border: 'rgba(24,119,242,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    carry: { bg: 'rgba(16,185,129,0.2)', border: 'rgba(16,185,129,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    support: { bg: 'rgba(99,102,241,0.2)', border: 'rgba(99,102,241,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    vision: { bg: 'rgba(168,85,247,0.2)', border: 'rgba(168,85,247,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    clutch: { bg: 'rgba(245,158,11,0.2)', border: 'rgba(245,158,11,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    kda: { bg: 'rgba(244,63,94,0.2)', border: 'rgba(244,63,94,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    wr: { bg: 'rgba(37,99,235,0.2)', border: 'rgba(37,99,235,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    top: { bg: 'rgba(99,102,241,0.2)', border: 'rgba(99,102,241,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    jungle: { bg: 'rgba(34,197,94,0.2)', border: 'rgba(34,197,94,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    mid: { bg: 'rgba(59,130,246,0.2)', border: 'rgba(59,130,246,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    adc: { bg: 'rgba(245,158,11,0.2)', border: 'rgba(245,158,11,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    aram: { bg: 'rgba(75,85,99,0.2)', border: 'rgba(75,85,99,0.5)', color: 'rgba(219,234,254,0.95)' },
+                    ranked: { bg: 'rgba(30,64,175,0.2)', border: 'rgba(30,64,175,0.5)', color: 'rgba(219,234,254,0.95)' },
+                  };
+                  const colors = palette[type] ?? { bg: 'rgba(23,37,84,0.6)', border: 'rgba(147,197,253,0.3)', color: 'rgba(219,234,254,0.95)' };
+                  return (
+                    <div
+                      key={rawBadge}
+                      style={{
+                        display: 'flex',
+                        padding: '10px 16px',
+                        borderRadius: 9999,
+                        backgroundColor: colors.bg,
+                        border: `1px solid ${colors.border}`,
+                        fontSize: 20,
+                        fontWeight: 600,
+                        color: colors.color,
+                        letterSpacing: '0.03em',
+                      }}
+                    >
+                      {label}
+                    </div>
+                  );
+                })}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {(options.badges?.length ? options.badges : ['Strategic Shotcaller', 'Mechanical Specialist', 'Team Backbone']).slice(0, 3).map((badge) => (
-                  <div
-                    key={badge}
-                    style={{
-                      background: 'rgba(30,64,175,0.22)',
-                      borderRadius: 999,
-                      padding: '12px 20px',
-                      border: '1px solid rgba(147,197,253,0.3)',
-                      fontSize: 20,
-                      fontWeight: 600,
-                      color: 'rgba(219,234,254,0.95)',
-                      letterSpacing: '0.03em',
-                    }}
-                  >
-                    {badge}
-                  </div>
-                ))}
-              </div>
-              <div
-                style={{
-                  marginTop: 'auto',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: 16,
-                  color: 'rgba(148,163,184,0.8)',
-                }}
-              >
-                <span>Generated with Riftcoach.ai</span>
-                <span>Season Insights • Personalized Analytics</span>
-              </div>
+            )}
+            <div
+              style={{
+                marginTop: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 24,
+                fontSize: 16,
+                color: 'rgba(148,163,184,0.8)',
+              }}
+            >
+              <span style={{ display: 'flex' }}>Generated with Riftcoach.ai</span>
+              <span style={{ display: 'flex' }}>Season Insights • Personalized Analytics</span>
             </div>
           </div>
         </div>
@@ -444,28 +426,16 @@ export async function generateProfileShareCard(
     {
       width: CANVAS_WIDTH,
       height: CANVAS_HEIGHT,
-      fonts: [
-        {
-          name: 'Inter',
-          data: interRegular,
-          weight: 400,
-          style: 'normal',
-        },
-        {
-          name: 'Inter',
-          data: interSemiBold,
-          weight: 600,
-          style: 'normal',
-        },
-      ],
+      fonts: fontsConfig as any,
     },
   );
 
-  const { Resvg } = await import('@resvg/resvg-js');
+  const wasmBinary = await fetch(resvgWasmUrl).then((r) => r.arrayBuffer());
+  await initWasm(wasmBinary);
   const resvg = new Resvg(svg, {
     fitTo: {
-      mode: 'width',
-      value: CANVAS_WIDTH,
+      mode: 'zoom',
+      value: 2,
     },
   });
 
