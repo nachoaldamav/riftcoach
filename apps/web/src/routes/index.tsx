@@ -4,6 +4,31 @@ import { Card, CardBody, CardHeader } from '@heroui/react';
 import { createFileRoute } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/')({
+  head: () => {
+    const title = 'Riftcoach | League of Legends Year in Review';
+    const description =
+      'Generate your personalized League of Legends rewind with Riftcoach. Analyze your matches, uncover strengths, and plan your next climb.';
+
+    return {
+      meta: [
+        {
+          title,
+        },
+        {
+          name: 'description',
+          content: description,
+        },
+        {
+          property: 'og:title',
+          content: title,
+        },
+        {
+          property: 'og:description',
+          content: description,
+        },
+      ],
+    };
+  },
   component: App,
 });
 

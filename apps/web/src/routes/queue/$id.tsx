@@ -1,5 +1,9 @@
+import { http, HttpError } from '@/clients/http';
 import { ChampionImage } from '@/components/champion-image';
-import { getQueueStatusQueryOptions } from '@/queries/get-queue-status';
+import {
+  type QueueStatus,
+  getQueueStatusQueryOptions,
+} from '@/queries/get-queue-status';
 import { Card, CardBody } from '@heroui/react';
 import { Progress } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
@@ -9,6 +13,66 @@ import { Loader2, Swords } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 export const Route = createFileRoute('/queue/$id')({
+  loader: async ({ params }) => {
+    const { id } = params;
+
+    if (!id) {
+      throw new Error('Queue ID is required');
+    }
+
+    try {
+      const response = await http.get<QueueStatus>(
+        `/rewind/${encodeURIComponent(id)}/status`,
+      );
+
+      return {
+        id,
+        initialStatus: response.data,
+      };
+    } catch (error) {
+      const message =
+        error instanceof HttpError
+          ? error.message
+          : 'Unable to load queue status.';
+
+      return {
+        id,
+        initialStatus: null as QueueStatus | null,
+        error: message,
+      };
+    }
+  },
+  head: ({ loaderData }) => {
+    const status = loaderData?.initialStatus ?? null;
+    const scope = status?.jobMapping?.scope;
+
+    const title = scope
+      ? `Riftcoach | Preparing your ${scope} rewind`
+      : 'Riftcoach | Rewind preparation in progress';
+    const description = scope
+      ? `Track the progress of your personalized League of Legends rewind for ${scope} with live updates from Riftcoach.`
+      : 'Monitor the progress of your personalized League of Legends rewind with live updates from Riftcoach.';
+
+    return {
+      meta: [
+        {
+          title,
+        },
+        {
+          name: 'description',
+          content: description,
+        },
+        {
+          property: 'og:title',
+          content: title,
+        },
+        {
+          property: 'og:description',
+          content: description,
+        },
+      ],
+    };
+  },
   component: RouteComponent,
 });
 
@@ -25,10 +89,17 @@ interface ProcessedMatch {
 
 function RouteComponent() {
   const { id } = Route.useParams();
+  const { initialStatus } = Route.useLoaderData() as {
+    id: string;
+    initialStatus: QueueStatus | null;
+    error?: string;
+  };
   const navigate = useNavigate();
-  const { data: crawlData, isLoading } = useQuery(
-    getQueueStatusQueryOptions(id),
-  );
+  const queueStatusQueryOptions = getQueueStatusQueryOptions(id);
+  const { data: crawlData, isLoading } = useQuery({
+    ...queueStatusQueryOptions,
+    initialData: initialStatus ?? undefined,
+  });
   const [elapsedTime, setElapsedTime] = useState(0);
   const [processedMatches, setProcessedMatches] = useState<ProcessedMatch[]>(
     [],

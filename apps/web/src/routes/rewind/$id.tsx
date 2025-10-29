@@ -1,25 +1,95 @@
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import { rewindBadgesQueryOptions } from '@/queries/get-rewind-badges';
-import { rewindProfileQueryOptions } from '@/queries/get-rewind-profile';
+import {
+  type RewindProfile,
+  fetchRewindProfile,
+  rewindProfileQueryOptions,
+} from '@/queries/get-rewind-profile';
 import { Badge, Card, CardBody } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
 
 export const Route = createFileRoute('/rewind/$id')({
+  loader: async ({ params }) => {
+    const { id } = params;
+
+    if (!id) {
+      throw new Error('Rewind job ID is required');
+    }
+
+    try {
+      const profile = await fetchRewindProfile(id);
+
+      return {
+        id,
+        profile,
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to load rewind profile.';
+
+      return {
+        id,
+        profile: null as RewindProfile | null,
+        error: message,
+      };
+    }
+  },
+  head: ({ loaderData }) => {
+    const profile = loaderData?.profile ?? null;
+
+    const title = profile
+      ? `Riftcoach | ${profile.gameName}#${profile.tagLine} Year in Review`
+      : 'Riftcoach | League of Legends Year in Review';
+    const description = profile
+      ? `Explore ${profile.gameName}#${profile.tagLine}'s personalized League of Legends rewind with performance highlights, role insights, and achievements.`
+      : 'Explore your personalized League of Legends rewind with performance highlights, role insights, and achievements.';
+
+    return {
+      meta: [
+        {
+          title,
+        },
+        {
+          name: 'description',
+          content: description,
+        },
+        {
+          property: 'og:title',
+          content: title,
+        },
+        {
+          property: 'og:description',
+          content: description,
+        },
+      ],
+    };
+  },
   component: RewindPage,
 });
 
 function RewindPage() {
   const { id } = Route.useParams();
   const { getProfileIconUrl } = useDataDragon();
+  const { profile: initialProfile } = Route.useLoaderData() as {
+    id: string;
+    profile: RewindProfile | null;
+    error?: string;
+  };
 
   // Fetch profile data
+  const profileQueryOptions = rewindProfileQueryOptions(id);
   const {
     data: profile,
     isLoading: profileLoading,
     error: profileError,
-  } = useQuery(rewindProfileQueryOptions(id));
+  } = useQuery({
+    ...profileQueryOptions,
+    initialData: initialProfile ?? undefined,
+  });
 
   // Fetch badges data
   const {
