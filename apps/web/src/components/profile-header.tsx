@@ -1,8 +1,10 @@
+import { http } from '@/clients/http';
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import { Button, Card, CardBody, Chip, Tooltip } from '@heroui/react';
-import { useLocation, useNavigate, useParams } from '@tanstack/react-router';
+import { Card, CardBody, Chip, Tooltip } from '@heroui/react';
+import { useQuery } from '@tanstack/react-query';
+import { useParams } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 interface SummonerSummary {
   id: string;
@@ -37,10 +39,34 @@ export function ProfileHeader({
   isIdle,
   isBadgesFetching,
 }: ProfileHeaderProps) {
-  const { region } = useParams({
-    from: '/$region/$name/$tag',
-  });
   const { getProfileIconUrl } = useDataDragon();
+
+  // Role icon helper (same logic as champions page)
+  const getRoleIconUrl = (roleKey: string) => {
+    if (roleKey === 'ALL')
+      return 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-fill.png';
+    return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-${roleKey.toLowerCase()}.png`;
+  };
+
+  type ProCheckResponse = {
+    isPro: boolean;
+    team?: string;
+    position?: string;
+    slug?: string;
+    name?: string;
+    image?: string;
+  };
+
+  const { data: proInfo } = useQuery<ProCheckResponse>({
+    queryKey: ['esports-pro-check', name, tag],
+    queryFn: async () => {
+      const res = await http.get<ProCheckResponse>(
+        `/v1/esports/pro-check?name=${encodeURIComponent(name)}&tag=${encodeURIComponent(tag)}`,
+      );
+      return res.data;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
 
   return (
     <motion.div
@@ -50,10 +76,10 @@ export function ProfileHeader({
       className="mb-8"
     >
       <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative">
-        <CardBody className="p-6">
-          <div className="flex items-center gap-6">
+        <CardBody className="p-0">
+          <div className="flex items-center gap-6 h-36">
             {/* Profile Icon */}
-            <div className="relative">
+            <div className="relative mx-6">
               <img
                 src={getProfileIconUrl(summoner.profileIconId)}
                 alt="Profile Icon"
@@ -122,6 +148,55 @@ export function ProfileHeader({
                 </div>
               ) : null}
             </div>
+
+            {/* Pro player info blended into header (no link, no CTA) */}
+            {proInfo?.isPro && proInfo.slug && (
+              <div
+                // biome-ignore lint/a11y/useSemanticElements: needs to be a div
+                role="figure"
+                aria-label={`Pro info for ${proInfo.name ?? name}`}
+                className="relative overflow-hidden h-28 sm:h-36 min-w-[280px] w-[320px]"
+              >
+                {/* Background team logo for subtle branding */}
+                <img
+                  src={`https://d1wwggj2y1tr8j.cloudfront.net/${proInfo.slug}/logo.png`}
+                  alt="team logo background"
+                  className="pointer-events-none absolute left-10 top-0 h-full w-1/2 object-contain opacity-20 grayscale"
+                />
+
+                {/* Player portrait on the right with gradient fade */}
+                {proInfo.image ? (
+                  <img
+                    src={`https://d1wwggj2y1tr8j.cloudfront.net/${proInfo.slug}/${proInfo.image}`}
+                    alt={`${proInfo.name ?? name}`}
+                    loading="lazy"
+                    className="pointer-events-none absolute right-0 top-0 h-full w-[42%] object-cover object-center z-20"
+                  />
+                ) : null}
+                <div className="absolute inset-y-0 right-0 w-[42%] bg-gradient-to-l from-neutral-900/80 to-transparent" />
+
+                {/* Role icon */}
+
+                {/* Content */}
+                <div className="relative z-10 flex h-full items-end pl-12 pr-4 pb-4">
+                  <div className="flex-1">
+                    <div className="text-xl sm:text-2xl font-bold text-neutral-50 tracking-tight inline-flex gap-2 items-center">
+                      {proInfo.position ? (
+                        <img
+                          src={getRoleIconUrl(proInfo.position)}
+                          alt={`${proInfo.position} role icon`}
+                          className="size-6"
+                        />
+                      ) : null}{' '}
+                      {proInfo.name ?? name}
+                    </div>
+                    <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-300">
+                      {name}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </CardBody>
       </Card>

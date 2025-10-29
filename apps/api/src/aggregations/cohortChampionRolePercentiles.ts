@@ -620,6 +620,5 @@ export const cohortChampionRolePercentilesAggregation = (params: {
 export const cohortChampionRolePercentilesOptions = {
   allowDiskUse: true, // Allow using disk for large datasets
   maxTimeMS: 30000, // 30 second timeout
-  // Use the comprehensive compound index that includes all query fields
-  hint: { 'info.participants.championName': 1, 'info.participants.teamPosition': 1, 'info.gameCreation': 1, 'info.participants.win': 1, 'info.gameDuration': 1, 'info.queueId': 1 },
+  // Rely on MongoDB's query planner; avoid explicit hints that may not exist
 };

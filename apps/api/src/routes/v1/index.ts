@@ -32,11 +32,7 @@ import { statsByRolePUUID } from '../../aggregations/statsByRolePUUID.js';
 import { redis } from '../../clients/redis.js';
 import { generateBuildSuggestions } from '../../services/builds.js';
 import { generateChampionInsights } from '../../services/champion-insights.js';
-import {
-  computeChampionRoleAlgoScore,
-  fetchBulkCohortPercentiles,
-  fetchCohortPercentiles,
-} from '../../services/champion-role-algo.js';
+import { fetchCohortPercentiles } from '../../services/champion-role-algo.js';
 import { generateChampionRoleInsights } from '../../services/champion-role-insights.js';
 import { generateChampionRoleAIScores } from '../../services/champion-role-score.js';
 import type { ChampionRoleStats } from '../../services/champion-role-score.js';
@@ -56,6 +52,7 @@ import {
   resolveItemNames,
 } from '../../utils/ddragon-items.js';
 import { deriveSynergy } from '../../utils/synergy.js';
+import { teams } from '../../services/competitive.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
@@ -483,6 +480,53 @@ app.get('/builds-order', async (c) => {
   return c.json({ champion, role, columns });
 });
 
+// Esports teams listing (no region required)
+app.get('/esports/teams', async (c) => {
+  return c.json(teams);
+});
+
+// Check if a summoner is a pro-player (no region required)
+// Usage: GET /v1/esports/pro-check?name=<summonerName>&tag=<summonerTag>
+// Returns: { isPro: boolean, team?: string, position?: string, slug?: string, name?: string, image?: string }
+app.get('/esports/pro-check', async (c) => {
+  const name = c.req.query('name');
+  const tag = c.req.query('tag');
+
+  if (!name || !tag) {
+    return c.json({ message: 'name and tag are required' }, 400);
+  }
+
+  const normalize = (v: string) => {
+    try {
+      return decodeURIComponent(v).trim().toLowerCase();
+    } catch {
+      return v.trim().toLowerCase();
+    }
+  };
+
+  const nName = normalize(name);
+  const nTag = normalize(tag);
+
+  for (const team of teams) {
+    for (const player of team.players) {
+      const pName = normalize(player.summonerName);
+      const pTag = normalize(player.summonerTag);
+      if (pName === nName && pTag === nTag) {
+        return c.json({
+          isPro: true,
+          team: team.team,
+          position: player.position,
+          slug: team.slug,
+          name: player.name,
+          image: player.image,
+        });
+      }
+    }
+  }
+
+  return c.json({ isPro: false });
+});
+
 app.use(
   '/:region/*',
   createMiddleware(async (c, next) => {
@@ -620,16 +664,6 @@ app.get(
       cohort,
       insights,
     });
-  },
-);
-
-app.get(
-  '/:region/:tagName/:tagLine/champions/:championName/:role/score',
-  accountMiddleware,
-  async (c) => {
-    const account = c.var.account;
-    const championName = c.req.param('championName');
-    const role = c.req.param('role');
   },
 );
 
