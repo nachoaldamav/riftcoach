@@ -471,6 +471,22 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
           },
         ],
       },
+      cspm: {
+        $divide: [
+          {
+            $add: [
+              { $ifNull: ['$info.participants.totalMinionsKilled', 0] },
+              { $ifNull: ['$info.participants.neutralMinionsKilled', 0] },
+            ],
+          },
+          {
+            $max: [
+              1,
+              { $divide: [{ $ifNull: ['$info.gameDuration', 0] }, 60] },
+            ],
+          },
+        ],
+      },
       damageShare: {
         $let: {
           vars: {
@@ -632,6 +648,7 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
       avgKpm: { $avg: '$kpm' },
       avgDeathsPerMin: { $avg: '$deathsPerMin' },
       avgApm: { $avg: '$apm' },
+      avgCspm: { $avg: '$cspm' },
       avgDamageShare: { $avg: '$damageShare' },
       avgDamageTakenShare: { $avg: '$damageTakenShare' },
       avgObjectiveParticipationPct: { $avg: '$objectiveParticipationPct' },
@@ -660,6 +677,7 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
       avgAssists: { $round: ['$avgAssists', 2] },
       avgGoldEarned: { $round: ['$avgGoldEarned', 0] },
       avgCS: { $round: ['$avgCS', 1] },
+      avgCspm: { $round: ['$avgCspm', 2] },
       avgGoldAt10: { $round: ['$avgGoldAt10', 0] },
       avgCsAt10: { $round: ['$avgCsAt10', 1] },
       avgGoldAt15: { $round: ['$avgGoldAt15', 0] },

@@ -26,7 +26,7 @@ function buildPrompt(
       winRate: stats.winRate,
       kda: stats.kda,
       goldEarned: stats.avgGoldEarned,
-      cs: stats.avgCS,
+      cspm: stats.avgCspm,
       dpm: stats.avgDpm,
       dtpm: stats.avgDtpm,
       kpm: stats.avgKpm,
@@ -67,6 +67,8 @@ Style and rules:
 - Prefer clean numbers: round decimals; convert rates to intuitive units (e.g., say "about one death every 7 minutes" instead of "0.148 deaths/min").
 - Keep each bullet to 1–2 short sentences. Limit to max 3 strengths and 3 weaknesses.
 - If data is insufficient for a metric, say so instead of guessing.
+- Avoid using total CS per game because match length varies; prefer CS at 10/15 minutes (provided) and per-minute metrics if present.
+ - Avoid using total CS per game because match length varies; prefer CS per minute (CSPM, provided) and CS at 10/15 minutes.
 
 Player data:
 ${JSON.stringify(payload, null, 2)}

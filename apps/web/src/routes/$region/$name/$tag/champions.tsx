@@ -30,6 +30,7 @@ type ChampionRoleStatItem = {
   avgAssists: number;
   avgGoldEarned: number;
   avgCS: number;
+  avgCspm: number;
   avgGoldAt10: number;
   avgCsAt10: number;
   avgGoldAt15: number;
@@ -527,7 +528,7 @@ function ChampionRow({
       key: 'assists',
       digits: 1,
     },
-    { label: 'Average CS', value: statsSource.avgCS, key: 'cs', digits: 1 },
+    { label: 'CS / Min', value: statsSource.avgCspm, key: 'cspm', digits: 2 },
     {
       label: 'Gold @ 10',
       value: statsSource.avgGoldAt10,
@@ -623,7 +624,7 @@ function ChampionRow({
               </span>
               <span className="font-medium">{row.kda.toFixed(2)} KDA</span>
               <span className="font-medium">{row.avgDpm.toFixed(0)} DPM</span>
-              <span className="font-medium">{row.avgCS.toFixed(1)} CS</span>
+              <span className="font-medium">{row.avgCspm.toFixed(2)} CS/min</span>
             </div>
           </div>
 

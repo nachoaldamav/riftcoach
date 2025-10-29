@@ -257,6 +257,17 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
           ],
         },
+        cspm: {
+          $divide: [
+            {
+              $add: [
+                { $ifNull: ['$participant.totalMinionsKilled', 0] },
+                { $ifNull: ['$participant.neutralMinionsKilled', 0] },
+              ],
+            },
+            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
+          ],
+        },
         goldAt10: '$timeline.snap10.gold',
         csAt10: '$timeline.snap10.cs',
         goldAt15: '$timeline.snap15.gold',
@@ -338,6 +349,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
+        p50_cspm: {
+          $percentile: { input: '$cspm', p: [0.5], method: 'approximate' },
+        },
 
         // p75
         p75_kills: {
@@ -401,6 +415,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             p: [0.75],
             method: 'approximate',
           },
+        },
+        p75_cspm: {
+          $percentile: { input: '$cspm', p: [0.75], method: 'approximate' },
         },
 
         // p90
@@ -466,6 +483,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
+        p90_cspm: {
+          $percentile: { input: '$cspm', p: [0.9], method: 'approximate' },
+        },
 
         // p95
         p95_kills: {
@@ -530,6 +550,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
+        p95_cspm: {
+          $percentile: { input: '$cspm', p: [0.95], method: 'approximate' },
+        },
       },
     },
 
@@ -545,6 +568,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             deaths: { $arrayElemAt: ['$p50_deaths', 0] },
             assists: { $arrayElemAt: ['$p50_assists', 0] },
             cs: { $arrayElemAt: ['$p50_cs', 0] },
+            cspm: { $arrayElemAt: ['$p50_cspm', 0] },
             goldEarned: { $arrayElemAt: ['$p50_goldEarned', 0] },
             goldAt10: { $arrayElemAt: ['$p50_goldAt10', 0] },
             csAt10: { $arrayElemAt: ['$p50_csAt10', 0] },
@@ -561,6 +585,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             deaths: { $arrayElemAt: ['$p75_deaths', 0] },
             assists: { $arrayElemAt: ['$p75_assists', 0] },
             cs: { $arrayElemAt: ['$p75_cs', 0] },
+            cspm: { $arrayElemAt: ['$p75_cspm', 0] },
             goldEarned: { $arrayElemAt: ['$p75_goldEarned', 0] },
             goldAt10: { $arrayElemAt: ['$p75_goldAt10', 0] },
             csAt10: { $arrayElemAt: ['$p75_csAt10', 0] },
@@ -577,6 +602,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             deaths: { $arrayElemAt: ['$p90_deaths', 0] },
             assists: { $arrayElemAt: ['$p90_assists', 0] },
             cs: { $arrayElemAt: ['$p90_cs', 0] },
+            cspm: { $arrayElemAt: ['$p90_cspm', 0] },
             goldEarned: { $arrayElemAt: ['$p90_goldEarned', 0] },
             goldAt10: { $arrayElemAt: ['$p90_goldAt10', 0] },
             csAt10: { $arrayElemAt: ['$p90_csAt10', 0] },
@@ -593,6 +619,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             deaths: { $arrayElemAt: ['$p95_deaths', 0] },
             assists: { $arrayElemAt: ['$p95_assists', 0] },
             cs: { $arrayElemAt: ['$p95_cs', 0] },
+            cspm: { $arrayElemAt: ['$p95_cspm', 0] },
             goldEarned: { $arrayElemAt: ['$p95_goldEarned', 0] },
             goldAt10: { $arrayElemAt: ['$p95_goldAt10', 0] },
             csAt10: { $arrayElemAt: ['$p95_csAt10', 0] },
