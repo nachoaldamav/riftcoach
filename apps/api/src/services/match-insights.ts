@@ -89,6 +89,7 @@ function buildPrompt(
     '',
     'Events policy:',
     'Only emit keyMoments that exist in Context.events. For kills: killerId=subject => kill; victimId=subject => death; else assisted.',
+    'Context.events include `participantStates` with nearest-frame positions and `proximity.participants` listing nearby champions (team + inferredPosition). Use this to judge isolation or collapses.',
     '',
     'Naming:',
     'Prefer summonerName; otherwise championName. Times inside reasons/insights can be formatted as mm:ss. The property `ts` needs to be the actual events timestamp',

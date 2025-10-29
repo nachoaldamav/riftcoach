@@ -150,6 +150,8 @@ export type EventParticipantState = {
   teamId: number;
   championName: string;
   frameTimestamp: number | null;
+  positionDeltaMs: number | null;
+  positionSource: 'previous' | 'next' | 'exact' | 'none';
   frame: {
     level?: number;
     totalGold?: number;
@@ -164,6 +166,20 @@ export type EventParticipantState = {
   };
 };
 
+export type EventNearbyParticipant = {
+  participantId: number;
+  teamId: number;
+  championName: string;
+  inferredPosition: SlimParticipant['inferredPosition'];
+  distance: number;
+  position: { x: number; y: number } | null;
+  positionDeltaMs: number | null;
+  positionSource: 'previous' | 'next' | 'exact' | 'none';
+  isActor: boolean;
+};
+
+const NEARBY_DISTANCE_UNITS = 1_200; // ~Flash + auto range; close enough to impact fight
+
 export type MatchEventDetail = {
   type: string;
   timestamp: number;
@@ -176,6 +192,11 @@ export type MatchEventDetail = {
   assistingParticipantIds: number[];
   relatedParticipantIds: number[];
   participantStates: EventParticipantState[]; // actors only
+  proximity: {
+    radius: number;
+    reference: 'event' | 'actors';
+    participants: EventNearbyParticipant[];
+  };
   rawEventType?: string; // tiny breadcrumb, no blob
 };
 
@@ -306,14 +327,15 @@ function flattenEvents(frames: TimelineFrame[]): TimelineEvent[] {
   return out;
 }
 
-function findFrameAt(
+function boundingFrames(
   frames: TimelineFrame[],
   ts: number,
-): TimelineFrame | null {
-  if (!frames || frames.length === 0) return null;
-  let lo = 0,
-    hi = frames.length - 1,
-    ans = 0;
+): { previous: TimelineFrame | null; next: TimelineFrame | null } {
+  if (!frames || frames.length === 0)
+    return { previous: null, next: null };
+  let lo = 0;
+  let hi = frames.length - 1;
+  let ans = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     const t = Number(frames[mid]?.timestamp ?? 0);
@@ -324,7 +346,89 @@ function findFrameAt(
       hi = mid - 1;
     }
   }
-  return frames[ans] ?? frames[0] ?? null;
+  const previous = frames[ans] ?? null;
+  const nextIndex = Math.min(ans + 1, frames.length - 1);
+  const next = frames[nextIndex] ?? null;
+  return { previous, next };
+}
+
+type ParticipantPositionSnapshot = {
+  frame: TimelineFrame | null;
+  timestamp: number | null;
+  position: { x: number; y: number } | null;
+  deltaMs: number | null;
+  source: 'previous' | 'next' | 'exact' | 'none';
+};
+
+function nearestParticipantPosition(
+  frames: TimelineFrame[],
+  pid: number,
+  ts: number,
+): ParticipantPositionSnapshot {
+  if (!frames || frames.length === 0)
+    return { frame: null, timestamp: null, position: null, deltaMs: null, source: 'none' };
+
+  const { previous, next } = boundingFrames(frames, ts);
+  const candidates: Array<{
+    frame: TimelineFrame | null;
+    timestamp: number;
+    position: { x: number; y: number };
+    deltaMs: number;
+    source: 'previous' | 'next' | 'exact';
+  }> = [];
+
+  const pushCandidate = (
+    frame: TimelineFrame | null,
+    source: 'previous' | 'next',
+  ) => {
+    if (!frame) return;
+    const timestamp = Number(frame.timestamp ?? Number.NaN);
+    const pf = getParticipantFrame(frame, pid);
+    const pos = pf?.position ?? null;
+    if (!pos || !Number.isFinite(timestamp)) return;
+    const deltaMs = Math.abs(ts - timestamp);
+    candidates.push({
+      frame,
+      timestamp,
+      position: { ...pos },
+      deltaMs,
+      source: deltaMs === 0 ? 'exact' : source,
+    });
+  };
+
+  pushCandidate(previous, 'previous');
+  if (next !== previous) pushCandidate(next, 'next');
+
+  const best = candidates.sort((a, b) => a.deltaMs - b.deltaMs)[0];
+  if (best)
+    return {
+      frame: best.frame,
+      timestamp: best.timestamp,
+      position: best.position,
+      deltaMs: best.deltaMs,
+      source: best.source,
+    };
+
+  const fallbackFrame = previous ?? next ?? null;
+  const fallbackTimestamp = Number(fallbackFrame?.timestamp ?? Number.NaN);
+  const fallbackPf = fallbackFrame ? getParticipantFrame(fallbackFrame, pid) : null;
+  return {
+    frame: fallbackFrame,
+    timestamp: Number.isFinite(fallbackTimestamp) ? fallbackTimestamp : null,
+    position: fallbackPf?.position ?? null,
+    deltaMs: Number.isFinite(fallbackTimestamp)
+      ? Math.abs(ts - Number(fallbackTimestamp))
+      : null,
+    source: 'none',
+  };
+}
+
+function distanceBetween(
+  a: { x: number; y: number } | null,
+  b: { x: number; y: number } | null,
+): number | null {
+  if (!a || !b) return null;
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function getParticipantFrame(
@@ -552,14 +656,17 @@ function actorsOf(e: TimelineEvent): number[] {
   return [...s];
 }
 
-function minimalFrameSnapshot(pf: ParticipantFrame | null) {
-  if (!pf) return null;
+function minimalFrameSnapshot(
+  pf: ParticipantFrame | null,
+  overridePosition?: { x: number; y: number } | null,
+) {
+  if (!pf && !overridePosition) return null;
   return {
-    level: pf.level,
-    totalGold: pf.totalGold ?? pf.gold,
-    position: pf.position ?? null,
-    minionsKilled: pf.minionsKilled,
-    jungleMinionsKilled: pf.jungleMinionsKilled,
+    level: pf?.level,
+    totalGold: pf?.totalGold ?? pf?.gold,
+    position: overridePosition ?? pf?.position ?? null,
+    minionsKilled: pf?.minionsKilled,
+    jungleMinionsKilled: pf?.jungleMinionsKilled,
   };
 }
 
@@ -571,23 +678,29 @@ function buildEventDetail(
   subjectTeamId: number,
 ): MatchEventDetail {
   const ts = Number(event.timestamp ?? 0);
-  const frame = findFrameAt(frames, ts);
   const when = minutes(ts);
   const position = event.position ? { ...event.position } : null;
   const zone = zoneLabel(position);
 
   const actorIds = actorsOf(event);
+  const actorIdSet = new Set(actorIds);
+  const positionSnapshots = new Map<number, ParticipantPositionSnapshot>();
+
   const participantStates: EventParticipantState[] = actorIds.map((pid) => {
     const p = participants.find((pp) => pp.participantId === pid)!;
-    const pf = getParticipantFrame(frame, pid);
+    const nearest = nearestParticipantPosition(frames, pid, ts);
+    positionSnapshots.set(pid, nearest);
+    const pf = getParticipantFrame(nearest.frame, pid);
     const inv = inventoryAtTime(eventsAll, pid, ts);
     const completedAtTs = filterCompletedItemIds(inv.inventoryIds);
     return {
       participantId: pid,
       teamId: p?.teamId ?? (pid <= 5 ? 100 : 200),
       championName: p?.championName ?? '',
-      frameTimestamp: frame?.timestamp ?? null,
-      frame: minimalFrameSnapshot(pf),
+      frameTimestamp: nearest.timestamp ?? null,
+      positionDeltaMs: nearest.deltaMs,
+      positionSource: nearest.source,
+      frame: minimalFrameSnapshot(pf, nearest.position),
       inventory: {
         itemIds: inv.inventoryIds,
         completedItemIds: completedAtTs,
@@ -595,6 +708,46 @@ function buildEventDetail(
       },
     };
   });
+
+  const referencePoints: Array<{ x: number; y: number }> = [];
+  let reference: 'event' | 'actors' = 'event';
+  if (position) {
+    referencePoints.push(position);
+  } else {
+    reference = 'actors';
+    for (const state of participantStates) {
+      const pos = state.frame?.position ?? null;
+      if (pos) referencePoints.push(pos);
+    }
+  }
+
+  const nearby: EventNearbyParticipant[] = [];
+  for (const p of participants) {
+    const cached = positionSnapshots.get(p.participantId);
+    const nearest = cached ?? nearestParticipantPosition(frames, p.participantId, ts);
+    if (!cached) positionSnapshots.set(p.participantId, nearest);
+    const pos = nearest.position;
+    if (!pos || referencePoints.length === 0) continue;
+    const distances = referencePoints
+      .map((ref) => distanceBetween(ref, pos))
+      .filter((d): d is number => typeof d === 'number' && Number.isFinite(d));
+    if (!distances.length) continue;
+    const minDist = Math.min(...distances);
+    if (minDist > NEARBY_DISTANCE_UNITS) continue;
+    nearby.push({
+      participantId: p.participantId,
+      teamId: p.teamId,
+      championName: p.championName,
+      inferredPosition: p.inferredPosition,
+      distance: minDist,
+      position: pos,
+      positionDeltaMs: nearest.deltaMs,
+      positionSource: nearest.source,
+      isActor: actorIdSet.has(p.participantId),
+    });
+  }
+
+  nearby.sort((a, b) => a.distance - b.distance);
 
   return {
     type: event.type,
@@ -610,6 +763,11 @@ function buildEventDetail(
       : [],
     relatedParticipantIds: actorIds,
     participantStates,
+    proximity: {
+      radius: NEARBY_DISTANCE_UNITS,
+      reference,
+      participants: nearby,
+    },
     rawEventType: event.type,
   };
 }
