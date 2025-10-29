@@ -404,7 +404,6 @@ function ChampionRow({
   }, [champions, row.championName]);
 
   const championNumericId = useMemo(() => {
-    console.info('championData', championData);
     if (!championData) {
       console.error('No champion data found for', row.championName);
       return null;
@@ -576,13 +575,6 @@ function ChampionRow({
       invert: true,
     },
   ];
-
-  if (row.championName === 'FiddleSticks') {
-    console.info(
-      'Fiddlesticks image',
-      getChampionImageUrl(row.championName, 'square'),
-    );
-  }
 
   return (
     <motion.div

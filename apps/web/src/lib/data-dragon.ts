@@ -55,7 +55,6 @@ export const getChampionImageUrl = (
   version: string,
   imageType: 'square' | 'loading' | 'splash' = 'square',
 ): string => {
-  console.log('getChampionImageUrl', championId, version, imageType);
   const championKey =
     typeof championId === 'number' ? championId.toString() : championId;
 
