@@ -2,6 +2,17 @@ import consola from 'consola';
 import type { Document } from 'mongodb';
 import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
 
+/**
+ * Optimized aggregation pipeline for champion role percentiles
+ * 
+ * Performance optimizations applied:
+ * 1. Replaced complex $objectToArray + $filter with direct $getField access
+ * 2. Combined multiple $set stages into single operations
+ * 3. Added index hints for better query planning
+ * 4. Moved participant unwinding before projection to reduce memory usage
+ * 5. Simplified timeline data extraction using direct field access
+ * 6. Pre-calculated per-minute metrics to avoid repeated calculations
+ */
 export const cohortChampionRolePercentilesAggregation = (params: {
   championName: string;
   role: string;
@@ -51,18 +62,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
   const pipeline: Document[] = [
     { $match: firstMatch },
 
-    // Early projection to reduce document size
-    {
-      $project: {
-        _id: 0,
-        'metadata.matchId': 1,
-        'info.participants': 1,
-        'info.gameCreation': 1,
-        'info.gameDuration': 1,
-      },
-    },
-
-    // Unwind and re-check exact participant (guards against other array elems)
+    // Unwind and filter participants early to reduce document size
     { $unwind: '$info.participants' },
     {
       $match: {
@@ -76,49 +76,58 @@ export const cohortChampionRolePercentilesAggregation = (params: {
     { $sort: { 'info.gameCreation': sortDirection } },
     { $limit: sampleLimit },
 
-    // ── pull only needed frame snapshots for this participant ───────────────
+    // Project only needed fields early to reduce memory usage
+    {
+      $project: {
+        _id: 0,
+        matchId: '$metadata.matchId',
+        participantId: '$info.participants.participantId',
+        gameCreation: '$info.gameCreation',
+        gameDuration: '$info.gameDuration',
+        participant: '$info.participants',
+      },
+    },
+
+    // ── Optimized lookup with simplified timeline extraction ───────────────
     {
       $lookup: {
         from: 'timelines',
         let: {
-          matchId: '$metadata.matchId',
-          pIdStr: { $toString: '$info.participants.participantId' },
+          matchId: '$matchId',
+          participantId: '$participantId',
         },
         pipeline: [
           { $match: { $expr: { $eq: ['$metadata.matchId', '$$matchId'] } } },
+          // Use direct array access instead of complex $let expressions
           {
             $project: {
               _id: 0,
-              f10: { $ifNull: [{ $arrayElemAt: ['$info.frames', 10] }, null] },
-              f15: { $ifNull: [{ $arrayElemAt: ['$info.frames', 15] }, null] },
-            },
-          },
-          {
-            $project: {
+              // Direct field access using computed field paths
               snap10: {
                 $let: {
                   vars: {
-                    kv: {
-                      $first: {
-                        $filter: {
-                          input: {
-                            $objectToArray: {
-                              $ifNull: ['$f10.participantFrames', {}],
-                            },
-                          },
-                          as: 'kv',
-                          cond: { $eq: ['$$kv.k', '$$pIdStr'] },
-                        },
-                      },
-                    },
+                    frame10: { $arrayElemAt: ['$info.frames', 10] },
+                    pIdStr: { $toString: '$$participantId' },
                   },
                   in: {
-                    gold: { $ifNull: ['$$kv.v.totalGold', 0] },
-                    cs: {
-                      $add: [
-                        { $ifNull: ['$$kv.v.minionsKilled', 0] },
-                        { $ifNull: ['$$kv.v.jungleMinionsKilled', 0] },
-                      ],
+                    $let: {
+                      vars: {
+                        participantFrame: {
+                          $getField: {
+                            field: '$$pIdStr',
+                            input: { $ifNull: ['$$frame10.participantFrames', {}] },
+                          },
+                        },
+                      },
+                      in: {
+                        gold: { $ifNull: ['$$participantFrame.totalGold', 0] },
+                        cs: {
+                          $add: [
+                            { $ifNull: ['$$participantFrame.minionsKilled', 0] },
+                            { $ifNull: ['$$participantFrame.jungleMinionsKilled', 0] },
+                          ],
+                        },
+                      },
                     },
                   },
                 },
@@ -126,27 +135,28 @@ export const cohortChampionRolePercentilesAggregation = (params: {
               snap15: {
                 $let: {
                   vars: {
-                    kv: {
-                      $first: {
-                        $filter: {
-                          input: {
-                            $objectToArray: {
-                              $ifNull: ['$f15.participantFrames', {}],
-                            },
-                          },
-                          as: 'kv',
-                          cond: { $eq: ['$$kv.k', '$$pIdStr'] },
-                        },
-                      },
-                    },
+                    frame15: { $arrayElemAt: ['$info.frames', 15] },
+                    pIdStr: { $toString: '$$participantId' },
                   },
                   in: {
-                    gold: { $ifNull: ['$$kv.v.totalGold', 0] },
-                    cs: {
-                      $add: [
-                        { $ifNull: ['$$kv.v.minionsKilled', 0] },
-                        { $ifNull: ['$$kv.v.jungleMinionsKilled', 0] },
-                      ],
+                    $let: {
+                      vars: {
+                        participantFrame: {
+                          $getField: {
+                            field: '$$pIdStr',
+                            input: { $ifNull: ['$$frame15.participantFrames', {}] },
+                          },
+                        },
+                      },
+                      in: {
+                        gold: { $ifNull: ['$$participantFrame.totalGold', 0] },
+                        cs: {
+                          $add: [
+                            { $ifNull: ['$$participantFrame.minionsKilled', 0] },
+                            { $ifNull: ['$$participantFrame.jungleMinionsKilled', 0] },
+                          ],
+                        },
+                      },
                     },
                   },
                 },
@@ -154,20 +164,22 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             },
           },
         ],
-        as: 'snap',
+        as: 'timelineData',
       },
     },
+    
+    // Flatten timeline data
     {
       $set: {
-        _snap: {
+        timeline: {
           $ifNull: [
-            { $first: '$snap' },
+            { $first: '$timelineData' },
             { snap10: { gold: 0, cs: 0 }, snap15: { gold: 0, cs: 0 } },
           ],
         },
       },
     },
-    { $project: { snap: 0 } }, // drop lookup array asap
+    { $unset: 'timelineData' },
 
     // ── scalar metrics ──────────────────────────────────────────────────────
     {
@@ -176,23 +188,23 @@ export const cohortChampionRolePercentilesAggregation = (params: {
           $switch: {
             branches: [
               {
-                case: { $eq: ['$info.participants.teamPosition', 'TOP'] },
+                case: { $eq: ['$participant.teamPosition', 'TOP'] },
                 then: 'TOP',
               },
               {
-                case: { $eq: ['$info.participants.teamPosition', 'JUNGLE'] },
+                case: { $eq: ['$participant.teamPosition', 'JUNGLE'] },
                 then: 'JUNGLE',
               },
               {
                 case: {
-                  $in: ['$info.participants.teamPosition', ['MIDDLE', 'MID']],
+                  $in: ['$participant.teamPosition', ['MIDDLE', 'MID']],
                 },
                 then: 'MIDDLE',
               },
               {
                 case: {
                   $in: [
-                    '$info.participants.teamPosition',
+                    '$participant.teamPosition',
                     ['BOTTOM', 'ADC', 'BOT'],
                   ],
                 },
@@ -201,7 +213,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
               {
                 case: {
                   $in: [
-                    '$info.participants.teamPosition',
+                    '$participant.teamPosition',
                     ['UTILITY', 'SUPPORT', 'SUP'],
                   ],
                 },
@@ -212,50 +224,47 @@ export const cohortChampionRolePercentilesAggregation = (params: {
           },
         },
         _gameDurationMin: {
-          $max: [1, { $divide: [{ $ifNull: ['$info.gameDuration', 0] }, 60] }],
+          $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }],
         },
-      },
-    },
-    {
-      $set: {
+        // Pre-calculate per-minute metrics to avoid repeated calculations
         dpm: {
           $divide: [
-            { $ifNull: ['$info.participants.totalDamageDealtToChampions', 0] },
-            '$_gameDurationMin',
+            { $ifNull: ['$participant.totalDamageDealtToChampions', 0] },
+            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
           ],
         },
         dtpm: {
           $divide: [
-            { $ifNull: ['$info.participants.totalDamageTaken', 0] },
-            '$_gameDurationMin',
+            { $ifNull: ['$participant.totalDamageTaken', 0] },
+            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
           ],
         },
         kpm: {
           $divide: [
-            { $ifNull: ['$info.participants.kills', 0] },
-            '$_gameDurationMin',
+            { $ifNull: ['$participant.kills', 0] },
+            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
           ],
         },
         apm: {
           $divide: [
-            { $ifNull: ['$info.participants.assists', 0] },
-            '$_gameDurationMin',
+            { $ifNull: ['$participant.assists', 0] },
+            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
           ],
         },
         deathsPerMin: {
           $divide: [
-            { $ifNull: ['$info.participants.deaths', 0] },
-            '$_gameDurationMin',
+            { $ifNull: ['$participant.deaths', 0] },
+            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
           ],
         },
-        goldAt10: '$_snap.snap10.gold',
-        csAt10: '$_snap.snap10.cs',
-        goldAt15: '$_snap.snap15.gold',
-        csAt15: '$_snap.snap15.cs',
+        goldAt10: '$timeline.snap10.gold',
+        csAt10: '$timeline.snap10.cs',
+        goldAt15: '$timeline.snap15.gold',
+        csAt15: '$timeline.snap15.cs',
         cs: {
           $add: [
-            { $ifNull: ['$info.participants.totalMinionsKilled', 0] },
-            { $ifNull: ['$info.participants.neutralMinionsKilled', 0] },
+            { $ifNull: ['$participant.totalMinionsKilled', 0] },
+            { $ifNull: ['$participant.neutralMinionsKilled', 0] },
           ],
         },
       },
@@ -264,26 +273,26 @@ export const cohortChampionRolePercentilesAggregation = (params: {
     // ── group & percentile accumulators (no arrays) ────────────────────────
     {
       $group: {
-        _id: { champ: '$info.participants.championName', role: '$role' },
+        _id: { champ: '$participant.championName', role: '$role' },
 
         // p50
         p50_kills: {
           $percentile: {
-            input: '$info.participants.kills',
+            input: '$participant.kills',
             p: [0.5],
             method: 'approximate',
           },
         },
         p50_deaths: {
           $percentile: {
-            input: '$info.participants.deaths',
+            input: '$participant.deaths',
             p: [0.5],
             method: 'approximate',
           },
         },
         p50_assists: {
           $percentile: {
-            input: '$info.participants.assists',
+            input: '$participant.assists',
             p: [0.5],
             method: 'approximate',
           },
@@ -293,7 +302,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         },
         p50_goldEarned: {
           $percentile: {
-            input: '$info.participants.goldEarned',
+            input: '$participant.goldEarned',
             p: [0.5],
             method: 'approximate',
           },
@@ -603,4 +612,14 @@ export const cohortChampionRolePercentilesAggregation = (params: {
   ];
 
   return pipeline;
+};
+
+/**
+ * Aggregation options for optimal performance
+ */
+export const cohortChampionRolePercentilesOptions = {
+  allowDiskUse: true, // Allow using disk for large datasets
+  maxTimeMS: 30000, // 30 second timeout
+  // Use the comprehensive compound index that includes all query fields
+  hint: { 'info.participants.championName': 1, 'info.participants.teamPosition': 1, 'info.gameCreation': 1, 'info.participants.win': 1, 'info.gameDuration': 1, 'info.queueId': 1 },
 };

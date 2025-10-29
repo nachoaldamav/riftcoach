@@ -101,8 +101,7 @@ const getScoreTone = (score?: number) => {
   if (score >= 75)
     return 'bg-emerald-900/30 border-emerald-700/40 text-emerald-300';
   if (score >= 60) return 'bg-sky-900/30 border-sky-700/40 text-sky-300';
-  if (score >= 45)
-    return 'bg-amber-900/30 border-amber-700/40 text-amber-300';
+  if (score >= 45) return 'bg-amber-900/30 border-amber-700/40 text-amber-300';
   return 'bg-red-900/30 border-red-700/40 text-red-300';
 };
 
@@ -465,7 +464,12 @@ function ChampionRow({
   ];
 
   const metricRows = [
-    { label: 'Average Kills', value: statsSource.avgKills, key: 'kills', digits: 1 },
+    {
+      label: 'Average Kills',
+      value: statsSource.avgKills,
+      key: 'kills',
+      digits: 1,
+    },
     {
       label: 'Average Deaths',
       value: statsSource.avgDeaths,
@@ -473,12 +477,37 @@ function ChampionRow({
       digits: 1,
       invert: true,
     },
-    { label: 'Average Assists', value: statsSource.avgAssists, key: 'assists', digits: 1 },
+    {
+      label: 'Average Assists',
+      value: statsSource.avgAssists,
+      key: 'assists',
+      digits: 1,
+    },
     { label: 'Average CS', value: statsSource.avgCS, key: 'cs', digits: 1 },
-    { label: 'Gold @ 10', value: statsSource.avgGoldAt10, key: 'goldAt10', digits: 0 },
-    { label: 'CS @ 10', value: statsSource.avgCsAt10, key: 'csAt10', digits: 1 },
-    { label: 'Gold @ 15', value: statsSource.avgGoldAt15, key: 'goldAt15', digits: 0 },
-    { label: 'CS @ 15', value: statsSource.avgCsAt15, key: 'csAt15', digits: 1 },
+    {
+      label: 'Gold @ 10',
+      value: statsSource.avgGoldAt10,
+      key: 'goldAt10',
+      digits: 0,
+    },
+    {
+      label: 'CS @ 10',
+      value: statsSource.avgCsAt10,
+      key: 'csAt10',
+      digits: 1,
+    },
+    {
+      label: 'Gold @ 15',
+      value: statsSource.avgGoldAt15,
+      key: 'goldAt15',
+      digits: 0,
+    },
+    {
+      label: 'CS @ 15',
+      value: statsSource.avgCsAt15,
+      key: 'csAt15',
+      digits: 1,
+    },
     { label: 'Damage / Min', value: statsSource.avgDpm, key: 'dpm', digits: 0 },
     {
       label: 'Damage Taken / Min',
@@ -488,7 +517,12 @@ function ChampionRow({
       invert: true,
     },
     { label: 'Kills / Min', value: statsSource.avgKpm, key: 'kpm', digits: 2 },
-    { label: 'Assists / Min', value: statsSource.avgApm, key: 'apm', digits: 2 },
+    {
+      label: 'Assists / Min',
+      value: statsSource.avgApm,
+      key: 'apm',
+      digits: 2,
+    },
     {
       label: 'Deaths / Min',
       value: statsSource.avgDeathsPerMin,
@@ -530,11 +564,14 @@ function ChampionRow({
               <span className="font-semibold text-sm text-neutral-100">
                 {row.championName}
               </span>
-              <Chip size="sm" className={`${getScoreTone(aiScore)} border px-2`}>
-                {aiScore !== undefined && aiScore !== null
-                  ? `${Math.round(aiScore)} RiftScore`
-                  : 'AI pending'}
-              </Chip>
+              {aiScore !== undefined && aiScore !== null ? (
+                <Chip
+                  size="sm"
+                  className={`${getScoreTone(aiScore)} border px-2`}
+                >
+                  {Math.round(aiScore)} RiftScore
+                </Chip>
+              ) : null}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
               <span className="font-medium">
@@ -627,9 +664,18 @@ function ChampionRow({
                             </div>
                             <ul className="mt-2 space-y-2 text-sm text-neutral-200">
                               {detail.insights.strengths.length > 0 ? (
-                                detail.insights.strengths.map((strength, idx) => (
-                                  <li key={`strength-${idx}`}>{strength}</li>
-                                ))
+                                detail.insights.strengths.map(
+                                  (strength, idx) => (
+                                    <li
+                                      key={`strength-${
+                                        // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
+                                        idx
+                                      }`}
+                                    >
+                                      {strength}
+                                    </li>
+                                  ),
+                                )
                               ) : (
                                 <li className="text-neutral-400">
                                   No standout strengths identified yet.
@@ -644,9 +690,18 @@ function ChampionRow({
                             </div>
                             <ul className="mt-2 space-y-2 text-sm text-neutral-200">
                               {detail.insights.weaknesses.length > 0 ? (
-                                detail.insights.weaknesses.map((weakness, idx) => (
-                                  <li key={`weakness-${idx}`}>{weakness}</li>
-                                ))
+                                detail.insights.weaknesses.map(
+                                  (weakness, idx) => (
+                                    <li
+                                      key={`weakness-${
+                                        // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
+                                        idx
+                                      }`}
+                                    >
+                                      {weakness}
+                                    </li>
+                                  ),
+                                )
                               ) : (
                                 <li className="text-neutral-400">
                                   No critical weaknesses detected.
@@ -685,13 +740,17 @@ function ChampionRow({
                     </div>
                     {detailLoading ? (
                       <div className="mt-3 h-36 animate-pulse rounded-lg bg-neutral-900/60" />
-                    ) : detail && detail.cohort ? (
+                    ) : detail?.cohort ? (
                       <div className="mt-3 overflow-x-auto rounded-lg border border-neutral-800/60">
                         <table className="min-w-full text-left text-xs text-neutral-300">
                           <thead className="bg-neutral-900/60 text-[11px] uppercase tracking-wide text-neutral-400">
                             <tr>
-                              <th className="px-3 py-2 font-semibold">Metric</th>
-                              <th className="px-3 py-2 font-semibold">Player</th>
+                              <th className="px-3 py-2 font-semibold">
+                                Metric
+                              </th>
+                              <th className="px-3 py-2 font-semibold">
+                                Player
+                              </th>
                               <th className="px-3 py-2 font-semibold">P50</th>
                               <th className="px-3 py-2 font-semibold">P75</th>
                               <th className="px-3 py-2 font-semibold">P90</th>
@@ -800,7 +859,10 @@ function ChampionRow({
                           </div>
                         )}
                         {heatmapData && heatmapData.length > 0 ? (
-                          <HeatmapOverlay data={heatmapData} mode={heatmapMode} />
+                          <HeatmapOverlay
+                            data={heatmapData}
+                            mode={heatmapMode}
+                          />
                         ) : !heatmapLoading ? (
                           <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-400">
                             No heatmap data yet.
@@ -815,8 +877,8 @@ function ChampionRow({
                   </div>
 
                   <p className="text-[11px] text-neutral-500">
-                    Heatmap focuses on recent ranked matches with {row.championName} in the{' '}
-                    {row.role.toLowerCase()} role.
+                    Heatmap focuses on recent ranked matches with{' '}
+                    {row.championName} in the {row.role.toLowerCase()} role.
                   </p>
                 </div>
               </div>
@@ -827,4 +889,3 @@ function ChampionRow({
     </motion.div>
   );
 }
-

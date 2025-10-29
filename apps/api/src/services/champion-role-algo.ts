@@ -2,7 +2,7 @@ import { collections } from '@riftcoach/clients.mongodb';
 import consola from 'consola';
 import ms from 'ms';
 import { bulkCohortChampionRolePercentilesAggregation } from '../aggregations/bulkCohortChampionRolePercentiles.js';
-import { cohortChampionRolePercentilesAggregation } from '../aggregations/cohortChampionRolePercentiles.js';
+import { cohortChampionRolePercentilesAggregation, cohortChampionRolePercentilesOptions } from '../aggregations/cohortChampionRolePercentiles.js';
 import { redis } from '../clients/redis.js';
 import type { ChampionRoleStats } from './champion-role-score.js';
 
@@ -272,9 +272,7 @@ export async function fetchBulkCohortPercentiles(
 
               const start = Date.now();
               const docs = await collections.matches
-                .aggregate<CohortPercentilesDoc>(pipeline, {
-                  allowDiskUse: true,
-                })
+                .aggregate<CohortPercentilesDoc>(pipeline, cohortChampionRolePercentilesOptions)
                 .toArray();
               const end = Date.now();
               consola.debug(
@@ -370,7 +368,7 @@ export async function fetchCohortPercentiles(
     );
     const start = Date.now();
     const docs = await collections.matches
-      .aggregate<CohortPercentilesDoc>(pipeline, { allowDiskUse: true })
+      .aggregate<CohortPercentilesDoc>(pipeline, cohortChampionRolePercentilesOptions)
       .toArray();
     const end = Date.now();
     consola.debug(

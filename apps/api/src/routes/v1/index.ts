@@ -533,7 +533,7 @@ app.get(
     const page = Math.max(1, Number(c.req.query('page') ?? 1));
     const pageSize = Math.min(
       50,
-      Math.max(1, Number(c.req.query('pageSize') ?? 20)),
+      Math.max(1, Number(c.req.query('pageSize') ?? 10)),
     );
     const skip = (page - 1) * pageSize;
 
@@ -562,14 +562,9 @@ app.get(
     const total: number =
       typeof facet?.meta?.[0]?.total === 'number' ? facet.meta[0].total : 0;
 
-    // Compute algorithmic scores using cohort percentiles for each champion-role
-    // Use bulk fetching for better performance
-    const cohortDocs = await fetchBulkCohortPercentiles(
-      rows.map((r) => ({ championName: r.championName, role: r.role })),
-    );
     const data = rows.map((r, i) => ({
       ...r,
-      aiScore: computeChampionRoleAlgoScore(r, cohortDocs[i] ?? null),
+      aiScore: null,
     }));
 
     return c.json({
@@ -625,6 +620,16 @@ app.get(
       cohort,
       insights,
     });
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/champions/:championName/:role/score',
+  accountMiddleware,
+  async (c) => {
+    const account = c.var.account;
+    const championName = c.req.param('championName');
+    const role = c.req.param('role');
   },
 );
 
