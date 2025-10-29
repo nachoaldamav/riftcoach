@@ -567,11 +567,16 @@ function MatchAnalysisComponent() {
         .map((s: ItemSuggestion) => {
           const sugStr = s.suggestedItemId;
           const sugNum = sugStr ? Number(sugStr) : 0;
+          const repStr = s.replaceItemId;
+          const repNum = repStr ? Number(repStr) : 0;
           return {
             id: Number.isFinite(sugNum) ? sugNum : 0,
             name: s.suggestedItemName as string | undefined,
             action: s.action as string,
             reasoning: s.reasoning as string,
+            replacesId: Number.isFinite(repNum) ? repNum : 0,
+            replacesName: s.replaceItemName as string | undefined,
+            targetSlot: s.targetSlot as string | undefined,
           };
         });
 
@@ -909,13 +914,38 @@ function MatchAnalysisComponent() {
                       <div className="flex flex-col gap-2">
                         {col.suggestions.length > 0
                           ? col.suggestions.map((sug, sidx) => (
-                              <img
+                          <div
                                 key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
-                                src={getItemIcon(sug.id)}
-                                alt={sug.name || 'Suggestion'}
-                                title={sug.reasoning}
-                                className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
-                              />
+                                className="relative"
+                                title={
+                                  sug.action === 'replace_item'
+                                    ? `Replace ${sug.replacesName ?? 'item'} → ${sug.name ?? 'recommended'}. ${sug.reasoning}`
+                                    : `Add to ${col.slotKey}. ${sug.reasoning}`
+                                }
+                              >
+                                <img
+                                  src={getItemIcon(sug.id)}
+                                  alt={sug.name || 'Suggestion'}
+                                  className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                                />
+                                {sug.action === 'replace_item' && sug.replacesId > 0 ? (
+                                  <img
+                                    src={getItemIcon(sug.replacesId)}
+                                    alt={sug.replacesName || 'Replaced item'}
+                                    className="absolute -bottom-1 -left-1 size-5 rounded-full bg-neutral-900 border border-red-500/60 object-cover shadow-md"
+                                  />
+                                ) : null}
+                                <span
+                                  className={cn(
+                                    'absolute -top-1 -right-1 text-[10px] px-1 py-0.5 rounded border',
+                                    sug.action === 'replace_item'
+                                      ? 'bg-red-900/60 border-red-500/60 text-red-200'
+                                      : 'bg-accent-yellow-900/60 border-accent-yellow-500/60 text-accent-yellow-200',
+                                  )}
+                                >
+                                  {sug.action === 'replace_item' ? 'Replace' : 'Add'}
+                                </span>
+                              </div>
                             ))
                           : null}
                       </div>

@@ -5,6 +5,8 @@ import type { Item } from '@riftcoach/shared.lol-types';
 import consola from 'consola';
 import type { Document } from 'mongodb';
 import { bedrockClient } from '../clients/bedrock.js';
+import { getChampionMap, findChampionByName } from '../utils/ddragon-champions.js';
+import type { ChampionMapById } from '../utils/ddragon-champions.js';
 
 // Types
 type ItemSlotKey = 'item0' | 'item1' | 'item2' | 'item3' | 'item4' | 'item5';
@@ -125,6 +127,79 @@ interface BuildOrderEntry {
   itemId: string;
   itemName: string;
   reasoning: string;
+}
+
+// --- Item stat/tag helpers for grounding and validation ---
+function getStat(stats: Record<string, number> | null | undefined, keys: string[]): number | null {
+  if (!stats) return null;
+  for (const k of keys) {
+    const v = stats[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+
+function itemProvidesArmor(item: ItemData | null | undefined): boolean {
+  if (!item) return false;
+  const fromStats = getStat(item.stats, ['Armor', 'FlatArmorMod']);
+  const fromTags = Array.isArray(item.tags) && item.tags.includes('Armor');
+  const byDesc = typeof item.description === 'string' && /\barmor\b/i.test(item.description);
+  return Boolean(fromStats) || fromTags || byDesc;
+}
+
+function itemProvidesMR(item: ItemData | null | undefined): boolean {
+  if (!item) return false;
+  const fromStats = getStat(item.stats, ['MagicResist', 'SpellBlock', 'FlatSpellBlockMod']);
+  const fromTags = Array.isArray(item.tags) && (item.tags.includes('SpellBlock') || item.tags.includes('MagicResist'));
+  const byDesc = typeof item.description === 'string' && /\bmagic resist|spell block\b/i.test(item.description);
+  return Boolean(fromStats) || fromTags || byDesc;
+}
+
+function itemProvidesAP(item: ItemData | null | undefined): boolean {
+  if (!item) return false;
+  const fromStats = getStat(item.stats, ['AbilityPower', 'FlatMagicDamageMod']);
+  const fromTags = Array.isArray(item.tags) && (item.tags.includes('SpellDamage') || item.tags.includes('Mage')); // SpellDamage often marks AP items
+  return Boolean(fromStats) || fromTags;
+}
+
+function itemProvidesAD(item: ItemData | null | undefined): boolean {
+  if (!item) return false;
+  const fromStats = getStat(item.stats, ['AttackDamage', 'FlatPhysicalDamageMod']);
+  const fromTags = Array.isArray(item.tags) && (item.tags.includes('Damage') || item.tags.includes('Marksman'));
+  return Boolean(fromStats) || fromTags;
+}
+
+function itemProvidesHaste(item: ItemData | null | undefined): boolean {
+  if (!item) return false;
+  const fromStats = getStat(item.stats, ['AbilityHaste']);
+  const byDesc = typeof item.description === 'string' && /ability haste/i.test(item.description || '');
+  return Boolean(fromStats) || byDesc;
+}
+
+function itemProvidesHealth(item: ItemData | null | undefined): boolean {
+  if (!item) return false;
+  const fromStats = getStat(item.stats, ['Health', 'FlatHPMod']);
+  const byDesc = typeof item.description === 'string' && /\bhealth\b/i.test(item.description || '');
+  return Boolean(fromStats) || byDesc;
+}
+
+function isHeartsteel(item: ItemData | null | undefined): boolean {
+  if (!item) return false;
+  return /heartsteel/i.test(String(item.name || ''));
+}
+
+function summarizeItem(item: ItemData | null | undefined): string {
+  if (!item) return 'Unknown item';
+  const parts: string[] = [];
+  if (itemProvidesArmor(item)) parts.push('Armor');
+  if (itemProvidesMR(item)) parts.push('Magic Resist');
+  if (itemProvidesAD(item)) parts.push('Attack Damage');
+  if (itemProvidesAP(item)) parts.push('Ability Power');
+  if (itemProvidesHaste(item)) parts.push('Ability Haste');
+  if (itemProvidesHealth(item)) parts.push('Health');
+  if (Array.isArray(item.tags) && item.tags.includes('Boots')) parts.push('Boots');
+  if (Array.isArray(item.tags) && item.tags.includes('Spellblade')) parts.push('Spellblade');
+  return `${item.name}: ${parts.length > 0 ? parts.join(', ') : 'no core stats detected'}${item.group ? ` | group: ${item.group}` : ''}`;
 }
 
 function isCompletedItem(item: Item): boolean {
@@ -981,6 +1056,8 @@ Hard rules:
   • Vs AD-heavy teams: prioritize armor boots and an armor defensive item before MR choices.
   • For mixed comps, choose versatile defense or target the most fed/high damage threat.
 - Consider champion/role context, ally/enemy compositions, role-opponent champion and match duration.
+ - Stat truthfulness: When describing item effects (e.g., armor/MR/AP/AD/haste), CROSS-CHECK metaById[ID].stats and tags. If metaById[ID].stats do not include Magic Resist/SpellBlock (and tags/description lack it), you MUST NOT claim the item grants MR. Likewise for armor, AP, AD, and haste.
+ - Heartsteel gating: Heartsteel is a stacking HP item. Do NOT recommend it as 5th/6th purchase unless match duration exceeds 40 minutes and the subject is hard-frontline; otherwise recommend Heartsteel early (1st–3rd) or omit.
 
 Item Groups Catalog (uniqueness applies: only one per group):
 - Annul: Verdant Barrier, Banshee's Veil, Edge of Night
@@ -1043,6 +1120,7 @@ export function generateUserPrompt(
     }>;
   }>,
   presence: Array<{ id: string; name: string; pct: number }>,
+  kitDamageProfileStr?: string,
 ): string {
   const presenceStr = presence
     .sort((a, b) => b.pct - a.pct)
@@ -1067,11 +1145,29 @@ export function generateUserPrompt(
     })
     .join('\n');
 
+  // Derive enemy damage profile based on enemy builds' item stats/tags
+  let apIndicators = 0;
+  let adIndicators = 0;
+  for (const enemy of contextData.enemies) {
+    for (const it of enemy.build) {
+      const meta = itemsData[it.id];
+      if (!meta) continue;
+      if (itemProvidesAP(meta)) apIndicators += 1;
+      if (itemProvidesAD(meta)) adIndicators += 1;
+    }
+  }
+  const totalInd = apIndicators + adIndicators;
+  const apPct = totalInd > 0 ? Math.round((apIndicators / totalInd) * 100) : 0;
+  const adPct = totalInd > 0 ? Math.round((adIndicators / totalInd) * 100) : 0;
+  const damageProfileStr = `Enemy Damage Profile (by items): AD ${adPct}% | AP ${apPct}%`;
+
   return `Context:
   - Champion: ${contextData.subject.championName} (${contextData.subject.teamPosition})
   - Match Duration: ${Math.floor((contextData.match.gameDuration || 0) / 60)} minutes
   - Performance: ${contextData.subject.performance.kills}/${contextData.subject.performance.deaths}/${contextData.subject.performance.assists} KDA
   - Result: ${contextData.subject.performance.win ? 'Victory' : 'Defeat'}
+  - ${damageProfileStr}
+  ${kitDamageProfileStr ? `\n  - ${kitDamageProfileStr}` : ''}
 
 Ally Team:
 ${contextData.allies.map((ally) => `- ${ally.championName} (${ally.teamPosition}): ${ally.build.map((item) => item.name).join(', ')}`).join('\n')}
@@ -1088,8 +1184,51 @@ ${orderSummary}
 Task:
 - Recommend a PURCHASE ORDER (1..N) tailored to this match. Treat pickrate as guidance, not a mandate; justify deviations based on enemy comp and performance (e.g., vs full AP, avoid armor on K'Sante; prefer MR options).
 - Respect boots policy and uniqueness of item groups.
+ - Ground every claim about stats/defenses in metaById and provided item lists; avoid false statements (e.g., do not claim Iceborn Gauntlet grants MR if meta shows no MR).
 
 Return JSON with 'buildOrder' and 'overallAnalysis' only.`;
+}
+
+function computeKitDamageProfileString(
+  contextData: ContextData,
+  champMap: ChampionMapById,
+): string {
+  let ap = 0;
+  let ad = 0;
+  let mix = 0;
+  function infer(champName: string | undefined): 'AP' | 'AD' | 'mixed' | 'unknown' {
+    if (!champName) return 'unknown';
+    const ch = findChampionByName(champName, champMap);
+    if (!ch) return 'unknown';
+    let apHits = 0;
+    let adHits = 0;
+    const texts: string[] = [];
+    for (const s of ch.spells || []) {
+      if (s?.sanitizedDescription) texts.push(s.sanitizedDescription);
+    }
+    if (ch.passive?.sanitizedDescription) texts.push(ch.passive.sanitizedDescription);
+    for (const t of texts) {
+      if (/magic damage/i.test(t)) apHits += 1;
+      if (/physical damage/i.test(t)) adHits += 1;
+    }
+    if (apHits > 0 && adHits === 0) return 'AP';
+    if (adHits > 0 && apHits === 0) return 'AD';
+    if (apHits > 0 && adHits > 0) return 'mixed';
+    return 'unknown';
+  }
+
+  for (const enemy of contextData.enemies) {
+    const t = infer(enemy.championName);
+    if (t === 'AP') ap += 1;
+    else if (t === 'AD') ad += 1;
+    else if (t === 'mixed') mix += 1;
+  }
+  const total = ap + ad + mix;
+  if (total <= 0) return 'Enemy Damage Profile (by champion kit): unknown';
+  const apPct = Math.round((ap / total) * 100);
+  const adPct = Math.round((ad / total) * 100);
+  const mixPct = Math.round((mix / total) * 100);
+  return `Enemy Damage Profile (by champion kit): AD ${adPct}% | AP ${apPct}% | Mixed ${mixPct}%`;
 }
 
 export async function getItemSuggestionsFromAI(
@@ -1270,11 +1409,15 @@ export async function generateBuildSuggestions(
 
   // Generate prompts (with DDragon ID/name mapping)
   const systemPrompt = generateSystemPrompt(itemsData);
+  // Fetch champion kit data and derive kit-based damage profile string
+  const championMap = await getChampionMap(match.gameVersion);
+  const kitDamageProfileStr = computeKitDamageProfileString(contextData, championMap);
   const userPrompt = generateUserPrompt(
     contextData,
     itemsData,
     columns,
     presence,
+    kitDamageProfileStr,
   );
 
   // Get AI build order recommendation
@@ -1293,13 +1436,27 @@ export async function generateBuildSuggestions(
   };
 
   const seenGroups: Record<string, number> = {};
-  const sanitized = aiBuildOrder.buildOrder.filter((entry) => {
+  let sanitized = aiBuildOrder.buildOrder.filter((entry) => {
     const g = getGroup(entry.itemId);
     if (!g) return true;
     const allowedCount = 1; // enforce single unique per group (e.g., LastWhisper)
     const cur = seenGroups[g] ?? 0;
     if (cur >= allowedCount) return false;
     seenGroups[g] = cur + 1;
+    return true;
+  });
+
+  // Additional gating: avoid Heartsteel too late in short games
+  const durationSec = Number(contextData.match.gameDuration || 0);
+  sanitized = sanitized.filter((entry) => {
+    const meta = itemsData[entry.itemId];
+    if (!meta) return true;
+    if (isHeartsteel(meta)) {
+      const orderNum = Number(entry.order || 0);
+      const isLate = orderNum >= 5;
+      const isShortGame = durationSec > 0 && durationSec < 2400; // <40 minutes
+      if (isLate && isShortGame) return false;
+    }
     return true;
   });
 
@@ -1310,10 +1467,133 @@ export async function generateBuildSuggestions(
     reasoning: e.reasoning,
   }));
 
+  // Derive slot-level suggestions (add_to_slot / replace_item) from current build and AI order
+  const subjectItemSlots: ItemSlots = {
+    item0: subjectParticipant.item0 || 0,
+    item1: subjectParticipant.item1 || 0,
+    item2: subjectParticipant.item2 || 0,
+    item3: subjectParticipant.item3 || 0,
+    item4: subjectParticipant.item4 || 0,
+    item5: subjectParticipant.item5 || 0,
+  };
+
+  const currentItemIds = new Set<number>(
+    (Object.values(subjectItemSlots) as number[]).filter((x) => x && x > 0),
+  );
+
+  const emptySlots = getEmptySlots(subjectItemSlots, itemsMap);
+  const replaceableItems = getReplaceableItems(
+    subjectItemSlots,
+    itemsData,
+    itemsMap,
+  );
+
+  const getItemName = (idStr: string | undefined): string => {
+    if (!idStr) return 'Unknown';
+    return (
+      itemsData[idStr]?.name ||
+      (itemsMap[idStr] as unknown as { name?: string })?.name ||
+      idStr
+    );
+  };
+
+  const getItemGroup = (idStr: string | undefined): string | null => {
+    if (!idStr) return null;
+    return (
+      itemsData[idStr]?.group ??
+      (itemsMap[idStr] as unknown as { group?: string })?.group ??
+      null
+    );
+  };
+
+  const hasTag = (idStr: string | undefined, tag: string): boolean => {
+    if (!idStr) return false;
+    const tags =
+      itemsData[idStr]?.tags ||
+      (itemsMap[idStr] as unknown as { tags?: string[] })?.tags ||
+      [];
+    return Array.isArray(tags) && tags.includes(tag);
+  };
+
+  const suggestionsOut: Array<{
+    action: string;
+    targetSlot?: string;
+    suggestedItemId?: string;
+    suggestedItemName?: string;
+    replaceItemId?: string;
+    replaceItemName?: string;
+    reasoning: string;
+  }> = [];
+
+  for (const entry of buildOrderOut) {
+    const recIdNum = entry.itemId;
+    const recIdStr = String(recIdNum);
+
+    // Skip if already owned
+    if (currentItemIds.has(recIdNum)) continue;
+
+    // Prefer adding to empty/non-completed slots first
+    if (emptySlots.length > 0) {
+      const slot = emptySlots.shift();
+      if (slot) {
+        suggestionsOut.push({
+          action: 'add_to_slot',
+          targetSlot: slot,
+          suggestedItemId: recIdStr,
+          suggestedItemName: getItemName(recIdStr),
+          reasoning: entry.reasoning,
+        });
+        currentItemIds.add(recIdNum);
+        continue;
+      }
+    }
+
+    // Otherwise propose a replacement
+    const recGroup = getItemGroup(recIdStr);
+    const isBoots = hasTag(recIdStr, 'Boots');
+
+    // Replacement heuristics:
+    // 1) If boots, replace existing boots
+    // 2) If group matches, replace that item
+    // 3) Fallback to first replaceable completed item
+    let candidate: ReplaceableItem | undefined;
+    if (isBoots) {
+      candidate = replaceableItems.find((r) => hasTag(r.id, 'Boots'));
+    }
+    if (!candidate && recGroup) {
+      candidate = replaceableItems.find(
+        (r) => getItemGroup(r.id) === recGroup,
+      );
+    }
+    if (!candidate) {
+      candidate = replaceableItems[0];
+    }
+
+    if (candidate) {
+      suggestionsOut.push({
+        action: 'replace_item',
+        targetSlot: candidate.slot,
+        suggestedItemId: recIdStr,
+        suggestedItemName: getItemName(recIdStr),
+        replaceItemId: candidate.id,
+        replaceItemName: candidate.name,
+        reasoning: entry.reasoning,
+      });
+      // Update local state: treat as having the recommended item now
+      currentItemIds.add(recIdNum);
+      // Also remove this replaceable from pool to avoid duplicate replacements
+      const candId = candidate.id;
+      const idx = replaceableItems.findIndex((r) => r.id === candId);
+      if (idx >= 0) replaceableItems.splice(idx, 1);
+    }
+  }
+
   return {
     buildOrder: buildOrderOut,
-    overallAnalysis: aiBuildOrder.overallAnalysis,
-    // maintain legacy field for UI compatibility
-    suggestions: [],
+    overallAnalysis: `${aiBuildOrder.overallAnalysis}
+
+Grounded item facts (from DDragon):
+${buildOrderOut.map((e) => summarizeItem(itemsData[String(e.itemId)])).join('\n')}`,
+    suggestions: suggestionsOut,
   };
 }
