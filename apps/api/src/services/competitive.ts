@@ -148,7 +148,7 @@ export const teams: Team[] = [
       {
         name: 'Quad',
         position: 'MIDDLE',
-        summonerName: 'Quad',
+        summonerName: 'FLY Quad',
         summonerTag: '123',
         region: PlatformId.KR,
         image: 'quad.png',
@@ -157,8 +157,8 @@ export const teams: Team[] = [
       {
         name: 'Massu',
         position: 'BOTTOM',
-        summonerName: 'Massu',
-        summonerTag: 'NA1',
+        summonerName: 'KaiGyt',
+        summonerTag: '0187',
         region: PlatformId.NA1,
         image: 'massu.png',
       },
@@ -166,7 +166,7 @@ export const teams: Team[] = [
       {
         name: 'Busio',
         position: 'UTILITY',
-        summonerName: 'Busio',
+        summonerName: 'Busio JNG',
         summonerTag: 'NA1',
         region: PlatformId.NA1,
         image: 'busio.png',
