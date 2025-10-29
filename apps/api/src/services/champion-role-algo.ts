@@ -2,7 +2,10 @@ import { collections } from '@riftcoach/clients.mongodb';
 import consola from 'consola';
 import ms from 'ms';
 import { bulkCohortChampionRolePercentilesAggregation } from '../aggregations/bulkCohortChampionRolePercentiles.js';
-import { cohortChampionRolePercentilesAggregation, cohortChampionRolePercentilesOptions } from '../aggregations/cohortChampionRolePercentiles.js';
+import {
+  cohortChampionRolePercentilesAggregation,
+  cohortChampionRolePercentilesOptions,
+} from '../aggregations/cohortChampionRolePercentiles.js';
 import { redis } from '../clients/redis.js';
 import type { ChampionRoleStats } from './champion-role-score.js';
 
@@ -272,7 +275,10 @@ export async function fetchBulkCohortPercentiles(
 
               const start = Date.now();
               const docs = await collections.matches
-                .aggregate<CohortPercentilesDoc>(pipeline, cohortChampionRolePercentilesOptions)
+                .aggregate<CohortPercentilesDoc>(
+                  pipeline,
+                  cohortChampionRolePercentilesOptions,
+                )
                 .toArray();
               const end = Date.now();
               consola.debug(
@@ -336,7 +342,7 @@ export async function fetchCohortPercentiles(
 ): Promise<CohortPercentilesDoc | null> {
   try {
     // Simple cache keyed by champion-role and fixed cohort parameters
-    const cacheKey = `cache:cohort:percentiles:v1:${championName}:${role}:2025:wins:limit100`;
+    const cacheKey = `cache:cohort:percentiles:v2:${championName}:${role}:2025:wins:limit100`;
     const cached = await redis.get(cacheKey);
     if (cached) {
       try {
@@ -368,7 +374,10 @@ export async function fetchCohortPercentiles(
     );
     const start = Date.now();
     const docs = await collections.matches
-      .aggregate<CohortPercentilesDoc>(pipeline, cohortChampionRolePercentilesOptions)
+      .aggregate<CohortPercentilesDoc>(
+        pipeline,
+        cohortChampionRolePercentilesOptions,
+      )
       .toArray();
     const end = Date.now();
     consola.debug(
