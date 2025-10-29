@@ -96,6 +96,35 @@ const getRoleIconUrl = (roleKey: string) => {
 
 const pageSize = 20;
 
+// Normalize champion names to handle case differences and known variations
+const normalizeChampionName = (name: string): string => {
+  const normalized = name.toLowerCase().trim();
+
+  // Handle known champion name variations
+  const nameMapping: Record<string, string> = {
+    fiddlesticks: 'fiddlesticks',
+    nunu: 'nunu & willump',
+    reksai: "rek'sai",
+    kogmaw: "kog'maw",
+    leesin: 'lee sin',
+    masteryi: 'master yi',
+    missfortune: 'miss fortune',
+    twistedfate: 'twisted fate',
+    xinzhao: 'xin zhao',
+    jarvaniv: 'jarvan iv',
+    aurelionsol: 'aurelion sol',
+    tahmkench: 'tahm kench',
+    velkoz: "vel'koz",
+    chogath: "cho'gath",
+    kaisa: "kai'sa",
+    khazix: "kha'zix",
+    rengar: 'rengar',
+    wukong: 'wukong',
+  };
+
+  return nameMapping[normalized] || normalized;
+};
+
 const getScoreTone = (score?: number) => {
   if (score === undefined || score === null) return 'bg-neutral-800/70';
   if (score >= 75)
@@ -352,21 +381,37 @@ function ChampionRow({
 
   const championData = useMemo(() => {
     if (!champions) return null;
-    const lower = row.championName.toLowerCase();
-    return (
-      Object.values(champions).find(
-        (champ) =>
-          champ.name.toLowerCase() === lower ||
-          champ.id.toLowerCase() === lower,
-      ) ?? null
-    );
+    const normalizedRowName = normalizeChampionName(row.championName);
+
+    const champion =
+      Object.values(champions).find((champ) => {
+        const normalizedChampName = normalizeChampionName(champ.name);
+        const normalizedChampId = normalizeChampionName(champ.id);
+
+        const match =
+          normalizedChampName === normalizedRowName ||
+          normalizedChampId === normalizedRowName;
+
+        return match;
+      }) ?? null;
+
+    if (!champion) {
+      console.error('No champion found for', normalizedRowName);
+      return null;
+    }
+
+    return champion;
   }, [champions, row.championName]);
 
   const championNumericId = useMemo(() => {
-    if (!championData) return null;
+    console.info('championData', championData);
+    if (!championData) {
+      console.error('No champion data found for', row.championName);
+      return null;
+    }
     const numeric = Number(championData.key);
     return Number.isFinite(numeric) ? numeric : null;
-  }, [championData]);
+  }, [championData, row.championName]);
 
   const [heatmapMode, setHeatmapMode] = useState<'kills' | 'deaths'>('kills');
 
@@ -531,6 +576,13 @@ function ChampionRow({
       invert: true,
     },
   ];
+
+  if (row.championName === 'FiddleSticks') {
+    console.info(
+      'Fiddlesticks image',
+      getChampionImageUrl(row.championName, 'square'),
+    );
+  }
 
   return (
     <motion.div

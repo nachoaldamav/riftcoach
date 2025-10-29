@@ -2,12 +2,12 @@ import {
   getIconImageUrl as _getIconImageUrl,
   getItemImageUrl as _getItemImageUrl,
   getProfileIconUrl as _getProfileIconUrl,
+  getRunePerkIconUrl as _getRunePerkIconUrl,
+  getRuneStyleIconUrl as _getRuneStyleIconUrl,
+  getSummonerSpellIconUrl as _getSummonerSpellIconUrl,
   championDataQueryOptions,
   getChampionImageUrl as getImageUrl,
   versionsQueryOptions,
-  getSummonerSpellIconUrl as _getSummonerSpellIconUrl,
-  getRuneStyleIconUrl as _getRuneStyleIconUrl,
-  getRunePerkIconUrl as _getRunePerkIconUrl,
 } from '@/lib/data-dragon';
 import type { Champion, DataDragonContextType } from '@/types/data-dragon';
 import { useQuery } from '@tanstack/react-query';
@@ -63,17 +63,26 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
     const getChampionById = (id: string | number): Champion | null => {
       if (!champions) return null;
 
+      const normalizeChampionName = (name: string) => {
+        switch (name) {
+          case 'FiddleSticks':
+            return 'Fiddlesticks';
+          default:
+            return name;
+        }
+      };
+
       const championKey = typeof id === 'number' ? id.toString() : id;
 
       // First try direct lookup by key
       const championByKey = Object.values(champions).find(
-        (champion) => champion.key === championKey,
+        (champion) => champion.key === normalizeChampionName(championKey),
       );
 
       if (championByKey) return championByKey;
 
       // Fallback: try lookup by id (name)
-      return champions[championKey] || null;
+      return champions[normalizeChampionName(championKey)] || null;
     };
 
     // Function to get champion image URL
@@ -110,7 +119,11 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
 
     // Function to get summoner spell icon URL from id
     const getSummonerSpellIconUrl = (spellId?: number): string => {
-      return _getSummonerSpellIconUrl(spellId, version || null, spellKeyById || undefined);
+      return _getSummonerSpellIconUrl(
+        spellId,
+        version || null,
+        spellKeyById || undefined,
+      );
     };
 
     // Function to get rune primary/sub style icon URL

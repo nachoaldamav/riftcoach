@@ -55,18 +55,26 @@ export const getChampionImageUrl = (
   version: string,
   imageType: 'square' | 'loading' | 'splash' = 'square',
 ): string => {
+  console.log('getChampionImageUrl', championId, version, imageType);
   const championKey =
     typeof championId === 'number' ? championId.toString() : championId;
 
+  const correctChampionKey = (key: string) => {
+    if (key === 'Nunu') return 'NunuAndWillump';
+    if (key === 'RekSai') return 'RekSai';
+    if (key === 'FiddleSticks') return 'Fiddlesticks';
+    return key;
+  };
+
   switch (imageType) {
     case 'square':
-      return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/champion/${championKey}.png`;
+      return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/champion/${correctChampionKey(championKey)}.png`;
     case 'loading':
-      return `${DATA_DRAGON_BASE_URL}/cdn/img/champion/loading/${championKey}_0.jpg`;
+      return `${DATA_DRAGON_BASE_URL}/cdn/img/champion/loading/${correctChampionKey(championKey)}_0.jpg`;
     case 'splash':
-      return `${DATA_DRAGON_BASE_URL}/cdn/img/champion/splash/${championKey}_0.jpg`;
+      return `${DATA_DRAGON_BASE_URL}/cdn/img/champion/splash/${correctChampionKey(championKey)}_0.jpg`;
     default:
-      return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/champion/${championKey}.png`;
+      return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/champion/${correctChampionKey(championKey)}.png`;
   }
 };
 
@@ -102,7 +110,7 @@ export const getSummonerSpellIconUrl = (
 // Rune style icon URL mapping (uses Data Dragon)
 const RUNE_STYLE_MAPPING: Record<number, string> = {
   8000: '7201_Precision', // Precision
-  8100: '7200_Domination', // Domination  
+  8100: '7200_Domination', // Domination
   8200: '7202_Sorcery', // Sorcery
   8300: '7203_Whimsy', // Inspiration
   8400: '7204_Resolve', // Resolve
@@ -122,23 +130,23 @@ const RUNE_PERK_MAPPING: Record<number, { style: string; name: string }> = {
   8008: { style: 'Precision', name: 'LethalTempoTemp' },
   8021: { style: 'Precision', name: 'FleetFootwork' },
   8010: { style: 'Precision', name: 'Conqueror' },
-  
+
   // Domination keystones
   8112: { style: 'Domination', name: 'Electrocute' },
   8124: { style: 'Domination', name: 'Predator' },
   8128: { style: 'Domination', name: 'DarkHarvest' },
   9923: { style: 'Domination', name: 'HailOfBlades' },
-  
+
   // Sorcery keystones
   8214: { style: 'Sorcery', name: 'SummonAery' },
   8229: { style: 'Sorcery', name: 'ArcaneComet' },
   8230: { style: 'Sorcery', name: 'PhaseRush' },
-  
+
   // Resolve keystones
   8437: { style: 'Resolve', name: 'GraspOfTheUndying' },
   8439: { style: 'Resolve', name: 'VeteranAftershock' },
   8465: { style: 'Resolve', name: 'Guardian' },
-  
+
   // Inspiration keystones
   8351: { style: 'Inspiration', name: 'GlacialAugment' },
   8360: { style: 'Inspiration', name: 'UnsealedSpellbook' },
@@ -148,11 +156,11 @@ const RUNE_PERK_MAPPING: Record<number, { style: string; name: string }> = {
 export const getRunePerkIconUrl = (perkId: number | undefined): string => {
   if (!perkId || !RUNE_PERK_MAPPING[perkId]) return '';
   const { style, name } = RUNE_PERK_MAPPING[perkId];
-  
+
   // Special case for LethalTempoTemp - use LethalTempo folder but LethalTempoTemp filename
   if (name === 'LethalTempoTemp') {
     return `https://ddragon.leagueoflegends.com/cdn/img/perk-images/Styles/${style}/LethalTempo/${name}.png`;
   }
-  
+
   return `https://ddragon.leagueoflegends.com/cdn/img/perk-images/Styles/${style}/${name}/${name}.png`;
 };
