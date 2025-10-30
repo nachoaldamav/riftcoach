@@ -49,14 +49,20 @@ RUN apk add --no-cache wget
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-# Set working directory
-WORKDIR /app
+# Set working directory to align with font loader paths
+WORKDIR /app/apps/api
 
 # Copy built application from build stage
 COPY --from=base --chown=nodejs:nodejs /app/apps/api/dist/ ./dist/
 
 # Copy package.json for runtime dependencies info
 COPY --from=base --chown=nodejs:nodejs /app/apps/api/package.json ./
+
+# Copy runtime node_modules (native bindings like @resvg/resvg-js)
+COPY --from=base --chown=nodejs:nodejs /app/node_modules ./node_modules
+
+# Copy fonts used by server-side renderer to expected relative path
+COPY --chown=nodejs:nodejs apps/web/public/fonts/ /app/apps/web/public/fonts/
 
 # Switch to non-root user
 USER nodejs
