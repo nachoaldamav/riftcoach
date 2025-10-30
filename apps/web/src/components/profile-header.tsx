@@ -78,18 +78,6 @@ export function ProfileHeader({
       className="mb-8"
     >
       <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative">
-        <div className="absolute right-6 top-6 z-30 flex items-center gap-3">
-          <ProfileShareButton
-            region={region}
-            name={name}
-            tag={tag}
-            summoner={{
-              name: summoner.name,
-              profileIconId: summoner.profileIconId,
-            }}
-            badges={badges?.map((b) => ({ title: b.title }))}
-          />
-        </div>
         <CardBody className="p-0">
           <div className="flex items-center gap-6 h-36">
             {/* Profile Icon */}
@@ -111,6 +99,16 @@ export function ProfileHeader({
                   {name}
                 </h1>
                 <span className="text-xl text-neutral-400">#{tag}</span>
+                <ProfileShareButton
+                  region={region}
+                  name={name}
+                  tag={tag}
+                  summoner={{
+                    name: summoner.name,
+                    profileIconId: summoner.profileIconId,
+                  }}
+                  badges={badges?.map((b) => ({ title: b.title }))}
+                />
               </div>
               {/* Badges row (replacing region/level row) */}
               {isBadgesLoading && isIdle ? (

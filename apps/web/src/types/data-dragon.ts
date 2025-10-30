@@ -72,7 +72,7 @@ export interface DataDragonContextType {
   getChampionById: (id: string | number) => Champion | null;
   getChampionImageUrl: (
     championId: string | number,
-    imageType?: 'square' | 'loading' | 'splash',
+    imageType?: 'square' | 'loading' | 'splash' | 'centered',
   ) => string;
   getProfileIconUrl: (profileIconId: number) => string;
   getIconImageUrl: (iconId: number) => string;
