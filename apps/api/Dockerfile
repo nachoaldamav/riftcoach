@@ -59,7 +59,10 @@ COPY --from=base --chown=nodejs:nodejs /app/apps/api/dist/ ./dist/
 COPY --from=base --chown=nodejs:nodejs /app/apps/api/package.json ./
 
 # Copy runtime node_modules (native bindings like @resvg/resvg-js)
-COPY --from=base --chown=nodejs:nodejs /app/node_modules ./node_modules
+# Keep node_modules at workspace root so PNPM symlinks resolve correctly
+COPY --from=base --chown=nodejs:nodejs /app/node_modules /app/node_modules
+# Also copy the package-level node_modules for api (contains PNPM symlinks)
+COPY --from=base --chown=nodejs:nodejs /app/apps/api/node_modules ./node_modules
 
 # Copy fonts used by server-side renderer to expected relative path
 COPY --chown=nodejs:nodejs apps/web/public/fonts/ /app/apps/web/public/fonts/
