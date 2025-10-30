@@ -468,8 +468,8 @@ export const teams: Team[] = [
       {
         name: 'Alvaro',
         position: 'UTILITY',
-        summonerName: 'alvaaroo',
-        summonerTag: 'MKOI',
+        summonerName: 's7R 074',
+        summonerTag: '000',
         region: PlatformId.EUW1,
         image: 'alvaro.png',
       },
@@ -483,8 +483,8 @@ export const teams: Team[] = [
       {
         name: 'Azhi',
         position: 'TOP',
-        summonerName: 'X9l',
-        summonerTag: '0220',
+        summonerName: '토게데마루',
+        summonerTag: '777',
         region: PlatformId.KR,
         image: 'azhi.png',
       },
@@ -501,8 +501,8 @@ export const teams: Team[] = [
       {
         name: 'Maple',
         position: 'MIDDLE',
-        summonerName: '楓棠珍珠奶茶',
-        summonerTag: 'psg',
+        summonerName: 'jjwgs',
+        summonerTag: 'KR1',
         region: PlatformId.EUW1,
         image: 'mapple.png',
       },
@@ -510,8 +510,8 @@ export const teams: Team[] = [
       {
         name: 'Betty',
         position: 'BOTTOM',
-        summonerName: 'ar1',
-        summonerTag: 'psg',
+        summonerName: 'Flow',
+        summonerTag: '0116',
         region: PlatformId.EUW1,
         image: 'betty.png',
       },
