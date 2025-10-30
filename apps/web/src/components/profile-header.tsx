@@ -1,9 +1,8 @@
 import { http } from '@/clients/http';
-import { useDataDragon } from '@/providers/data-dragon-provider';
 import { ProfileShareButton } from '@/components/profile-share-button';
+import { useDataDragon } from '@/providers/data-dragon-provider';
 import { Card, CardBody, Chip, Tooltip } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
