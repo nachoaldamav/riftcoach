@@ -18,6 +18,21 @@ const config = defineConfig({
     }),
     viteReact(),
   ],
+  server: {
+    proxy: {
+      // Proxy API calls to the local API dev server
+      '/v1': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+        ws: true,
+      },
+      '/ws': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
+  },
   optimizeDeps: {
     exclude: ['@resvg/resvg-wasm'],
   },

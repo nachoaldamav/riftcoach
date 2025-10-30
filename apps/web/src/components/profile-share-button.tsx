@@ -1,9 +1,6 @@
 import { http } from '@/clients/http';
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import {
-  type ShareMetric,
-  generateProfileShareCard,
-} from '@/utils/profile-share-card';
+import type { ShareMetric } from '@/utils/profile-share-card';
 import { Avatar, Button, Select, SelectItem } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Loader2, Share2, X } from 'lucide-react';
@@ -255,8 +252,11 @@ export function ProfileShareButton({
           overviewData?.avgKda ??
           0;
         const shareBadges = badges?.map((b) => b.title) ?? [];
-
-        const { pngBlob } = await generateProfileShareCard({
+        // Call server-side generator
+        const apiBase =
+          import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? '';
+        const endpoint = `${apiBase}/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/share-card`;
+        const payload = {
           playerName: summoner.name ?? name,
           tagLine: tag,
           profileIconUrl,
@@ -284,8 +284,20 @@ export function ProfileShareButton({
                 },
               ],
           badges: shareBadges.length ? shareBadges : undefined,
-        });
+        };
 
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(
+            `Share-card generation failed: ${res.status} ${res.statusText} ${errText}`,
+          );
+        }
+        const pngBlob = await res.blob();
         const blobUrl = URL.createObjectURL(pngBlob);
         if (activeObjectUrl.current) {
           URL.revokeObjectURL(activeObjectUrl.current);
@@ -329,6 +341,7 @@ export function ProfileShareButton({
     tag,
     previewUrl,
     selectedChampionData,
+    region,
   ]);
 
   useEffect(() => {
@@ -433,78 +446,6 @@ export function ProfileShareButton({
                                 size="sm"
                                 variant="flat"
                                 className="bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                                onPress={() => {
-                                  setGenerationError(null);
-                                  setIsGenerating(false);
-                                  setPreviewUrl(null);
-                                  setDownloadBlob(null);
-                                  void (async () => {
-                                    setIsGenerating(true);
-                                    try {
-                                      const { pngBlob } =
-                                        await generateProfileShareCard({
-                                          playerName: summoner.name ?? name,
-                                          tagLine: tag,
-                                          profileIconUrl,
-                                          backgroundUrl:
-                                            effectiveSplashUrl ||
-                                            DEFAULT_BACKGROUND,
-                                          champion: {
-                                            name:
-                                              topChampion?.championName ??
-                                              'League Champion',
-                                            games: topChampion?.totalGames ?? 0,
-                                            winRate:
-                                              topChampion?.winRate ??
-                                              overviewData?.winRate ??
-                                              0,
-                                            kda:
-                                              topChampion?.avgKda ??
-                                              overviewData?.avgKda ??
-                                              0,
-                                            splashUrl:
-                                              effectiveSplashUrl ||
-                                              DEFAULT_BACKGROUND,
-                                          },
-                                          metrics: metrics.length
-                                            ? metrics
-                                            : [
-                                                {
-                                                  label: 'Win Rate',
-                                                  player:
-                                                    overviewData?.winRate ?? 0,
-                                                  cohort:
-                                                    overviewData?.winRate ?? 0,
-                                                  suffix: '%',
-                                                },
-                                              ],
-                                          badges:
-                                            badges?.map((b) => b.title) ??
-                                            undefined,
-                                        });
-                                      const blobUrl =
-                                        URL.createObjectURL(pngBlob);
-                                      if (activeObjectUrl.current) {
-                                        URL.revokeObjectURL(
-                                          activeObjectUrl.current,
-                                        );
-                                      }
-                                      activeObjectUrl.current = blobUrl;
-                                      setPreviewUrl(blobUrl);
-                                      setDownloadBlob(pngBlob);
-                                    } catch (error) {
-                                      console.error(
-                                        'Failed to regenerate share card',
-                                        error,
-                                      );
-                                      setGenerationError(
-                                        'Still having trouble. Try refreshing the page.',
-                                      );
-                                    } finally {
-                                      setIsGenerating(false);
-                                    }
-                                  })();
-                                }}
                               >
                                 Try again
                               </Button>

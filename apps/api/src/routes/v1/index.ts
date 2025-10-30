@@ -53,6 +53,7 @@ import {
   resolveItemNames,
 } from '../../utils/ddragon-items.js';
 import { deriveSynergy } from '../../utils/synergy.js';
+import { renderShareCard } from '../../services/share-card.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
@@ -666,6 +667,49 @@ app.get(
     });
   },
 );
+
+// Server-side share card rendering
+app.post('/:region/:tagName/:tagLine/share-card', accountMiddleware, async (c) => {
+  try {
+    const payload = await c.req.json();
+    const shareCardSchema = z.object({
+      playerName: z.string(),
+      tagLine: z.string(),
+      profileIconUrl: z.string().url(),
+      backgroundUrl: z.string().url(),
+      champion: z.object({
+        name: z.string(),
+        games: z.number(),
+        winRate: z.number(),
+        kda: z.number(),
+        splashUrl: z.string().url(),
+      }),
+      metrics: z.array(
+        z.object({
+          label: z.string(),
+          player: z.number(),
+          cohort: z.number(),
+          suffix: z.string().optional(),
+        }),
+      ),
+      badges: z.array(z.string()).optional(),
+    });
+    const parsed = shareCardSchema.safeParse(payload);
+    if (!parsed.success) {
+      return c.json({ message: 'Invalid payload', errors: parsed.error.flatten() }, 400);
+    }
+    const pngData = await renderShareCard(parsed.data);
+    return new Response(pngData, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (err) {
+    consola.error(err);
+    throw new HTTPException(500, { message: 'Failed to render share card' });
+  }
+});
 
 app.post('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
   const rewindId = c.var.internalId;
