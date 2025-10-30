@@ -88,7 +88,7 @@ export const DataDragonProvider = ({ children }: DataDragonProviderProps) => {
     // Function to get champion image URL
     const getChampionImageUrl = (
       championId: string | number,
-      imageType: 'square' | 'loading' | 'splash' = 'square',
+      imageType: 'square' | 'loading' | 'splash' | 'centered' = 'square',
     ): string => {
       if (!version) return '';
 

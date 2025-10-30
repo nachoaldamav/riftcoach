@@ -1,5 +1,6 @@
 import { http } from '@/clients/http';
 import { useDataDragon } from '@/providers/data-dragon-provider';
+import { ProfileShareButton } from '@/components/profile-share-button';
 import { Card, CardBody, Chip, Tooltip } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
@@ -32,6 +33,7 @@ interface ProfileHeaderProps {
 
 export function ProfileHeader({
   summoner,
+  region,
   name,
   tag,
   badges,
@@ -97,6 +99,16 @@ export function ProfileHeader({
                   {name}
                 </h1>
                 <span className="text-xl text-neutral-400">#{tag}</span>
+                <ProfileShareButton
+                  region={region}
+                  name={name}
+                  tag={tag}
+                  summoner={{
+                    name: summoner.name,
+                    profileIconId: summoner.profileIconId,
+                  }}
+                  badges={badges?.map((b) => ({ title: b.title }))}
+                />
               </div>
               {/* Badges row (replacing region/level row) */}
               {isBadgesLoading && isIdle ? (

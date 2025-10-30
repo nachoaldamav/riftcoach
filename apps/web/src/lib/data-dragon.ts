@@ -53,7 +53,7 @@ export const championDataQueryOptions = (version: string) =>
 export const getChampionImageUrl = (
   championId: string | number,
   version: string,
-  imageType: 'square' | 'loading' | 'splash' = 'square',
+  imageType: 'square' | 'loading' | 'splash' | 'centered' = 'square',
 ): string => {
   const championKey =
     typeof championId === 'number' ? championId.toString() : championId;
@@ -72,6 +72,8 @@ export const getChampionImageUrl = (
       return `${DATA_DRAGON_BASE_URL}/cdn/img/champion/loading/${correctChampionKey(championKey)}_0.jpg`;
     case 'splash':
       return `${DATA_DRAGON_BASE_URL}/cdn/img/champion/splash/${correctChampionKey(championKey)}_0.jpg`;
+    case 'centered':
+      return `${DATA_DRAGON_BASE_URL}/cdn/img/champion/centered/${correctChampionKey(championKey)}_0.jpg`;
     default:
       return `${DATA_DRAGON_BASE_URL}/cdn/${version}/img/champion/${correctChampionKey(championKey)}.png`;
   }
