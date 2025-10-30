@@ -416,7 +416,7 @@ export function ProfileShareButton({
                   <div className="flex flex-col items-center justify-center">
                     <div className="group relative w-full max-w-3xl perspective-1000">
                       <div
-                        className="relative w-full transform-gpu rounded-3xl border border-accent-blue-400/20 bg-gradient-to-br from-accent-blue-500/10 via-accent-purple-500/10 to-transparent p-4 shadow-[0_35px_65px_-30px_rgba(59,130,246,0.45)] transition-transform duration-700 group-hover:-rotate-2 group-hover:scale-[1.01]"
+                        className="relative w-full rounded-3xl border border-accent-blue-400/20 bg-gradient-to-br from-accent-blue-500/10 via-accent-purple-500/10 to-transparent p-4 shadow-[0_35px_65px_-30px_rgba(59,130,246,0.45)]"
                         style={{ transform: 'rotateX(6deg) rotateY(-8deg)' }}
                       >
                         <div className="relative overflow-hidden rounded-2xl bg-black/60">

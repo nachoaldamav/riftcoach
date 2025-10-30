@@ -36,6 +36,7 @@ import { fetchCohortPercentiles } from '../../services/champion-role-algo.js';
 import { generateChampionRoleInsights } from '../../services/champion-role-insights.js';
 import { generateChampionRoleAIScores } from '../../services/champion-role-score.js';
 import type { ChampionRoleStats } from '../../services/champion-role-score.js';
+import { teams } from '../../services/competitive.js';
 import { matchDetailsNode } from '../../services/match-details.js';
 import { generateMatchInsights } from '../../services/match-insights.js';
 import {
@@ -52,7 +53,6 @@ import {
   resolveItemNames,
 } from '../../utils/ddragon-items.js';
 import { deriveSynergy } from '../../utils/synergy.js';
-import { teams } from '../../services/competitive.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 

@@ -1,5 +1,3 @@
-import { Resvg, initWasm } from '@resvg/resvg-wasm';
-import resvgWasmUrl from '@resvg/resvg-wasm/index_bg.wasm?url';
 /** @jsxImportSource react */
 import satori, { type SatoriOptions } from 'satori';
 
@@ -38,34 +36,103 @@ const fontCache = new Map<string, ArrayBuffer>();
 const imageCache = new Map<string, string>();
 const resultCache = new Map<string, { svg: string; pngBlob: Blob }>();
 
-// Ensure Resvg WASM is initialized only once per runtime
-let wasmInitPromise: Promise<void> | null = null;
-let wasmInitialized = false;
-async function ensureResvgWasmInitialized(): Promise<void> {
-  if (wasmInitialized) return;
-  if (!wasmInitPromise) {
-    // Assign the promise synchronously to avoid race conditions
-    wasmInitPromise = (async () => {
+// Web Worker management for off-main-thread PNG rendering
+let resvgWorker: Worker | null = null;
+function getResvgWorker(): Worker | null {
+  if (typeof window === 'undefined') return null;
+  if (!('Worker' in window)) return null;
+  if (!resvgWorker) {
+    try {
+      resvgWorker = new Worker(
+        new URL('../workers/resvg-worker.ts', import.meta.url),
+        { type: 'module' },
+      );
+    } catch (err) {
+      console.warn('[share-card] failed to create worker, falling back', err);
+      resvgWorker = null;
+    }
+  }
+  return resvgWorker;
+}
+
+async function renderSvgToPngInWorker(
+  svg: string,
+  scale = 2,
+): Promise<ArrayBuffer> {
+  const worker = getResvgWorker();
+  if (!worker) throw new Error('Worker unavailable');
+  return await new Promise<ArrayBuffer>((resolve, reject) => {
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data as {
+        ok: boolean;
+        png?: ArrayBuffer;
+        error?: string;
+      };
+      worker?.removeEventListener('message', handleMessage);
+      worker?.removeEventListener('error', handleError);
+      if (data?.ok && data.png) {
+        resolve(data.png);
+      } else {
+        reject(new Error(data?.error || 'Worker render failed'));
+      }
+    };
+    const handleError = (ev: ErrorEvent) => {
+      worker?.removeEventListener('message', handleMessage);
+      worker?.removeEventListener('error', handleError);
+      reject(ev.error ?? new Error(ev.message));
+    };
+    worker?.addEventListener('message', handleMessage);
+    worker?.addEventListener('error', handleError);
+    worker?.postMessage({ svg, scale });
+  });
+}
+
+// Fallback: render PNG on main thread via dynamic import to avoid upfront WASM cost
+let mainThreadWasmInitPromise: Promise<void> | null = null;
+let mainThreadWasmInitialized = false;
+async function ensureMainThreadResvgInitialized(): Promise<void> {
+  if (mainThreadWasmInitialized) return;
+  if (!mainThreadWasmInitPromise) {
+    mainThreadWasmInitPromise = (async () => {
+      const [{ initWasm }, wasmUrlMod] = await Promise.all([
+        import('@resvg/resvg-wasm'),
+        import('@resvg/resvg-wasm/index_bg.wasm?url'),
+      ]);
       try {
-        const wasmBinary = await fetch(resvgWasmUrl).then((r) =>
-          r.arrayBuffer(),
-        );
+        const wasmModule = wasmUrlMod as { default: string } | string;
+        const wasmHref =
+          typeof wasmModule === 'string' ? wasmModule : wasmModule.default;
+        const wasmBinary = await fetch(wasmHref).then((r) => r.arrayBuffer());
         await initWasm(wasmBinary);
-        wasmInitialized = true;
+        mainThreadWasmInitialized = true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        // If WASM is already initialized (e.g., HMR or prior init), mark as initialized and proceed
         if (msg.includes('Already initialized')) {
-          wasmInitialized = true;
+          mainThreadWasmInitialized = true;
           return;
         }
-        // Reset the promise to allow future retries if initialization fails
-        wasmInitPromise = null;
+        mainThreadWasmInitPromise = null;
         throw e;
       }
     })();
   }
-  return wasmInitPromise;
+  return mainThreadWasmInitPromise;
+}
+
+async function renderSvgToPngFallback(
+  svg: string,
+  scale = 2,
+): Promise<ArrayBuffer> {
+  const { Resvg } = await import('@resvg/resvg-wasm');
+  await ensureMainThreadResvgInitialized();
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: 'zoom', value: scale },
+  });
+  const pngData = resvg.render().asPng();
+  // Construct a fresh ArrayBuffer to avoid SharedArrayBuffer union issues
+  const ab = new ArrayBuffer(pngData.byteLength);
+  new Uint8Array(ab).set(pngData);
+  return ab;
 }
 
 async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
@@ -658,20 +725,15 @@ export async function generateProfileShareCard(options: {
       setTimeout(() => resolve(), 0);
     }
   });
-  await ensureResvgWasmInitialized();
-  const resvg = new Resvg(svg, {
-    fitTo: {
-      mode: 'zoom',
-      value: 2,
-    },
-  });
-
-  const pngData = resvg.render().asPng();
-  // Construct Blob from a true ArrayBuffer to satisfy DOM BlobPart typing
-  const ab = new ArrayBuffer(pngData.byteLength);
-  const abView = new Uint8Array(ab);
-  abView.set(pngData);
-  const pngBlob = new Blob([ab], { type: 'image/png' });
+  // Prefer worker-based rendering, fall back to main thread if needed
+  let pngBuffer: ArrayBuffer;
+  try {
+    pngBuffer = await renderSvgToPngInWorker(svg, 2);
+  } catch (err) {
+    console.warn('[share-card] worker render failed, using fallback:', err);
+    pngBuffer = await renderSvgToPngFallback(svg, 2);
+  }
+  const pngBlob = new Blob([pngBuffer], { type: 'image/png' });
   const result = { svg, pngBlob };
   resultCache.set(cacheKey, result);
   return result;
