@@ -163,11 +163,111 @@ function buildPrompt(
       deltaPctFromP50: number | null;
       directionRelativeToP50: 'higher' | 'lower' | 'equal' | 'unknown';
       isHigherBetter: boolean;
+      bandScore: number | null;
+      performanceScore: number | null;
+      tier:
+        | 'bestInClass'
+        | 'elite'
+        | 'strong'
+        | 'solid'
+        | 'average'
+        | 'needsImprovement'
+        | 'unknown';
+      summaryText: string;
     }
   > = {};
 
   const getNum = (x: unknown) =>
     typeof x === 'number' && Number.isFinite(x) ? x : null;
+
+  const bandToScore = (band: Band): number | null => {
+    switch (band) {
+      case 'below_p50':
+        return 0;
+      case 'near_p50':
+        return 1;
+      case 'p50_to_p75':
+        return 2;
+      case 'p75_to_p90':
+        return 3;
+      case 'p90_to_p95':
+        return 4;
+      case 'above_p95':
+        return 5;
+      case 'unknown':
+      default:
+        return null;
+    }
+  };
+
+  const scoreToTier = (score: number | null):
+    | 'bestInClass'
+    | 'elite'
+    | 'strong'
+    | 'solid'
+    | 'average'
+    | 'needsImprovement'
+    | 'unknown' => {
+    if (score == null) return 'unknown';
+    if (score >= 5) return 'bestInClass';
+    if (score >= 4) return 'elite';
+    if (score >= 3) return 'strong';
+    if (score >= 2) return 'solid';
+    if (score >= 1) return 'average';
+    return 'needsImprovement';
+  };
+
+  const describeBand = (
+    band: Band,
+    isHigherBetter: boolean,
+  ): string => {
+    if (band === 'unknown')
+      return 'Not enough reliable data to judge this metric yet.';
+
+    const describe = (
+      higherText: string,
+      lowerText: string,
+      neutralText: string,
+    ): string => (isHigherBetter ? higherText : lowerText) ?? neutralText;
+
+    switch (band) {
+      case 'above_p95':
+        return describe(
+          'You outperform almost every comparable player here.',
+          'This number is higher (worse) than almost every comparable player.',
+          'Performance is far from the midpoint.',
+        );
+      case 'p90_to_p95':
+        return describe(
+          'You are among the elite in this area.',
+          'This is higher (worse) than roughly 90% of players.',
+          'Performance is significantly different from the midpoint.',
+        );
+      case 'p75_to_p90':
+        return describe(
+          'You beat about three quarters of players on this front.',
+          'This is higher (worse) than about three quarters of players.',
+          'Performance differs notably from the midpoint.',
+        );
+      case 'p50_to_p75':
+        return describe(
+          'You are a bit ahead of the typical player.',
+          'Slightly higher (worse) than the typical player.',
+          'Close to the midpoint.',
+        );
+      case 'near_p50':
+        return 'Roughly on par with the typical player for this role.';
+      case 'below_p50':
+        return describe(
+          'A bit behind most players on this metric.',
+          'You keep this metric lower (better) than most players.',
+          'A bit below the midpoint.',
+        );
+      default:
+        return 'Not enough reliable data to judge this metric yet.';
+    }
+  };
+
   for (const m of metrics) {
     const p50 = getNum(percentiles?.p50?.[m as string]);
     const p75 = getNum(percentiles?.p75?.[m as string]);
@@ -180,17 +280,59 @@ function buildPrompt(
       p90,
       p95,
     );
+    const baseScore = bandToScore(band);
+    const isHigherBetter = !lexicon.negativeMetrics.includes(
+      m as 'dtpm' | 'deathsPerMin',
+    );
+    const performanceScore =
+      baseScore == null
+        ? null
+        : isHigherBetter
+          ? baseScore
+          : 5 - baseScore;
     comparisons[m as string] = {
       value: averages[m],
       cohort: { p50, p75, p90, p95 },
       band,
       deltaPctFromP50: deltaPct,
       directionRelativeToP50: direction,
-      isHigherBetter: !lexicon.negativeMetrics.includes(
-        m as 'dtpm' | 'deathsPerMin',
-      ),
+      isHigherBetter,
+      bandScore: baseScore,
+      performanceScore,
+      tier: scoreToTier(performanceScore),
+      summaryText: describeBand(band, isHigherBetter),
     };
   }
+
+  const getPerformanceScore = (metric: keyof typeof averages): number | null =>
+    typeof comparisons[metric]?.performanceScore === 'number'
+      ? (comparisons[metric]?.performanceScore as number)
+      : null;
+
+  const getBandScore = (metric: keyof typeof averages): number | null =>
+    typeof comparisons[metric]?.bandScore === 'number'
+      ? (comparisons[metric]?.bandScore as number)
+      : null;
+
+  const dtpmBandScore = getBandScore('dtpm');
+  const deathsScore = getPerformanceScore('deathsPerMin');
+  const killsScore = getPerformanceScore('kpm');
+
+  const takesHeavyDamage = dtpmBandScore != null && dtpmBandScore >= 3;
+  const deathsWellManaged = deathsScore != null && deathsScore >= 4;
+  const deathsProblematic = deathsScore != null && deathsScore <= 2;
+  const killsVeryHigh = killsScore != null && killsScore >= 3;
+
+  const riskProfile = takesHeavyDamage
+    ? deathsWellManaged
+      ? 'absorbsPressureWell'
+      : deathsProblematic
+        ? 'overextending'
+        : 'tradesEvenly'
+    : 'unknown';
+
+  const killHunting =
+    takesHeavyDamage && killsVeryHigh && deathsProblematic ? 'killSeeker' : null;
 
   const payload = {
     championName: stats.championName,
@@ -220,7 +362,11 @@ function buildPrompt(
     },
     cohortPercentiles: percentiles,
     comparisons,
-    derived: { minutesPerDeath },
+    derived: {
+      minutesPerDeath,
+      riskProfile,
+      killHunting,
+    },
     lexicon,
   };
 
@@ -247,8 +393,11 @@ Style and rules:
   - Do NOT use technical terms like "percentile", "p75/p90", or "cohort" in the output.
   - Use lexicon.metricLabels for metric names; apm = "Assists per minute" (never "key presses per minute").
   - Use comparisons[metric] for judgments: rely on directionRelativeToP50 and band.
+  - comparisons[metric].summaryText already converts the percentile math into natural language—use it to keep statements precise.
   - Treat near_p50 (abs delta < 3%) as "about average".
   - For negative metrics (deathsPerMin, dtpm): higher = worse, lower = better.
+  - derived.riskProfile tells you whether heavy damage intake is controlled ('absorbsPressureWell'), neutral ('tradesEvenly'), or reckless ('overextending'); highlight this when appropriate.
+  - If derived.killHunting === 'killSeeker', point out that the player is tunnel-visioning on kills and should protect their life bar.
   - Cite at most one key metric per bullet.
   - Prefer clean numbers: round decimals; convert rates to intuitive units (e.g., say "about one death every 7–8 minutes" using derived.minutesPerDeath).
   - Keep each bullet to 1–2 short sentences. Limit to max 3 strengths and 3 weaknesses.
