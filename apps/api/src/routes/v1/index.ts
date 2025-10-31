@@ -1,4 +1,3 @@
-import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import {
   DDragon,
   PlatformId,
@@ -9,7 +8,6 @@ import { collections } from '@riftcoach/clients.mongodb';
 import { type Platform, type Region, riot } from '@riftcoach/clients.riot';
 import { queues } from '@riftcoach/queues';
 import { ALLOWED_QUEUE_IDS, ROLES } from '@riftcoach/shared.constants';
-import type { Item } from '@riftcoach/shared.lol-types';
 import chalk from 'chalk';
 import consola from 'consola';
 import { Hono } from 'hono';
@@ -24,6 +22,7 @@ import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
 import { getMatchBuilds } from '../../aggregations/matchBuilds.js';
 import { playerChampRoleStatsAggregation } from '../../aggregations/playerChampRoleStats.js';
+import { playerChampRolePercentilesAggregation } from '../../aggregations/playerChampionRolePercentiles.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
@@ -34,6 +33,7 @@ import { generateBuildSuggestions } from '../../services/builds.js';
 import { generateChampionInsights } from '../../services/champion-insights.js';
 import { fetchCohortPercentiles } from '../../services/champion-role-algo.js';
 import { generateChampionRoleInsights } from '../../services/champion-role-insights.js';
+import type { PlayerPercentilesDoc } from '../../services/champion-role-insights.js';
 import { generateChampionRoleAIScores } from '../../services/champion-role-score.js';
 import type { ChampionRoleStats } from '../../services/champion-role-score.js';
 import { teams } from '../../services/competitive.js';
@@ -45,6 +45,7 @@ import {
   invokeBadgesModel,
   normalizeBadgesResponse,
 } from '../../services/player-badges.js';
+import { renderShareCard } from '../../services/share-card.js';
 import compareRoleStats from '../../utils/compare-role-stats.js';
 import {
   getItemMap,
@@ -53,7 +54,6 @@ import {
   resolveItemNames,
 } from '../../utils/ddragon-items.js';
 import { deriveSynergy } from '../../utils/synergy.js';
-import { renderShareCard } from '../../services/share-card.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
@@ -649,12 +649,27 @@ app.get(
     }
 
     // Defer to AI scoring service for single champion-role
-    const [cohort, aiScores] = await Promise.all([
+    const [cohort, aiScores, playerPercentilesDocs] = await Promise.all([
       fetchCohortPercentiles(championName, role),
       generateChampionRoleAIScores(account.puuid, [target]),
+      collections.matches
+        .aggregate<PlayerPercentilesDoc>(
+          playerChampRolePercentilesAggregation(
+            account.puuid,
+            championName,
+            role,
+          ),
+          { allowDiskUse: true },
+        )
+        .toArray(),
     ]);
     const ai = aiScores[0] ?? null;
-    const insights = await generateChampionRoleInsights(target, cohort);
+    const playerPercentiles = playerPercentilesDocs?.[0] ?? null;
+    const insights = await generateChampionRoleInsights(
+      target,
+      cohort,
+      playerPercentiles,
+    );
 
     return c.json({
       championName,
@@ -663,53 +678,64 @@ app.get(
       reasoning: ai?.reasoning ?? undefined,
       stats: target,
       cohort,
+      playerPercentiles,
       insights,
     });
   },
 );
 
 // Server-side share card rendering
-app.post('/:region/:tagName/:tagLine/share-card', accountMiddleware, async (c) => {
-  try {
-    const payload = await c.req.json();
-    const shareCardSchema = z.object({
-      playerName: z.string(),
-      tagLine: z.string(),
-      profileIconUrl: z.string().url(),
-      backgroundUrl: z.string().url(),
-      champion: z.object({
-        name: z.string(),
-        games: z.number(),
-        winRate: z.number(),
-        kda: z.number(),
-        splashUrl: z.string().url(),
-      }),
-      metrics: z.array(
-        z.object({
-          label: z.string(),
-          player: z.number(),
-          cohort: z.number(),
-          suffix: z.string().optional(),
+app.post(
+  '/:region/:tagName/:tagLine/share-card',
+  accountMiddleware,
+  async (c) => {
+    try {
+      const payload = await c.req.json();
+      const shareCardSchema = z.object({
+        playerName: z.string(),
+        tagLine: z.string(),
+        profileIconUrl: z.string().url(),
+        backgroundUrl: z.string().url(),
+        champion: z.object({
+          name: z.string(),
+          games: z.number(),
+          winRate: z.number(),
+          kda: z.number(),
+          splashUrl: z.string().url(),
         }),
-      ),
-      badges: z.array(z.string()).optional(),
-    });
-    const parsed = shareCardSchema.safeParse(payload);
-    if (!parsed.success) {
-      return c.json({ message: 'Invalid payload', errors: parsed.error.flatten() }, 400);
+        metrics: z.array(
+          z.object({
+            label: z.string(),
+            player: z.number(),
+            cohort: z.number(),
+            suffix: z.string().optional(),
+          }),
+        ),
+        badges: z.array(z.string()).optional(),
+      });
+      const parsed = shareCardSchema.safeParse(payload);
+      if (!parsed.success) {
+        return c.json(
+          { message: 'Invalid payload', errors: parsed.error.flatten() },
+          400,
+        );
+      }
+      const pngData = await renderShareCard(parsed.data);
+      // Build a standalone ArrayBuffer to avoid SharedArrayBuffer union types
+      const ab = new ArrayBuffer(pngData.byteLength);
+      new Uint8Array(ab).set(pngData);
+      return new Response(ab, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (err) {
+      consola.error(err);
+      throw new HTTPException(500, { message: 'Failed to render share card' });
     }
-    const pngData = await renderShareCard(parsed.data);
-    return new Response(pngData, {
-      headers: {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'no-store',
-      },
-    });
-  } catch (err) {
-    consola.error(err);
-    throw new HTTPException(500, { message: 'Failed to render share card' });
-  }
-});
+  },
+);
 
 app.post('/:region/:tagName/:tagLine/rewind', accountMiddleware, async (c) => {
   const rewindId = c.var.internalId;

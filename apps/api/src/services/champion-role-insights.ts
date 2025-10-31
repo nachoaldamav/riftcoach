@@ -5,6 +5,17 @@ import { bedrockClient } from '../clients/bedrock.js';
 import type { CohortPercentilesDoc } from './champion-role-algo.js';
 import type { ChampionRoleStats } from './champion-role-score.js';
 
+export type PlayerPercentilesDoc = {
+  championName: string;
+  role: string;
+  percentiles: {
+    p50: Record<string, number>;
+    p75: Record<string, number>;
+    p90: Record<string, number>;
+    p95: Record<string, number>;
+  };
+};
+
 export type ChampionRoleInsightResult = {
   summary: string;
   strengths: string[];
@@ -14,8 +25,10 @@ export type ChampionRoleInsightResult = {
 function buildPrompt(
   stats: ChampionRoleStats,
   cohort: CohortPercentilesDoc | null,
+  player: PlayerPercentilesDoc | null,
 ): string {
   const percentiles = cohort?.percentiles ?? null;
+  const playerPercentiles = player?.percentiles ?? null;
   // Controlled lexicon and numeric guardrails
   const lexicon = {
     adjectives: {
@@ -46,6 +59,7 @@ function buildPrompt(
       'p75',
       'p90',
       'cohort',
+      'median',
     ],
     negativeMetrics: ['deathsPerMin', 'dtpm'],
   } as const;
@@ -53,20 +67,26 @@ function buildPrompt(
   const getNumber = (v: unknown): number | null =>
     typeof v === 'number' && Number.isFinite(v) ? v : null;
 
+  // Prefer player's p50 (midpoint) where available to mitigate outliers
+  const pickPlayerMid = (key: string, fallback: number | null): number | null => {
+    const val = getNumber(playerPercentiles?.p50?.[key]);
+    return val ?? fallback;
+  };
+
   const averages = {
     winRate: getNumber(stats.winRate),
     kda: getNumber(stats.kda),
-    goldEarned: getNumber(stats.avgGoldEarned),
-    cspm: getNumber(stats.avgCspm),
-    dpm: getNumber(stats.avgDpm),
-    dtpm: getNumber(stats.avgDtpm),
-    kpm: getNumber(stats.avgKpm),
-    apm: getNumber(stats.avgApm),
-    deathsPerMin: getNumber(stats.avgDeathsPerMin),
-    goldAt10: getNumber(stats.avgGoldAt10),
-    csAt10: getNumber(stats.avgCsAt10),
-    goldAt15: getNumber(stats.avgGoldAt15),
-    csAt15: getNumber(stats.avgCsAt15),
+    goldEarned: pickPlayerMid('goldEarned', getNumber(stats.avgGoldEarned)),
+    cspm: getNumber(stats.avgCspm), // player percentiles may not include cspm
+    dpm: pickPlayerMid('dpm', getNumber(stats.avgDpm)),
+    dtpm: pickPlayerMid('dtpm', getNumber(stats.avgDtpm)),
+    kpm: pickPlayerMid('kpm', getNumber(stats.avgKpm)),
+    apm: pickPlayerMid('apm', getNumber(stats.avgApm)),
+    deathsPerMin: pickPlayerMid('deathsPerMin', getNumber(stats.avgDeathsPerMin)),
+    goldAt10: pickPlayerMid('goldAt10', getNumber(stats.avgGoldAt10)),
+    csAt10: pickPlayerMid('csAt10', getNumber(stats.avgCsAt10)),
+    goldAt15: pickPlayerMid('goldAt15', getNumber(stats.avgGoldAt15)),
+    csAt15: pickPlayerMid('csAt15', getNumber(stats.avgCsAt15)),
     damageShare: getNumber(stats.avgDamageShare),
     damageTakenShare: getNumber(stats.avgDamageTakenShare),
     objectiveParticipationPct: getNumber(stats.avgObjectiveParticipationPct),
@@ -179,23 +199,24 @@ function buildPrompt(
     wins: stats.wins,
     losses: stats.losses,
     averages: {
-      winRate: stats.winRate,
-      kda: stats.kda,
-      goldEarned: stats.avgGoldEarned,
-      cspm: stats.avgCspm,
-      dpm: stats.avgDpm,
-      dtpm: stats.avgDtpm,
-      kpm: stats.avgKpm,
-      apm: stats.avgApm,
-      deathsPerMin: stats.avgDeathsPerMin,
-      goldAt10: stats.avgGoldAt10,
-      csAt10: stats.avgCsAt10,
-      goldAt15: stats.avgGoldAt15,
-      csAt15: stats.avgCsAt15,
-      damageShare: stats.avgDamageShare,
-      damageTakenShare: stats.avgDamageTakenShare,
-      objectiveParticipationPct: stats.avgObjectiveParticipationPct,
-      earlyGankDeathRate: stats.earlyGankDeathRateSmart,
+      // Reflect the actual values used (player midpoints where available)
+      winRate: averages.winRate,
+      kda: averages.kda,
+      goldEarned: averages.goldEarned,
+      cspm: averages.cspm,
+      dpm: averages.dpm,
+      dtpm: averages.dtpm,
+      kpm: averages.kpm,
+      apm: averages.apm,
+      deathsPerMin: averages.deathsPerMin,
+      goldAt10: averages.goldAt10,
+      csAt10: averages.csAt10,
+      goldAt15: averages.goldAt15,
+      csAt15: averages.csAt15,
+      damageShare: averages.damageShare,
+      damageTakenShare: averages.damageTakenShare,
+      objectiveParticipationPct: averages.objectiveParticipationPct,
+      earlyGankDeathRate: averages.earlyGankDeathRate,
     },
     cohortPercentiles: percentiles,
     comparisons,
@@ -214,6 +235,8 @@ Return ONLY valid JSON:
 
 Style and rules:
   - Speak directly to the player using "you".
+  - Treat "average" as the typical midpoint level (not the mean). Internally use p50 as the cohort's midpoint reference, but do not say "median" or other statistical terms.
+  - If a metric is just below the midpoint (slightly under p50), avoid saying "below average". Prefer gentler phrasing like "slightly below typical levels" or "a bit behind most players".
   - Translate percentile comparisons into everyday phrases:
     - ≥ p95: "best-in-class", "among the very top"
     - p90–p95: "elite"
@@ -241,9 +264,10 @@ ${JSON.stringify(payload, null, 2)}
 export async function generateChampionRoleInsights(
   stats: ChampionRoleStats,
   cohort: CohortPercentilesDoc | null,
+  player: PlayerPercentilesDoc | null,
 ): Promise<ChampionRoleInsightResult> {
   try {
-    const prompt = buildPrompt(stats, cohort);
+    const prompt = buildPrompt(stats, cohort, player);
     const command = new InvokeModelCommand({
       modelId: 'mistral.mixtral-8x7b-instruct-v0:1',
       contentType: 'application/json',

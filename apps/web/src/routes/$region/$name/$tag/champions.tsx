@@ -71,6 +71,16 @@ type ChampionRoleDetailResponse = {
   reasoning?: string;
   stats: ChampionRoleStatItem;
   cohort: CohortPercentiles | null;
+  playerPercentiles?: {
+    championName: string;
+    role: string;
+    percentiles: {
+      p50: Record<string, number>;
+      p75: Record<string, number>;
+      p90: Record<string, number>;
+      p95: Record<string, number>;
+    };
+  } | null;
   insights: ChampionRoleInsight;
 };
 
@@ -561,21 +571,26 @@ function ChampionRow({
       digits: 0,
       invert: true,
     },
-    { label: 'Kills / Min', value: statsSource.avgKpm, key: 'kpm', digits: 2 },
+    { label: 'Kills / Min', value: statsSource.avgKpm, key: 'kpm', digits: 3 },
     {
       label: 'Assists / Min',
       value: statsSource.avgApm,
       key: 'apm',
-      digits: 2,
+      digits: 3,
     },
     {
       label: 'Deaths / Min',
       value: statsSource.avgDeathsPerMin,
       key: 'deathsPerMin',
-      digits: 2,
+      digits: 3,
       invert: true,
     },
   ];
+
+  const playerMedianFor = (key: string): number | undefined => {
+    const p50 = detail?.playerPercentiles?.percentiles?.p50?.[key];
+    return typeof p50 === 'number' ? p50 : undefined;
+  };
 
   return (
     <motion.div
@@ -624,7 +639,9 @@ function ChampionRow({
               </span>
               <span className="font-medium">{row.kda.toFixed(2)} KDA</span>
               <span className="font-medium">{row.avgDpm.toFixed(0)} DPM</span>
-              <span className="font-medium">{row.avgCspm.toFixed(2)} CS/min</span>
+              <span className="font-medium">
+                {row.avgCspm.toFixed(2)} CS/min
+              </span>
             </div>
           </div>
 
@@ -682,8 +699,8 @@ function ChampionRow({
                 ))}
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="space-y-6">
+              <div className="grid gap-6 lg:grid-cols-5">
+                <div className="space-y-6 col-span-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -795,6 +812,15 @@ function ChampionRow({
                               </th>
                               <th className="px-3 py-2 font-semibold">
                                 Player
+                                <span className="ml-1 text-neutral-500 font-normal">
+                                  (mean)
+                                </span>
+                              </th>
+                              <th className="px-3 py-2 font-semibold">
+                                Player Median
+                                <span className="ml-1 text-neutral-500 font-normal">
+                                  (p50)
+                                </span>
                               </th>
                               <th className="px-3 py-2 font-semibold">P50</th>
                               <th className="px-3 py-2 font-semibold">P75</th>
@@ -812,6 +838,7 @@ function ChampionRow({
                                 percentiles,
                                 metric.invert,
                               );
+                              const playerMedian = playerMedianFor(metric.key);
                               return (
                                 <tr
                                   key={metric.label}
@@ -819,6 +846,13 @@ function ChampionRow({
                                 >
                                   <td className="px-3 py-2 text-neutral-200">
                                     {metric.label}
+                                    <span className="ml-2 text-[10px] text-neutral-500">
+                                      {metric.key === 'kpm' ||
+                                      metric.key === 'apm' ||
+                                      metric.key === 'deathsPerMin'
+                                        ? 'higher precision shown'
+                                        : ''}
+                                    </span>
                                   </td>
                                   <td className="px-3 py-2">
                                     <div className="flex flex-wrap items-center gap-2">
@@ -833,6 +867,11 @@ function ChampionRow({
                                         </span>
                                       ) : null}
                                     </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {formatValue(playerMedian, {
+                                      digits: metric.digits,
+                                    })}
                                   </td>
                                   <td className="px-3 py-2">
                                     {formatValue(percentiles?.p50, {
@@ -867,7 +906,7 @@ function ChampionRow({
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-4 col-span-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-200">
                       Position Heatmap
