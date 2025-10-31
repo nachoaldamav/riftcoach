@@ -684,6 +684,232 @@ app.get(
   },
 );
 
+// Player-scoped champion-role builds order (first N completed items across matches)
+app.get(
+  '/:region/:tagName/:tagLine/champions/:championName/:role/builds-order',
+  accountMiddleware,
+  async (c) => {
+    const account = c.var.account;
+    const champion = c.req.param('championName');
+    const role = c.req.param('role');
+    const maxOrder = Number(c.req.query('maxOrder') ?? 6);
+    const minDuration = Number(c.req.query('minDuration') ?? 600);
+    const maxDuration = Number(c.req.query('maxDuration') ?? 4800);
+    const sortDirection = (c.req.query('sort') ?? 'desc') === 'asc' ? 1 : -1;
+
+    if (!champion || !role) {
+      return c.json({ message: 'Champion and role are required' }, 400);
+    }
+
+    // 1) DDragon: determine completed item ids and simple metadata map
+    const ddragon = new DDragon();
+    const itemsRaw = await ddragon.items();
+    type Item = RiotAPITypes.DDragon.DDragonItemDTO & { id: string };
+
+    const items: Item[] = Object.entries(itemsRaw.data).map(([id, item]) => ({
+      ...(item as RiotAPITypes.DDragon.DDragonItemDTO),
+      id,
+    }));
+
+    function isCompletedItem(item: RiotAPITypes.DDragon.DDragonItemDTO) {
+      if (!item.from?.length) return false;
+      const consumed = (item as { consumed?: boolean }).consumed;
+      if (consumed) return false;
+      if (item.tags?.includes('Boots')) {
+        return (item.depth ?? 0) >= 2;
+      }
+      const isCompleted = (item.depth ?? 0) >= 3 || !item.into?.length;
+      return isCompleted;
+    }
+
+    const completedItemIds: number[] = items
+      .filter((i) => isCompletedItem(i))
+      .map((i) => Number(i.id));
+
+    if (!completedItemIds.length) {
+      return c.json(
+        { message: 'No completed items were detected from DDragon.' },
+        500,
+      );
+    }
+
+    const itemMeta = new Map<number, { name: string; icon?: string }>(
+      items.map((i) => [
+        Number(i.id),
+        { name: i.name, icon: (i.image as { full?: string } | undefined)?.full },
+      ]),
+    );
+
+    // 2) Aggregation across player's matches for this champion-role
+    const matches = collections.matches;
+
+    const earlyMatch: Document = {
+      'info.participants': {
+        $elemMatch: {
+          puuid: account.puuid,
+          championName: champion,
+          teamPosition: role,
+        },
+      },
+      'info.queueId': { $in: ALLOWED_QUEUE_IDS },
+      'info.gameDuration': { $gte: minDuration, $lte: maxDuration },
+    };
+
+    const pipeline: Document[] = [
+      { $match: earlyMatch },
+      { $sort: { 'info.gameCreation': sortDirection } },
+      {
+        $project: {
+          metadata: 1,
+          'info.gameCreation': 1,
+          participant: {
+            $first: {
+              $filter: {
+                input: '$info.participants',
+                as: 'p',
+                cond: {
+                  $and: [
+                    { $eq: ['$$p.puuid', account.puuid] },
+                    { $eq: ['$$p.championName', champion] },
+                    { $eq: ['$$p.teamPosition', role] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      { $match: { participant: { $type: 'object' } } },
+      { $limit: 5000 },
+      {
+        $lookup: {
+          from: 'timelines',
+          let: { mid: '$metadata.matchId', pid: '$participant.participantId' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$metadata.matchId', '$$mid'] } } },
+            {
+              $project: {
+                events: {
+                  $reduce: {
+                    input: '$info.frames',
+                    initialValue: [],
+                    in: { $concatArrays: ['$$value', '$$this.events'] },
+                  },
+                },
+              },
+            },
+            { $unwind: '$events' },
+            {
+              $match: {
+                'events.type': 'ITEM_PURCHASED',
+                $expr: { $eq: ['$events.participantId', '$$pid'] },
+                'events.itemId': { $in: completedItemIds },
+              },
+            },
+            { $project: { _id: 0, ts: '$events.timestamp', itemId: '$events.itemId' } },
+            { $sort: { ts: 1 } },
+            { $limit: maxOrder },
+          ],
+          as: 'build',
+        },
+      },
+      { $match: { build: { $ne: [] } } },
+      {
+        $addFields: {
+          build: {
+            $reduce: {
+              input: '$build',
+              initialValue: { seen: [], out: [] },
+              in: {
+                seen: {
+                  $cond: [
+                    { $in: ['$$this.itemId', '$$value.seen'] },
+                    '$$value.seen',
+                    { $concatArrays: ['$$value.seen', ['$$this.itemId']] },
+                  ],
+                },
+                out: {
+                  $cond: [
+                    { $in: ['$$this.itemId', '$$value.seen'] },
+                    '$$value.out',
+                    { $concatArrays: ['$$value.out', ['$$this']] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      { $set: { build: '$build.out' } },
+      { $unwind: { path: '$build', includeArrayIndex: 'order' } },
+      {
+        $group: {
+          _id: { order: '$order', itemId: '$build.itemId' },
+          games: { $sum: 1 },
+          wins: { $sum: { $cond: ['$participant.win', 1, 0] } },
+        },
+      },
+      {
+        $group: {
+          _id: { order: '$_id.order' },
+          totalGames: { $sum: '$games' },
+          items: { $push: { itemId: '$_id.itemId', games: '$games', wins: '$wins' } },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          order: { $add: ['$_id.order', 1] },
+          items: {
+            $map: {
+              input: '$items',
+              as: 'i',
+              in: {
+                itemId: '$$i.itemId',
+                games: '$$i.games',
+                winrate: {
+                  $cond: [
+                    { $gt: ['$$i.games', 0] },
+                    { $divide: ['$$i.wins', '$$i.games'] },
+                    0,
+                  ],
+                },
+                pickrate: {
+                  $cond: [
+                    { $gt: ['$totalGames', 0] },
+                    { $divide: ['$$i.games', '$totalGames'] },
+                    0,
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      { $set: { items: { $sortArray: { input: '$items', sortBy: { pickrate: -1 } } } } },
+      { $sort: { order: 1 } },
+    ];
+
+    const rows = await matches
+      .aggregate<{
+        order: { $numberLong: string } | number;
+        items: Array<{ itemId: number; games: number; winrate: number; pickrate: number }>;
+      }>(pipeline, { allowDiskUse: true })
+      .toArray();
+
+    const columns = rows.map((r) => ({
+      order: typeof r.order === 'number' ? r.order : Number(r.order),
+      items: r.items.map((x) => ({
+        ...x,
+        name: itemMeta.get(x.itemId)?.name ?? String(x.itemId),
+        icon: itemMeta.get(x.itemId)?.icon ?? null,
+      })),
+    }));
+
+    return c.json({ champion, role, columns });
+  },
+);
+
 // Server-side share card rendering
 app.post(
   '/:region/:tagName/:tagLine/share-card',

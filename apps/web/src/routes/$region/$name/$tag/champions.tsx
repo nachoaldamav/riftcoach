@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Loader2,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -87,6 +88,22 @@ type ChampionRoleDetailResponse = {
   insights: ChampionRoleInsight;
 };
 
+type BuildsOrderResponse = {
+  champion: string;
+  role: string;
+  columns: Array<{
+    order: number;
+    items: Array<{
+      itemId: number;
+      games: number;
+      winrate: number; // 0..1
+      pickrate: number; // 0..1
+      name?: string;
+      icon?: string | null;
+    }>;
+  }>;
+};
+
 type HeatmapPoint = {
   xBin: number;
   yBin: number;
@@ -137,6 +154,51 @@ const normalizeChampionName = (name: string): string => {
   };
 
   return nameMapping[normalized] || normalized;
+};
+
+// Boots classification helpers
+const BOOTS_BASE_IDS = new Set<number>([
+  1001, // Boots
+  3006, // Berserker's Greaves
+  3009, // Boots of Swiftness
+  3020, // Sorcerer's Shoes
+  3047, // Plated Steelcaps
+  3111, // Mercury's Treads
+  3158, // Ionian Boots of Lucidity
+]);
+
+const BOOTS_NAME_KEYWORDS = [
+  'boots',
+  'greaves',
+  'treads',
+  'shoes',
+  'steelcaps',
+  'lucidity',
+  'swiftness',
+  "sorcerer's",
+  "mercury's",
+];
+
+const BOOTS_UPGRADE_NAMES = new Set<string>([
+  'armored advance',
+  'chainlaced crushers',
+  'crimson lucidity',
+  'forever forward',
+  'symbiotic soles',
+  'gunmetal greaves',
+  "spellslinger's shoes",
+  'swiftmarch',
+]);
+
+const isBootsItem = (itemId: number, itemName?: string | null) => {
+  const name = (itemName || '').toLowerCase();
+  if (BOOTS_BASE_IDS.has(itemId)) return true;
+  return BOOTS_NAME_KEYWORDS.some((kw) => name.includes(kw));
+};
+
+const isBootsUpgrade = (itemName?: string | null) => {
+  if (!itemName) return false;
+  return BOOTS_UPGRADE_NAMES.has(itemName.toLowerCase());
 };
 
 const getScoreTone = (score?: number) => {
@@ -388,7 +450,7 @@ function ChampionRow({
   isExpanded,
   onToggle,
 }: ChampionRowProps) {
-  const { getChampionImageUrl, champions } = useDataDragon();
+  const { getChampionImageUrl, getItemImageUrl, champions } = useDataDragon();
 
   const championData = useMemo(() => {
     if (!champions) return null;
@@ -444,6 +506,24 @@ function ChampionRow({
     staleTime: 1000 * 60 * 10,
   });
 
+  const buildsOrderQuery = useQuery<BuildsOrderResponse>({
+    queryKey: [
+      'v1-builds-order-player',
+      region,
+      name,
+      tag,
+      row.championName,
+      row.role,
+    ],
+    queryFn: async () => {
+      const res = await http.get<BuildsOrderResponse>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/champions/${encodeURIComponent(row.championName)}/${encodeURIComponent(row.role)}/builds-order?maxOrder=6`,
+      );
+      return res.data;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+
   const {
     data: heatmapData,
     isLoading: isHeatmapLoading,
@@ -483,6 +563,94 @@ function ChampionRow({
   const detailError = detailQuery.isError
     ? (detailQuery.error as Error | null)
     : null;
+
+  const { processedColumns } = useMemo(() => {
+    const result = {
+      bootsList: [] as Array<{
+        itemId: number;
+        name: string;
+        orders: number[];
+        pickrate: number;
+        winrate: number;
+      }>,
+      processedColumns: [] as BuildsOrderResponse['columns'],
+    };
+    const data = buildsOrderQuery.data;
+    if (!data || !data.columns || data.columns.length === 0) return result;
+
+    const bootsById = new Map<
+      number,
+      {
+        itemId: number;
+        name: string;
+        orders: number[];
+        pickrate: number;
+        winrate: number;
+      }
+    >();
+
+    const threshold = 0.15;
+    const cols: BuildsOrderResponse['columns'] = data.columns.map((col) => ({
+      order: col.order,
+      items: [],
+    }));
+
+    for (const col of data.columns) {
+      for (const item of col.items) {
+        if (item.pickrate < threshold) continue;
+
+        const name = item.name ?? String(item.itemId);
+        const isBoots = isBootsItem(item.itemId, name);
+        const isUpgrade = isBootsUpgrade(name);
+
+        if (isUpgrade) {
+          // Hide boots upgrades entirely from display
+          continue;
+        }
+
+        if (isBoots) {
+          const existing = bootsById.get(item.itemId);
+          if (!existing) {
+            bootsById.set(item.itemId, {
+              itemId: item.itemId,
+              name,
+              orders: [
+                typeof col.order === 'number' ? col.order : Number(col.order),
+              ],
+              pickrate: item.pickrate,
+              winrate: item.winrate,
+            });
+          } else {
+            if (
+              !existing.orders.includes(
+                typeof col.order === 'number' ? col.order : Number(col.order),
+              )
+            ) {
+              existing.orders.push(
+                typeof col.order === 'number' ? col.order : Number(col.order),
+              );
+            }
+            if (item.pickrate > existing.pickrate) {
+              existing.pickrate = item.pickrate;
+              existing.winrate = item.winrate;
+            }
+          }
+          // Do not filter boots out of columns; allow inclusion below
+        }
+
+        const targetCol = cols.find((c) => c.order === col.order);
+        if (targetCol) {
+          targetCol.items.push(item);
+        }
+      }
+    }
+
+    result.bootsList = Array.from(bootsById.values()).sort(
+      (a, b) => b.pickrate - a.pickrate,
+    );
+    result.processedColumns = cols;
+    return result;
+  }, [buildsOrderQuery.data]);
   const heatmapLoading = isHeatmapLoading || isHeatmapFetching;
 
   const summaryCards = [
@@ -586,11 +754,6 @@ function ChampionRow({
       invert: true,
     },
   ];
-
-  const playerMedianFor = (key: string): number | undefined => {
-    const p50 = detail?.playerPercentiles?.percentiles?.p50?.[key];
-    return typeof p50 === 'number' ? p50 : undefined;
-  };
 
   return (
     <motion.div
@@ -944,6 +1107,58 @@ function ChampionRow({
                     Heatmap focuses on recent ranked matches with{' '}
                     {row.championName} in the {row.role.toLowerCase()} role.
                   </p>
+
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-200">
+                        Your Common Build Order
+                      </h4>
+                    </div>
+                    {buildsOrderQuery.isLoading ? (
+                      <div className="mt-3 space-y-3">
+                        <div className="h-20 animate-pulse rounded-lg bg-neutral-900/60" />
+                        <div className="h-20 animate-pulse rounded-lg bg-neutral-900/60" />
+                      </div>
+                    ) : processedColumns && processedColumns.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap flex-col items-center gap-2">
+                        {processedColumns.map((col, idx) => {
+                          return (
+                            <div
+                              key={`bo-${col.order}`}
+                              className="flex items-center gap-2 flex-col"
+                            >
+                              <div className="flex flex-col items-center">
+                                <div className="inline-flex gap-2 items-center justify-center">
+                                  {col.items
+                                    .filter((item) => item.pickrate > 0.15)
+                                    .map((item) => (
+                                      <img
+                                        key={`bo-item-${item.itemId}`}
+                                        src={getItemImageUrl(item.itemId)}
+                                        alt={item.name ?? String(item.itemId)}
+                                        title={`${item.name ?? item.itemId} - Pick ${Math.round(item.pickrate * 100)}% · Win ${Math.round(item.winrate * 100)}%`}
+                                        className="size-10 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                                      />
+                                    ))}
+                                </div>
+                              </div>
+                              {idx < processedColumns.length - 1 && (
+                                <ChevronDown className="w-4 h-4 text-neutral-500" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : buildsOrderQuery.isError ? (
+                      <p className="mt-3 text-sm text-red-400">
+                        Unable to load build order right now.
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-sm text-neutral-400">
+                        No build order data available yet.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
