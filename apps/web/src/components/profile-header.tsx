@@ -1,6 +1,5 @@
 import { http } from '@/clients/http';
 import { ProfileShareButton } from '@/components/profile-share-button';
-import { useDataDragon } from '@/providers/data-dragon-provider';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody } from '@/components/ui/card';
 import {
@@ -9,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useDataDragon } from '@/providers/data-dragon-provider';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
@@ -83,7 +83,7 @@ export function ProfileHeader({
       transition={{ duration: 0.6 }}
       className="mb-8"
     >
-      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative">
+      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative py-0">
         <CardBody className="p-0">
           <div className="flex items-center gap-6 h-36">
             {/* Profile Icon */}

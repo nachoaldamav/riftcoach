@@ -61,12 +61,14 @@ export function RewindForm() {
           `/v1/${encodeURIComponent(region)}/${encodeURIComponent(summonerName)}/${encodeURIComponent(tagline)}/rewind`,
         );
         
-        // If player has a completed rewind, redirect to rewind page
+        // If player has a completed rewind, redirect to the overview page
         if (statusRes.data.status === 'completed' && statusRes.data.rewindId) {
           navigate({
-            to: '/rewind/$id',
+            to: '/$region/$name/$tag',
             params: {
-              id: statusRes.data.rewindId,
+              region,
+              name: summonerName,
+              tag: tagline,
             },
           });
           return { rewindId: statusRes.data.rewindId };
@@ -113,7 +115,7 @@ export function RewindForm() {
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className="flex flex-col gap-4 rounded-xl border border-divider bg-content1/50 p-6 backdrop-blur-sm md:flex-row md:items-end md:p-8">
+      <div className="flex flex-col gap-4 rounded-xl border border-divider bg-content1/50 p-6 backdrop-blur-sm md:flex-row md:items-center md:p-8">
         {/* Region Select */}
         <div className="flex-shrink-0 space-y-2 md:w-48">
           <Select
@@ -136,7 +138,7 @@ export function RewindForm() {
         </div>
 
         <div className="flex-1 space-y-2">
-          <div className="flex rounded-lg border border-slate-600 bg-slate-800/50 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all">
+          <div className="flex h-12 items-center rounded-lg border border-slate-600 bg-slate-800/50 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all">
             <Input
               placeholder="Summoner"
               value={summonerName}

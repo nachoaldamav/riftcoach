@@ -1,11 +1,24 @@
 import { http } from '@/clients/http';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import type { Champion } from '@/types/data-dragon';
 import type { ShareMetric } from '@/utils/profile-share-card';
-import { Button } from '@/components/ui/button';
 import * as Portal from '@radix-ui/react-portal';
 import { useQuery } from '@tanstack/react-query';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, Download, Loader2, Share2, X } from 'lucide-react';
 import {
   memo,
@@ -57,206 +70,7 @@ interface ChampionInsightsResponse {
 const DEFAULT_BACKGROUND =
   'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/loadouts/summonerbacks/2024_preseason_hunter_premium_summoner_back.jpg';
 
-// Custom ComboBox component styled to match the shadcn/ui design system
-interface ComboBoxProps<
-  T = { key: string; name: string; [key: string]: unknown },
-> {
-  label: string;
-  placeholder?: string;
-  items: T[];
-  selectedKey?: string | null;
-  onSelectionChange: (key: string | null) => void;
-  isDisabled?: boolean;
-  renderItem?: (item: T) => React.ReactNode;
-  renderValue?: (item: T) => React.ReactNode;
-  getItemKey?: (item: T) => string;
-  getItemName?: (item: T) => string;
-}
-
-function CustomComboBox<
-  T = { key: string; name: string; [key: string]: unknown },
->({
-  label,
-  placeholder = 'Select an option',
-  items,
-  selectedKey,
-  onSelectionChange,
-  isDisabled = false,
-  renderItem,
-  renderValue,
-  // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-  getItemKey = (item: T) => (item as any).key || (item as any).id,
-  // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-  getItemName = (item: T) => (item as any).name,
-}: ComboBoxProps<T>) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const parentRef = useRef<HTMLDivElement>(null);
-
-  const selectedItem = items.find((item) => getItemKey(item) === selectedKey);
-
-  // TanStack Virtual configuration
-  const rowVirtualizer = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 40,
-    overscan: 5,
-  });
-
-  const handleToggle = useCallback(() => {
-    if (!isDisabled) {
-      if (!isOpen && buttonRef.current) {
-        setButtonRect(buttonRef.current.getBoundingClientRect());
-      }
-      setIsOpen(!isOpen);
-    }
-  }, [isDisabled, isOpen]);
-
-  const handleSelect = useCallback(
-    (key: string) => {
-      onSelectionChange(key);
-      setIsOpen(false);
-    },
-    [onSelectionChange],
-  );
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        handleToggle();
-      } else if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    },
-    [handleToggle],
-  );
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        isOpen &&
-        buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node) &&
-        parentRef.current &&
-        !parentRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () =>
-        document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
-
-  return (
-    <div className="relative">
-      {/* biome-ignore lint/a11y/noLabelWithoutControl: <explanation> */}
-      <label className="block text-sm font-medium text-neutral-200 mb-1">
-        {label}
-      </label>
-      <div className="relative">
-        <button
-          ref={buttonRef}
-          type="button"
-          className={`
-            flex items-center justify-between w-full px-3 py-2 text-sm text-left
-            bg-neutral-800/50 border border-neutral-700 rounded-lg
-            ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-neutral-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-neutral-900'}
-          `}
-          onClick={handleToggle}
-          onKeyDown={handleKeyDown}
-          disabled={isDisabled}
-          aria-label={`${label} dropdown`}
-          aria-expanded={isOpen}
-          aria-haspopup="listbox"
-        >
-          <div className="flex-1 text-left">
-            {selectedItem && renderValue ? (
-              renderValue(selectedItem)
-            ) : selectedItem ? (
-              <span className="text-neutral-200">
-                {getItemName(selectedItem)}
-              </span>
-            ) : (
-              <span className="text-neutral-400">{placeholder}</span>
-            )}
-          </div>
-          <ChevronDown
-            className={`h-4 w-4 text-neutral-400 transition-transform ${
-              isOpen ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-      </div>
-
-      {isOpen && buttonRect && (
-        <Portal.Root container={document.body}>
-          <div
-            className="fixed z-[9999] bg-neutral-800 border border-neutral-700 rounded-lg shadow-lg"
-            style={{
-              top: buttonRect.bottom + window.scrollY + 4,
-              left: buttonRect.left + window.scrollX,
-              width: buttonRect.width,
-              maxHeight: '240px',
-            }}
-          >
-            <div
-              ref={parentRef}
-              className="overflow-auto"
-              style={{ height: `${Math.min(240, items.length * 40)}px` }}
-            >
-              <div
-                style={{
-                  height: `${rowVirtualizer.getTotalSize()}px`,
-                  width: '100%',
-                  position: 'relative',
-                }}
-              >
-                {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                  const item = items[virtualItem.index];
-                  if (!item) return null;
-
-                  return (
-                    // biome-ignore lint/a11y/useKeyWithClickEvents: <explanation>
-                    <div
-                      key={virtualItem.key}
-                      className={`
-                        absolute top-0 left-0 w-full px-3 py-2 text-sm cursor-pointer transition-colors
-                        ${
-                          selectedKey === getItemKey(item)
-                            ? 'bg-blue-600 text-white'
-                            : 'text-neutral-200 hover:bg-neutral-700'
-                        }
-                      `}
-                      style={{
-                        height: `${virtualItem.size}px`,
-                        transform: `translateY(${virtualItem.start}px)`,
-                      }}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSelect(getItemKey(item));
-                      }}
-                      onClick={() => handleSelect(getItemKey(item))}
-                    >
-                      {renderItem ? renderItem(item) : getItemName(item)}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </Portal.Root>
-      )}
-    </div>
-  );
-}
+// Removed custom combobox in favor of Shadcn Popover + Command combobox
 
 export function ProfileShareButton({
   region,
@@ -329,6 +143,8 @@ const ProfileShareModal = memo(function ProfileShareModal({
   >(null);
   const [championList, setChampionList] = useState<Champion[]>([]);
   const [showOverrides, setShowOverrides] = useState(false);
+  const [isChampionPickerOpen, setIsChampionPickerOpen] = useState(false);
+  const [isSkinPickerOpen, setIsSkinPickerOpen] = useState(false);
 
   const [, startTransition] = useTransition();
   const activeObjectUrl = useRef<string | null>(null);
@@ -708,7 +524,9 @@ const ProfileShareModal = memo(function ProfileShareModal({
             {/* LEFT: preview */}
             <div className="flex flex-col items-center justify-center">
               <div className="relative w-full max-w-3xl">
-                <div className={`relative w-full rounded-3xl border border-accent-blue-400/20 bg-gradient-to-br from-accent-blue-500/10 via-accent-purple-500/10 to-transparent p-4 ${isGenerating ? '' : 'shadow-[0_35px_65px_-30px_rgba(59,130,246,0.45)]'}`}>
+                <div
+                  className={`relative w-full rounded-3xl border border-accent-blue-400/20 bg-gradient-to-br from-accent-blue-500/10 via-accent-purple-500/10 to-transparent p-4 ${isGenerating ? '' : 'shadow-[0_35px_65px_-30px_rgba(59,130,246,0.45)]'}`}
+                >
                   <div className="relative overflow-hidden rounded-2xl bg-black/60">
                     {isGenerating ? (
                       <div className="flex h-[360px] items-center justify-center">
@@ -778,54 +596,151 @@ const ProfileShareModal = memo(function ProfileShareModal({
                     Overrides
                   </p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <CustomComboBox
-                      label="Champion"
-                      placeholder="Select a champion"
-                      items={[
-                        { id: 'DEFAULT', name: 'Default' },
-                        ...championList.map((c) => ({ id: c.id, name: c.name })),
-                      ]}
-                      selectedKey={selectedChampionOverrideKey ?? 'DEFAULT'}
-                      onSelectionChange={handleChampionChange}
-                      getItemKey={(champ) => champ.id}
-                      getItemName={(champ) => champ.name}
-                      renderValue={(champ) => (
-                        champ.id === 'DEFAULT' ? (
-                          <span>Default</span>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <img
-                              src={getChampionImageUrl(champ.id, 'square')}
-                              alt={champ.name}
-                              className="h-5 w-5 rounded border border-neutral-700"
-                            />
-                            <span>{champ.name}</span>
-                          </div>
-                        )
-                      )}
-                      renderItem={(champ) => (
-                        <div className="flex items-center gap-2">
-                          <span>{champ.name}</span>
-                        </div>
-                      )}
-                    />
+                    {/* Champion Combobox (Shadcn) */}
+                    <div className="relative">
+                      {/* biome-ignore lint/a11y/noLabelWithoutControl: <explanation> */}
+                      <label className="block text-sm font-medium text-neutral-200 mb-1">
+                        Champion
+                      </label>
+                      <Popover
+                        open={isChampionPickerOpen}
+                        onOpenChange={setIsChampionPickerOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="flat"
+                            className="flex w-full items-center justify-between px-3 py-2 text-sm bg-neutral-800/50 border border-neutral-700 text-neutral-200 hover:bg-neutral-700"
+                            aria-label="Champion combobox"
+                          >
+                            <div className="flex items-center gap-2">
+                              {selectedChampionData ? (
+                                <>
+                                  <Avatar className="h-5 w-5 rounded border border-neutral-700">
+                                    <AvatarImage
+                                      src={getChampionImageUrl(
+                                        selectedChampionData.id,
+                                        'square',
+                                      )}
+                                      alt={selectedChampionData.name}
+                                    />
+                                  </Avatar>
+                                  <span>{selectedChampionData.name}</span>
+                                </>
+                              ) : (
+                                <span className="text-neutral-400">
+                                  Select a champion
+                                </span>
+                              )}
+                            </div>
+                            <ChevronDown className="h-4 w-4 opacity-70" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
+                          <Command className="bg-neutral-900 text-neutral-100 z-[100]">
+                            <CommandInput placeholder="Search champion..." />
+                            <CommandList>
+                              <CommandEmpty>No champions found.</CommandEmpty>
+                              <CommandGroup>
+                                <CommandItem
+                                  onSelect={() => {
+                                    handleChampionChange(null);
+                                    setIsChampionPickerOpen(false);
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span>Default</span>
+                                  </div>
+                                </CommandItem>
+                                {championList.map((champ) => (
+                                  <CommandItem
+                                    key={champ.id}
+                                    value={champ.name}
+                                    onSelect={() => {
+                                      handleChampionChange(champ.id);
+                                      setIsChampionPickerOpen(false);
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <Avatar className="h-6 w-6 rounded-lg border border-neutral-700">
+                                        <AvatarImage
+                                          src={getChampionImageUrl(
+                                            champ.id,
+                                            'square',
+                                          )}
+                                          alt={champ.name}
+                                        />
+                                      </Avatar>
+                                      <span>{champ.name}</span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
 
-                    <CustomComboBox
-                      label="Skin"
-                      placeholder="Select a skin"
-                      items={(skinOptions ?? [{ num: 0, name: 'Default' }]).map(
-                        (skin) => ({
-                          key: String(skin.num),
-                          name: skin.name,
-                          num: skin.num,
-                        }),
-                      )}
-                      selectedKey={String(selectedSkinOverrideNum ?? 0)}
-                      onSelectionChange={handleSkinChange}
-                      isDisabled={!selectedChampionData}
-                      renderValue={(skin) => <span>{skin.name}</span>}
-                      renderItem={(skin) => <span>{skin.name}</span>}
-                    />
+                    {/* Skin Combobox (Shadcn) */}
+                    <div className="relative">
+                      {/* biome-ignore lint/a11y/noLabelWithoutControl: <explanation> */}
+                      <label className="block text-sm font-medium text-neutral-200 mb-1">
+                        Skin
+                      </label>
+                      <Popover
+                        open={Boolean(selectedChampionData) && isSkinPickerOpen}
+                        onOpenChange={setIsSkinPickerOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="flat"
+                            disabled={!selectedChampionData}
+                            className="flex w-full items-center justify-between px-3 py-2 text-sm bg-neutral-800/50 border border-neutral-700 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label="Skin combobox"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span>
+                                {(() => {
+                                  const currentNum =
+                                    selectedSkinOverrideNum ?? 0;
+                                  const currentSkin = (
+                                    skinOptions ?? [{ num: 0, name: 'Default' }]
+                                  ).find((s) => s.num === currentNum);
+                                  return currentSkin?.name ?? 'Select a skin';
+                                })()}
+                              </span>
+                            </div>
+                            <ChevronDown className="h-4 w-4 opacity-70" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
+                          <Command className="bg-neutral-900 text-neutral-100">
+                            <CommandInput placeholder="Search skin..." />
+                            <CommandList>
+                              <CommandEmpty>No skins found.</CommandEmpty>
+                              <CommandGroup>
+                                {(
+                                  skinOptions ?? [{ num: 0, name: 'Default' }]
+                                ).map((skin) => (
+                                  <CommandItem
+                                    key={skin.num}
+                                    value={skin.name}
+                                    onSelect={() => {
+                                      handleSkinChange(String(skin.num));
+                                      setIsSkinPickerOpen(false);
+                                    }}
+                                  >
+                                    <span>{skin.name}</span>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
                   </div>
                   <div className="mt-3">
                     <Button
