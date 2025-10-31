@@ -1,16 +1,25 @@
 import { http } from '@/clients/http';
 import { useDataDragon } from '@/providers/data-dragon-provider';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody } from '@/components/ui/card';
 import {
-  Autocomplete,
-  AutocompleteItem,
-  Avatar,
-  Button,
-  Card,
-  CardBody,
-  Chip,
   Select,
+  SelectContent,
   SelectItem,
-} from '@heroui/react';
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useQuery } from '@tanstack/react-query';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
@@ -113,6 +122,7 @@ function MatchesComponent() {
   const [selectedChampionKey, setSelectedChampionKey] = useState<string | null>(
     null,
   );
+  const [isChampionPickerOpen, setIsChampionPickerOpen] = useState(false);
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
 
@@ -122,6 +132,14 @@ function MatchesComponent() {
         ? Object.values(champions).sort((a, b) => a.name.localeCompare(b.name))
         : [],
     [champions],
+  );
+
+  const selectedChampion = useMemo(
+    () =>
+      selectedChampionKey
+        ? championList.find((champ) => champ.key === selectedChampionKey) ?? null
+        : null,
+    [championList, selectedChampionKey],
   );
 
   const { data: matches, isLoading } = useQuery({
@@ -201,118 +219,146 @@ function MatchesComponent() {
         <CardBody className="p-6">
           <div className="flex flex-wrap items-center gap-4">
             {/* Queue Filter */}
-            <Select
-              aria-label="Queue"
-              selectedKeys={[selectedQueue]}
-              onSelectionChange={(keys) => {
-                const val = Array.from(keys)[0] as string;
-                setSelectedQueue(val);
-                setPage(1);
-              }}
-              className="max-w-xs"
-              label="Queue"
-              size="sm"
-            >
-              {QUEUE_OPTIONS.map((q) => (
-                <SelectItem key={q.key} textValue={q.label}>
-                  {q.label}
-                </SelectItem>
-              ))}
-            </Select>
+            <div className="min-w-[180px]">
+              <Select
+                value={selectedQueue}
+                onValueChange={(value) => {
+                  setSelectedQueue(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-10 w-full border-neutral-700 bg-neutral-800/70 text-neutral-100">
+                  <SelectValue placeholder="Queue" />
+                </SelectTrigger>
+                <SelectContent className="bg-neutral-900 text-neutral-100">
+                  {QUEUE_OPTIONS.map((q) => (
+                    <SelectItem key={q.key} value={q.key}>
+                      {q.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Role Filter */}
-            <Select
-              aria-label="Role"
-              selectedKeys={[selectedRole]}
-              onSelectionChange={(keys) => {
-                const val = Array.from(keys)[0] as string;
-                setSelectedRole(val);
-                setPage(1);
-              }}
-              className="max-w-xs"
-              label="Role"
-              size="sm"
-              selectionMode="single"
-              renderValue={(items) => {
-                const item = items[0];
-                const role = ROLE_OPTIONS.find((r) => r.key === item?.key);
-                if (!role) return null;
-                const iconUrl = getRoleIconUrl(role.key);
-                return (
-                  <div className="flex items-center gap-2">
-                    {iconUrl ? (
-                      <img src={iconUrl} alt={role.label} className="w-4 h-4" />
-                    ) : null}
-                    <span>{role.label}</span>
-                  </div>
-                );
-              }}
-            >
-              {ROLE_OPTIONS.map((role) => {
-                const iconUrl = getRoleIconUrl(role.key);
-                return (
-                  <SelectItem
-                    key={role.key}
-                    textValue={role.label}
-                    startContent={
-                      iconUrl ? (
-                        <img
-                          src={iconUrl}
-                          alt={role.label}
-                          className="w-4 h-4"
-                        />
-                      ) : null
+            <div className="min-w-[180px]">
+              <Select
+                value={selectedRole}
+                onValueChange={(value) => {
+                  setSelectedRole(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-10 w-full border-neutral-700 bg-neutral-800/70 text-neutral-100">
+                  {(() => {
+                    const role = ROLE_OPTIONS.find((r) => r.key === selectedRole);
+                    if (!role) {
+                      return <SelectValue placeholder="Role" />;
                     }
-                  >
-                    <span>{role.label}</span>
-                  </SelectItem>
-                );
-              })}
-            </Select>
+                    const iconUrl = getRoleIconUrl(role.key);
+                    return (
+                      <div className="flex items-center gap-2">
+                        {iconUrl ? (
+                          <img src={iconUrl} alt={role.label} className="h-4 w-4" />
+                        ) : null}
+                        <span>{role.label}</span>
+                      </div>
+                    );
+                  })()}
+                </SelectTrigger>
+                <SelectContent className="bg-neutral-900 text-neutral-100">
+                  {ROLE_OPTIONS.map((role) => {
+                    const iconUrl = getRoleIconUrl(role.key);
+                    return (
+                      <SelectItem key={role.key} value={role.key}>
+                        <div className="flex items-center gap-2">
+                          {iconUrl ? (
+                            <img src={iconUrl} alt={role.label} className="h-4 w-4" />
+                          ) : null}
+                          <span>{role.label}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Champion Filter */}
-            <Autocomplete
-              aria-label="Champion"
-              className="max-w-xs"
-              label="Champion"
-              size="sm"
-              allowsCustomValue
-              defaultSelectedKey={selectedChampionKey ?? undefined}
-              onSelectionChange={(key) => {
-                const val = key as string | null;
-                setSelectedChampionKey(val);
-                setPage(1);
-              }}
-              onInputChange={(value) => {
-                if (!value) {
-                  setSelectedChampionKey(null);
-                  setPage(1);
-                }
-              }}
-              placeholder="Search champion"
-            >
-              {championList.map((champ) => (
-                <AutocompleteItem
-                  key={champ.key}
-                  textValue={champ.name}
-                  startContent={
-                    <Avatar
-                      src={getChampionImageUrl(champ.id, 'square')}
-                      className="w-6 h-6"
-                      radius="sm"
-                    />
-                  }
-                >
-                  {champ.name}
-                </AutocompleteItem>
-              ))}
-            </Autocomplete>
+            <div className="min-w-[220px]">
+              <Popover
+                open={isChampionPickerOpen}
+                onOpenChange={setIsChampionPickerOpen}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-10 w-full justify-between border-neutral-700 bg-neutral-800/60 text-neutral-100"
+                  >
+                    {selectedChampion ? (
+                      <span className="flex items-center gap-2">
+                        <Avatar className="h-6 w-6 rounded-lg border border-neutral-700">
+                          <AvatarImage
+                            src={getChampionImageUrl(selectedChampion.id, 'square')}
+                            alt={selectedChampion.name}
+                          />
+                        </Avatar>
+                        {selectedChampion.name}
+                      </span>
+                    ) : (
+                      <span className="text-neutral-400">Search champion</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search champion" />
+                    <CommandEmpty>No champion found.</CommandEmpty>
+                    <CommandList>
+                      <CommandGroup>
+                        <CommandItem
+                          value="all"
+                          onSelect={() => {
+                            setSelectedChampionKey(null);
+                            setPage(1);
+                            setIsChampionPickerOpen(false);
+                          }}
+                        >
+                          Show all champions
+                        </CommandItem>
+                        {championList.map((champ) => (
+                          <CommandItem
+                            key={champ.key}
+                            value={champ.name}
+                            onSelect={() => {
+                              setSelectedChampionKey(champ.key);
+                              setPage(1);
+                              setIsChampionPickerOpen(false);
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-6 w-6 rounded-lg border border-neutral-700">
+                                <AvatarImage
+                                  src={getChampionImageUrl(champ.id, 'square')}
+                                  alt={champ.name}
+                                />
+                              </Avatar>
+                              <span>{champ.name}</span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
 
             {/* Clear Filters */}
             <Button
               variant="flat"
               size="sm"
-              onPress={() => {
+              onClick={() => {
                 setSelectedQueue('ALL');
                 setSelectedRole('ALL');
                 setSelectedChampionKey(null);
@@ -321,25 +367,22 @@ function MatchesComponent() {
               Clear filters
             </Button>
 
-            {/* Active filters chips */}
-            <div className="flex items-center gap-2 ml-auto">
+            {/* Active filters badges */}
+            <div className="ml-auto flex items-center gap-2">
               {selectedQueue !== 'ALL' && (
-                <Chip size="sm" color="primary" variant="flat">
+                <Badge className="bg-accent-blue-500/10 text-accent-blue-200 border border-accent-blue-400/50">
                   {QUEUE_OPTIONS.find((q) => q.key === selectedQueue)?.label}
-                </Chip>
+                </Badge>
               )}
               {selectedRole !== 'ALL' && (
-                <Chip size="sm" color="secondary" variant="flat">
+                <Badge className="bg-accent-purple-500/10 text-accent-purple-200 border border-accent-purple-400/50">
                   {ROLE_OPTIONS.find((r) => r.key === selectedRole)?.label}
-                </Chip>
+                </Badge>
               )}
-              {selectedChampionKey && (
-                <Chip size="sm" color="success" variant="flat">
-                  {
-                    championList.find((c) => c.key === selectedChampionKey)
-                      ?.name
-                  }
-                </Chip>
+              {selectedChampion && (
+                <Badge className="bg-emerald-500/10 text-emerald-200 border border-emerald-400/50">
+                  {selectedChampion.name}
+                </Badge>
               )}
             </div>
           </div>
@@ -383,22 +426,19 @@ function MatchesComponent() {
                   <Button
                     variant="flat"
                     size="sm"
-                    isDisabled={page <= 1}
-                    onPress={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
                   >
                     Previous
                   </Button>
-                  <Chip
-                    size="sm"
-                    className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300"
-                  >
+                  <Badge className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300">
                     {`Page ${page} / ${totalPages}`}
-                  </Chip>
+                  </Badge>
                   <Button
                     variant="flat"
                     size="sm"
-                    isDisabled={page >= totalPages}
-                    onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   >
                     Next
                   </Button>
@@ -455,15 +495,15 @@ function MatchesComponent() {
                       <div className="flex items-center gap-4">
                         {/* Champion Portrait */}
                         <div className="relative flex-shrink-0">
-                          <Avatar
-                            src={getChampionImageUrl(
-                              match.player.championId,
-                              'square',
-                            )}
-                            alt={match.player.championName}
-                            className="size-16 border border-neutral-600"
-                            radius="md"
-                          />
+                          <Avatar className="size-16 rounded-xl border border-neutral-600">
+                            <AvatarImage
+                              src={getChampionImageUrl(
+                                match.player.championId,
+                                'square',
+                              )}
+                              alt={match.player.championName}
+                            />
+                          </Avatar>
                         </div>
 
                         {/* Spells and Runes */}
@@ -653,22 +693,19 @@ function MatchesComponent() {
                   <Button
                     variant="flat"
                     size="sm"
-                    isDisabled={page <= 1}
-                    onPress={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
                   >
                     Previous
                   </Button>
-                  <Chip
-                    size="sm"
-                    className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300"
-                  >
+                  <Badge className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300">
                     {`Page ${page} / ${totalPages}`}
-                  </Chip>
+                  </Badge>
                   <Button
                     variant="flat"
                     size="sm"
-                    isDisabled={page >= totalPages}
-                    onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   >
                     Next
                   </Button>

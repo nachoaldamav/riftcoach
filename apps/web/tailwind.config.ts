@@ -1,10 +1,9 @@
-import { heroui } from '@heroui/react';
 import type { Config } from 'tailwindcss';
+import tailwindcssAnimate from 'tailwindcss-animate';
 
 const config: Config = {
   content: [
     './src/**/*.{js,ts,jsx,tsx,mdx}',
-    './node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {
@@ -102,52 +101,7 @@ const config: Config = {
     },
   },
   darkMode: 'class',
-  plugins: [
-    heroui({
-      defaultTheme: 'dark',
-      themes: {
-        dark: {
-          colors: {
-            primary: {
-              50: '#0c4a6e',
-              100: '#075985',
-              200: '#0369a1',
-              300: '#0284c7',
-              400: '#0ea5e9',
-              500: '#38bdf8',
-              600: '#7dd3fc',
-              700: '#bae6fd',
-              800: '#e0f2fe',
-              900: '#f0f9ff',
-              DEFAULT: '#38bdf8',
-            },
-            secondary: {
-              50: '#713f12',
-              100: '#854d0e',
-              200: '#a16207',
-              300: '#ca8a04',
-              400: '#eab308',
-              500: '#facc15',
-              600: '#fde047',
-              700: '#fef08a',
-              800: '#fef9c3',
-              900: '#fefce8',
-              DEFAULT: '#facc15',
-            },
-            success: '#22c55e',
-            warning: '#f97316',
-            danger: '#f87171',
-            background: '#0a0a0a',
-            foreground: '#fafafa',
-            content1: '#171717',
-            content2: '#262626',
-            content3: '#404040',
-            content4: '#525252',
-          },
-        },
-      },
-    }),
-  ],
+  plugins: [tailwindcssAnimate],
 };
 
 export default config;

@@ -2,7 +2,7 @@ import { http } from '@/clients/http';
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import type { Champion } from '@/types/data-dragon';
 import type { ShareMetric } from '@/utils/profile-share-card';
-import { Avatar, Button } from '@heroui/react';
+import { Button } from '@/components/ui/button';
 import * as Portal from '@radix-ui/react-portal';
 import { useQuery } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -57,7 +57,7 @@ interface ChampionInsightsResponse {
 const DEFAULT_BACKGROUND =
   'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/loadouts/summonerbacks/2024_preseason_hunter_premium_summoner_back.jpg';
 
-// Custom ComboBox component with HeroUI styling
+// Custom ComboBox component styled to match the shadcn/ui design system
 interface ComboBoxProps<
   T = { key: string; name: string; [key: string]: unknown },
 > {
@@ -272,10 +272,10 @@ export function ProfileShareButton({
     <>
       <Button
         size="sm"
-        variant="light"
+        variant="ghost"
         aria-label="Share profile"
-        className="p-2 rounded-full border border-neutral-700/60 text-neutral-300 hover:text-neutral-100 hover:bg-neutral-800"
-        onPress={() => {
+        className="rounded-full border border-neutral-700/60 p-2 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
+        onClick={() => {
           startTransition(() => setIsOpen(true));
         }}
       >
@@ -723,7 +723,7 @@ const ProfileShareModal = memo(function ProfileShareModal({
                           size="sm"
                           variant="flat"
                           className="bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                          onPress={() => {
+                          onClick={() => {
                             setPreviewUrl(null);
                             setDownloadBlob(null);
                           }}
@@ -794,10 +794,10 @@ const ProfileShareModal = memo(function ProfileShareModal({
                           <span>Default</span>
                         ) : (
                           <div className="flex items-center gap-2">
-                            <Avatar
+                            <img
                               src={getChampionImageUrl(champ.id, 'square')}
-                              className="w-5 h-5"
-                              radius="sm"
+                              alt={champ.name}
+                              className="h-5 w-5 rounded border border-neutral-700"
                             />
                             <span>{champ.name}</span>
                           </div>
@@ -832,7 +832,7 @@ const ProfileShareModal = memo(function ProfileShareModal({
                       size="sm"
                       variant="flat"
                       className="bg-neutral-800/50 text-neutral-200 hover:bg-neutral-700"
-                      onPress={handleResetOverrides}
+                      onClick={handleResetOverrides}
                     >
                       Reset overrides
                     </Button>
@@ -842,18 +842,17 @@ const ProfileShareModal = memo(function ProfileShareModal({
 
               <div className="mt-auto flex flex-wrap items-center gap-3">
                 <Button
-                  startContent={<Download className="h-4 w-4" />}
-                  color="primary"
-                  className="bg-accent-blue-500 text-white hover:bg-accent-blue-600"
-                  isDisabled={!previewUrl || isGenerating}
-                  onPress={handleDownload}
+                  className="flex items-center gap-2 bg-accent-blue-500 text-white hover:bg-accent-blue-600"
+                  disabled={!previewUrl || isGenerating}
+                  onClick={handleDownload}
                 >
+                  <Download className="h-4 w-4" />
                   Download PNG
                 </Button>
                 <Button
-                  variant="light"
+                  variant="ghost"
                   className="text-neutral-300 hover:text-neutral-100"
-                  onPress={onClose}
+                  onClick={onClose}
                 >
                   Close
                 </Button>

@@ -1,7 +1,7 @@
 import { http } from '@/clients/http';
 import { MatchHistoryIcon } from '@/components/icons/CustomIcons';
 import { useChampionImage, useDataDragon } from '@/providers/data-dragon-provider';
-import { Avatar, Card, CardBody, Chip } from '@heroui/react';
+import { Card, CardBody } from '@/components/ui/card';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Clock, Shield, Sword, Target } from 'lucide-react';
@@ -84,12 +84,13 @@ function MatchItem({
         className="flex items-center gap-4 p-4 bg-neutral-800/50 rounded-xl border border-neutral-700/50 hover:bg-neutral-800/70 transition-all duration-150 cursor-pointer"
       >
         <div className="relative flex-shrink-0">
-          <Avatar
-            src={championImageUrl}
-            alt={match.player.championName}
-            className="w-16 h-16 border-2 border-neutral-700"
-            radius="lg"
-          />
+          <div className="h-16 w-16 overflow-hidden rounded-xl border-2 border-neutral-700 bg-neutral-900">
+            <img
+              src={championImageUrl}
+              alt={match.player.championName}
+              className="h-full w-full object-cover"
+            />
+          </div>
           <div
             className={`absolute -top-1 -right-1 w-5 h-5 rounded-full border-2 border-neutral-900 ${
               match.player.win ? 'bg-accent-emerald-500' : 'bg-red-500'

@@ -5,7 +5,7 @@ RiftCoach is a League of Legends coaching agent that pairs a data-rich ingestion
 
 ## Application Architecture
 ### Web experience (`apps/web`)
-- **Modern React stack.** The UI is built with TanStack Router, Tailwind, and HeroUI components to deliver rich animations and responsive dashboards. Profile headers highlight AI-generated badges while shimmer states keep scans feeling alive. [apps/web/src/components/profile-header.tsx](apps/web/src/components/profile-header.tsx)
+- **Modern React stack.** The UI is built with TanStack Router, Tailwind, and shadcn/ui primitives to deliver rich animations and responsive dashboards. Profile headers highlight AI-generated badges while shimmer states keep scans feeling alive. [apps/web/src/components/profile-header.tsx](apps/web/src/components/profile-header.tsx)
 - **Client utilities.** Typed HTTP clients and local caching helpers simplify fetches to the API while Data Dragon providers resolve champion and item art on the fly. [apps/web/src/lib/data-dragon.ts](apps/web/src/lib/data-dragon.ts) [apps/web/src/lib/indexeddb-cache.ts](apps/web/src/lib/indexeddb-cache.ts)
 
 ### API and agents (`apps/api`)

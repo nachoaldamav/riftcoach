@@ -1,5 +1,6 @@
 import type { RewindStatusResponse } from '@/routes/$region/$name/$tag';
-import { Card, CardBody, Progress } from '@heroui/react';
+import { Card, CardBody } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { motion } from 'framer-motion';
 import { Loader2, X } from 'lucide-react';
 import { useState } from 'react';
@@ -71,8 +72,6 @@ export function ScanStatusBox({
               <Progress
                 value={progressPercentage}
                 className="h-2"
-                color="primary"
-                size="sm"
                 aria-label="Scan progress"
               />
               <div className="text-xs text-neutral-400 text-center">

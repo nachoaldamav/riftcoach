@@ -1,5 +1,5 @@
 import { http } from '@/clients/http';
-import { Card, CardBody } from '@heroui/react';
+import { Card, CardBody } from '@/components/ui/card';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Brain, Sparkles, Target, TrendingUp } from 'lucide-react';
