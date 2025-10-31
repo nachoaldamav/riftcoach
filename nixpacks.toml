@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["nodejs_23", "pnpm"]
+nixPkgs = ["pnpm"]
 
 [phases.install]
 cmds = [
@@ -8,6 +8,7 @@ cmds = [
 
 [phases.build]
 cmds = [
+  "pnpm env use --global lts",
   "pnpm run build:web"
 ]
 
