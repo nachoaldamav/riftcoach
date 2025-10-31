@@ -268,7 +268,7 @@ export async function fetchBulkCohortPercentiles(
                 role: req.role,
                 startTs,
                 endTs,
-                winsOnly: true,
+                winsOnly: false,
                 sampleLimit: 100,
                 sortDesc: true,
               });
@@ -342,7 +342,7 @@ export async function fetchCohortPercentiles(
 ): Promise<CohortPercentilesDoc | null> {
   try {
     // Simple cache keyed by champion-role and fixed cohort parameters
-    const cacheKey = `cache:cohort:percentiles:v2:${championName}:${role}:2025:wins:limit100`;
+    const cacheKey = `cache:cohort:percentiles:v3:${championName}:${role}:2025:limit1000`;
     const cached = await redis.get(cacheKey);
     if (cached) {
       try {
@@ -363,8 +363,8 @@ export async function fetchCohortPercentiles(
       role,
       startTs,
       endTs,
-      winsOnly: true,
-      sampleLimit: 100,
+      winsOnly: false,
+      sampleLimit: 1000,
       sortDesc: true,
     });
     consola.debug(
