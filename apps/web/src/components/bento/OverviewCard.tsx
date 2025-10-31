@@ -1,7 +1,15 @@
 import { http } from '@/clients/http';
 import { SpiderChart } from '@/components/charts/SpiderChart';
 import { AnalyticsIcon } from '@/components/icons/CustomIcons';
-import { Card, CardBody, Chip, Select, SelectItem } from '@heroui/react';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardBody } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Target } from 'lucide-react';
@@ -155,16 +163,25 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
     );
   }
 
-  const getWinRateColor = (winRate: number) => {
+  const getWinRateTone = (winRate: number): 'success' | 'warning' | 'danger' => {
     if (winRate >= 60) return 'success';
     if (winRate >= 50) return 'warning';
     return 'danger';
   };
 
-  const getKdaColor = (kda: number) => {
+  const getKdaTone = (kda: number): 'success' | 'warning' | 'danger' => {
     if (kda >= 2.5) return 'success';
     if (kda >= 1.5) return 'warning';
     return 'danger';
+  };
+
+  const badgeToneClasses: Record<'success' | 'warning' | 'danger', string> = {
+    success:
+      'bg-emerald-500/10 text-emerald-300 border border-emerald-500/60 hover:bg-emerald-500/15',
+    warning:
+      'bg-amber-500/10 text-amber-300 border border-amber-500/60 hover:bg-amber-500/15',
+    danger:
+      'bg-red-500/10 text-red-300 border border-red-500/60 hover:bg-red-500/15',
   };
 
   return (
@@ -191,56 +208,47 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
 
             {/* Position Select */}
             <Select
-              size="sm"
-              variant="bordered"
-              selectedKeys={[selectedPosition]}
-              className="w-32 bg-neutral-800/50"
-              classNames={{
-                trigger:
-                  'border-neutral-700 hover:border-accent-blue-600 min-h-8',
-                value: 'text-neutral-100 font-medium',
-              }}
-              renderValue={() => {
-                const role = roles.find((r) => r.key === selectedPosition);
-                if (!role) return null;
-                const iconUrl = getRoleIconUrl(role.key);
-                return (
-                  <div className="flex items-center justify-center">
-                    {iconUrl ? (
-                      <img src={iconUrl} alt={role.label} className="w-4 h-4" />
-                    ) : (
-                      <span className="text-sm">{role.icon}</span>
-                    )}
-                  </div>
-                );
-              }}
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0] as string;
-                setSelectedPosition(selected);
+              value={selectedPosition}
+              onValueChange={(value) => {
+                setSelectedPosition(value);
               }}
             >
-              {roles.map((role) => {
-                const iconUrl = getRoleIconUrl(role.key);
-                return (
-                  <SelectItem
-                    key={role.key}
-                    textValue={role.label}
-                    startContent={
-                      iconUrl ? (
-                        <img
-                          src={iconUrl}
-                          alt={role.label}
-                          className="w-4 h-4"
-                        />
+              <SelectTrigger className="h-10 w-32 border-neutral-700 bg-neutral-800/70 text-neutral-100">
+                {(() => {
+                  const role = roles.find((r) => r.key === selectedPosition);
+                  if (!role) {
+                    return <SelectValue placeholder="Select role" />;
+                  }
+                  const iconUrl = getRoleIconUrl(role.key);
+                  return (
+                    <div className="flex items-center gap-2">
+                      {iconUrl ? (
+                        <img src={iconUrl} alt={role.label} className="h-4 w-4" />
                       ) : (
                         <span className="text-sm">{role.icon}</span>
-                      )
-                    }
-                  >
-                    <span>{role.label}</span>
-                  </SelectItem>
-                );
-              })}
+                      )}
+                      <span className="text-sm font-medium">{role.label}</span>
+                    </div>
+                  );
+                })()}
+              </SelectTrigger>
+              <SelectContent className="bg-neutral-900 text-neutral-100">
+                {roles.map((role) => {
+                  const iconUrl = getRoleIconUrl(role.key);
+                  return (
+                    <SelectItem key={role.key} value={role.key}>
+                      <div className="flex items-center gap-2">
+                        {iconUrl ? (
+                          <img src={iconUrl} alt={role.label} className="h-4 w-4" />
+                        ) : (
+                          <span className="text-sm">{role.icon}</span>
+                        )}
+                        <span>{role.label}</span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
             </Select>
           </div>
 
@@ -264,28 +272,22 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
               <span className="text-sm font-medium text-neutral-300">
                 Win Rate
               </span>
-              <Chip
-                color={getWinRateColor(data.winRate)}
-                variant="flat"
-                size="sm"
-                className="font-semibold"
+              <Badge
+                className={`font-semibold ${badgeToneClasses[getWinRateTone(data.winRate)]}`}
               >
                 {data.winRate}%
-              </Chip>
+              </Badge>
             </div>
 
             <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">
               <span className="text-sm font-medium text-neutral-300">
                 Average KDA
               </span>
-              <Chip
-                color={getKdaColor(data.avgKda)}
-                variant="flat"
-                size="sm"
-                className="font-semibold"
+              <Badge
+                className={`font-semibold ${badgeToneClasses[getKdaTone(data.avgKda)]}`}
               >
                 {data.avgKda}
-              </Chip>
+              </Badge>
             </div>
 
             <div className="flex justify-between items-center p-3 bg-neutral-800/50 rounded-lg">

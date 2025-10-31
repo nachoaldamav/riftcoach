@@ -4,7 +4,15 @@ import {
   type ItemSuggestion,
   getAllMatchDataQueryOptions,
 } from '@/queries/get-match-insights';
-import { Avatar, Card, CardBody, Chip, Tooltip } from '@heroui/react';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardBody } from '@/components/ui/card';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
@@ -618,7 +626,8 @@ function MatchAnalysisComponent() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <TooltipProvider>
+      <div className="max-w-7xl mx-auto space-y-8">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -626,9 +635,9 @@ function MatchAnalysisComponent() {
         className="flex items-center gap-4"
       >
         <h1 className="text-3xl font-bold text-neutral-50">Match Analysis</h1>
-        <Chip color="primary" variant="flat">
+        <Badge className="bg-accent-blue-500/15 text-accent-blue-200 border border-accent-blue-400/40">
           {matchData.info.gameMode}
-        </Chip>
+        </Badge>
       </motion.div>
 
       {/* Match Results (Scoreboard) */}
@@ -710,11 +719,12 @@ function MatchAnalysisComponent() {
                           >
                             {/* Champion + spells */}
                             <div className="flex items-center gap-2 shrink-0">
-                              <Avatar
-                                src={getChampionSquare(p.championName)}
-                                alt={p.championName}
-                                className="w-10 h-10"
-                              />
+                              <Avatar className="h-10 w-10 rounded-lg">
+                                <AvatarImage
+                                  src={getChampionSquare(p.championName)}
+                                  alt={p.championName}
+                                />
+                              </Avatar>
                               <div className="flex flex-col gap-1">
                                 <img
                                   src={getSpellIcon(p.summoner1Id)}
@@ -843,10 +853,15 @@ function MatchAnalysisComponent() {
                 <path d="m25.28,48.51l3.32-7.61c.8-1.84,2.27-3.31,4.11-4.11l7.62-3.32c.59-.26.59-1.1,0-1.35l-7.62-3.32c-1.84-.8-3.31-2.27-4.11-4.11l-3.32-7.62c-.26-.59-1.1-.59-1.35,0l-3.32,7.62c-.8,1.84-2.27,3.31-4.11,4.11l-7.63,3.33c-.59.26-.59,1.09,0,1.35l7.76,3.43c1.84.81,3.3,2.29,4.09,4.13l3.22,7.47c.26.59,1.1.6,1.35,0Z" />
                 <path d="m39.89,13.95l4.12,1.82c.98.43,1.75,1.22,2.17,2.19l1.71,3.97c.14.32.58.32.72,0l1.76-4.04c.43-.98,1.21-1.76,2.18-2.18l4.04-1.76c.31-.14.31-.58,0-.72l-4.04-1.76c-.98-.43-1.76-1.21-2.18-2.18l-1.76-4.04c-.14-.31-.58-.31-.72,0l-1.76,4.04c-.43.98-1.21,1.76-2.18,2.18l-4.05,1.77c-.31.14-.31.58,0,.72Z" />
               </svg>
-              <Tooltip content="AI generated item suggestions" showArrow>
-                <h2 className="text-2xl font-bold text-neutral-50 decoration-dotted underline">
-                  Item Suggestions
-                </h2>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <h2 className="text-2xl font-bold text-neutral-50 decoration-dotted underline">
+                    Item Suggestions
+                  </h2>
+                </TooltipTrigger>
+                <TooltipContent className="bg-black/90 text-neutral-100">
+                  AI generated item suggestions
+                </TooltipContent>
               </Tooltip>
             </div>
 
@@ -1022,17 +1037,20 @@ function MatchAnalysisComponent() {
                         />
                         {/* Avatar marker */}
                         <Avatar
-                          src={getChampionSquare(pp.championName)}
-                          alt={pp.summonerName}
                           className={cn(
-                            'w-6 h-6 ring-2',
+                            'h-6 w-6 rounded-md ring-2',
                             pp.teamId === 100
                               ? 'ring-blue-400'
                               : 'ring-red-400',
                             'shadow-md z-20',
                             !pp.isActor ? 'opacity-50' : '',
                           )}
-                        />
+                        >
+                          <AvatarImage
+                            src={getChampionSquare(pp.championName)}
+                            alt={pp.summonerName}
+                          />
+                        </Avatar>
                       </div>
                     ))}
                   </div>
@@ -1063,13 +1081,15 @@ function MatchAnalysisComponent() {
                       <h3 className="font-semibold text-neutral-100 truncate">
                         {selectedMoment.title}
                       </h3>
-                      <Chip
-                        size="sm"
-                        variant="flat"
-                        color={selectedMoment.enemyHalf ? 'danger' : 'default'}
+                      <Badge
+                        className={`text-xs font-semibold ${
+                          selectedMoment.enemyHalf
+                            ? 'bg-red-500/10 text-red-200 border border-red-500/40'
+                            : 'bg-neutral-800/70 text-neutral-200 border border-neutral-700/60'
+                        }`}
                       >
                         {selectedMoment.zone}
-                      </Chip>
+                      </Badge>
                     </div>
                     <p className="text-sm text-neutral-300">
                       {selectedMoment.insight}
@@ -1164,6 +1184,7 @@ function MatchAnalysisComponent() {
           </CardBody>
         </Card>
       </motion.div>
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }

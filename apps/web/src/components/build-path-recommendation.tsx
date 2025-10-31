@@ -2,7 +2,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import type { BuildPath } from '@/queries/get-match-insights';
-import { Avatar } from '@heroui/react';
 import type React from 'react';
 
 interface BuildPathRecommendationProps {
@@ -39,13 +38,19 @@ const ItemSlot: React.FC<ItemSlotProps> = ({
       )}
       <div className="flex gap-1">
         {itemIds.map((itemId) => (
-          <Avatar
+          <div
             key={itemId}
-            isBordered
-            radius="sm"
-            className={sizeClasses[size]}
-            src={getItemImageUrl(itemId)}
-          />
+            className={cn(
+              'overflow-hidden rounded-md border border-slate-600 bg-slate-800',
+              sizeClasses[size],
+            )}
+          >
+            <img
+              src={getItemImageUrl(itemId)}
+              alt={`Item ${itemId}`}
+              className="h-full w-full object-cover"
+            />
+          </div>
         ))}
       </div>
     </div>
@@ -69,17 +74,20 @@ const BootsOption: React.FC<BootsOptionProps> = ({ option, isRecommended }) => {
           : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50',
       )}
     >
-      <Avatar
-        isBordered
-        radius="sm"
+      <div
         className={cn(
-          'w-10 h-10',
+          'h-10 w-10 overflow-hidden rounded-md border bg-slate-800',
           isRecommended
             ? 'border-green-400'
-            : 'border-blue-400/30'
+            : 'border-blue-400/30',
         )}
-        src={getItemImageUrl(option.id)}
-      />
+      >
+        <img
+          src={getItemImageUrl(option.id)}
+          alt={`Boots ${option.id}`}
+          className="h-full w-full object-cover"
+        />
+      </div>
       <span className="text-xs text-center text-muted-foreground max-w-20">
         {option.reason}
       </span>
@@ -130,13 +138,16 @@ const CoreItemSlot: React.FC<CoreItemSlotProps> = ({ coreItem }) => {
               </div>
               <div className="flex gap-1">
                 {branch.add.map((itemId) => (
-                  <Avatar
+                  <div
                     key={itemId}
-                    isBordered
-                    radius="sm"
-                    className="w-8 h-8"
-                    src={getItemImageUrl(itemId)}
-                  />
+                    className="h-8 w-8 overflow-hidden rounded-md border border-slate-600 bg-slate-800"
+                  >
+                    <img
+                      src={getItemImageUrl(itemId)}
+                      alt={`Item ${itemId}`}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">{branch.reason}</p>

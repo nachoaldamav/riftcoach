@@ -3,7 +3,14 @@ import { ChampionImage } from '@/components/champion-image';
 import { HeatmapOverlay } from '@/components/heatmap-overlay';
 import { HeatmapIcon } from '@/components/icons/CustomIcons';
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import { Card, CardBody, Select, SelectItem } from '@heroui/react';
+import { Card, CardBody } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
@@ -219,82 +226,69 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Select
-              size="sm"
-              variant="bordered"
-              label="Role"
-              selectedKeys={[selectedRole]}
-              disabledKeys={disabledRoleKeys}
-              className="bg-neutral-800/50"
-              classNames={{
-                trigger: 'border-neutral-700 hover:border-accent-blue-600',
-                value: 'text-neutral-100 font-medium',
-              }}
-              renderValue={() => {
-                const role = roles.find((r) => r.key === selectedRole);
-                if (!role) return null;
-                const games = roleGames[role.key] || 0;
-                return (
-                  <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-2">
-                      <img
-                        src={getRoleIconUrl(role.key)}
-                        alt={role.label}
-                        className="w-5 h-5"
-                      />
-                      <span>{role.label}</span>
-                    </div>
-                    <span className="text-xs text-slate-300">{games}</span>
-                  </div>
-                );
-              }}
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0] as string;
-                // Prevent selecting disabled roles
-                if (!disabledRoleKeys.includes(selected)) {
-                  setSelectedRole(selected);
+              value={selectedRole}
+              onValueChange={(value) => {
+                if (!disabledRoleKeys.includes(value)) {
+                  setSelectedRole(value);
                   setHasUserSelectedRole(true);
                 }
               }}
             >
-              {roles.map((role) => (
-                <SelectItem
-                  key={role.key}
-                  textValue={role.label}
-                  startContent={
-                    <img
-                      src={getRoleIconUrl(role.key)}
-                      alt={role.label}
-                      className="w-5 h-5"
-                    />
+              <SelectTrigger className="h-11 border-neutral-700 bg-neutral-800/70 text-neutral-100">
+                {(() => {
+                  const role = roles.find((r) => r.key === selectedRole);
+                  if (!role) {
+                    return <SelectValue placeholder="Select role" />;
                   }
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span>{role.label}</span>
-                    <span className="text-xs text-slate-300">
-                      {roleGames[role.key] || 0}
-                    </span>
-                  </div>
-                </SelectItem>
-              ))}
+                  const games = roleGames[role.key] || 0;
+                  return (
+                    <div className="flex w-full items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={getRoleIconUrl(role.key)}
+                          alt={role.label}
+                          className="h-5 w-5"
+                        />
+                        <span>{role.label}</span>
+                      </div>
+                      <span className="text-xs text-slate-300">{games}</span>
+                    </div>
+                  );
+                })()}
+              </SelectTrigger>
+              <SelectContent className="bg-neutral-900 text-neutral-100">
+                {roles.map((role) => (
+                  <SelectItem
+                    key={role.key}
+                    value={role.key}
+                    disabled={disabledRoleKeys.includes(role.key)}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={getRoleIconUrl(role.key)}
+                          alt={role.label}
+                          className="h-5 w-5"
+                        />
+                        <span>{role.label}</span>
+                      </div>
+                      <span className="text-xs text-slate-300">
+                        {roleGames[role.key] || 0}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             <Select
-              size="sm"
-              variant="bordered"
-              label="Champion"
-              selectedKeys={selectedChampion ? [String(selectedChampion)] : []}
-              className="bg-neutral-800/50"
-              classNames={{
-                trigger:
-                  'border-neutral-700 hover:border-accent-blue-600 bg-neutral-800/50',
-                value: 'text-neutral-100 font-medium',
+              value={selectedChampion ? String(selectedChampion) : 'ALL'}
+              onValueChange={(value) => {
+                setSelectedChampion(value === 'ALL' ? null : Number(value));
               }}
-              renderValue={() => {
-                if (!selectedChampionData) return null;
-                const games = selectedChampion
-                  ? championGamesBySelectedRole[Number(selectedChampion)] || 0
-                  : 0;
-                return (
-                  <div className="flex items-center justify-between w-full">
+            >
+              <SelectTrigger className="h-11 border-neutral-700 bg-neutral-800/70 text-neutral-100">
+                {selectedChampionData ? (
+                  <div className="flex w-full items-center justify-between">
                     <div className="flex items-center gap-2">
                       <ChampionImage
                         championId={selectedChampionData.id}
@@ -303,59 +297,68 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
                       />
                       <span>{selectedChampionData.name}</span>
                     </div>
-                    <span className="text-xs text-slate-300">{games}</span>
-                  </div>
-                );
-              }}
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0] as string | undefined;
-                setSelectedChampion(selected ? Number(selected) : null);
-              }}
-            >
-              {visibleChampions.map((champion) => (
-                <SelectItem
-                  key={champion.key}
-                  textValue={champion.name}
-                  startContent={
-                    <ChampionImage
-                      championId={champion.id}
-                      size="sm"
-                      showName={false}
-                    />
-                  }
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span>{champion.name}</span>
                     <span className="text-xs text-slate-300">
-                      {championGamesBySelectedRole[Number(champion.key)] || 0}
+                      {selectedChampion
+                        ? championGamesBySelectedRole[Number(selectedChampion)] || 0
+                        : 0}
                     </span>
                   </div>
-                </SelectItem>
-              ))}
-            </Select>
-            <Select
-              size="sm"
-              variant="bordered"
-              label="Mode"
-              selectedKeys={[selectedMode]}
-              className="bg-neutral-800/50"
-              classNames={{
-                trigger: 'border-neutral-700 hover:border-accent-blue-600',
-                value: 'text-neutral-100 font-medium',
-              }}
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0] as 'kills' | 'deaths';
-                setSelectedMode(selected);
-              }}
-            >
-              {modes.map((mode) => (
-                <SelectItem key={mode.key} textValue={mode.label}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg">{mode.icon}</span>
-                    <span className="font-medium">{mode.label}</span>
+                ) : (
+                  <SelectValue placeholder="All champions" />
+                )}
+              </SelectTrigger>
+              <SelectContent className="bg-neutral-900 text-neutral-100">
+                <SelectItem value="ALL">
+                  <div className="flex w-full items-center justify-between">
+                    <span>All champions</span>
+                    <span className="text-xs text-slate-300">{visibleChampions.length}</span>
                   </div>
                 </SelectItem>
-              ))}
+                {visibleChampions.map((champion) => (
+                  <SelectItem key={champion.key} value={champion.key}>
+                    <div className="flex w-full items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ChampionImage
+                          championId={champion.id}
+                          size="sm"
+                          showName={false}
+                        />
+                        <span>{champion.name}</span>
+                      </div>
+                      <span className="text-xs text-slate-300">
+                        {championGamesBySelectedRole[Number(champion.key)] || 0}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={selectedMode}
+              onValueChange={(value: 'kills' | 'deaths') => {
+                setSelectedMode(value);
+              }}
+            >
+              <SelectTrigger className="h-11 border-neutral-700 bg-neutral-800/70 text-neutral-100">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">
+                    {modes.find((mode) => mode.key === selectedMode)?.icon ?? '⚔️'}
+                  </span>
+                  <span className="font-medium">
+                    {modes.find((mode) => mode.key === selectedMode)?.label ?? ''}
+                  </span>
+                </div>
+              </SelectTrigger>
+              <SelectContent className="bg-neutral-900 text-neutral-100">
+                {modes.map((mode) => (
+                  <SelectItem key={mode.key} value={mode.key}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg">{mode.icon}</span>
+                      <span className="font-medium">{mode.label}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
 

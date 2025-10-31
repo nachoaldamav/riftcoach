@@ -1,7 +1,7 @@
 import { http } from '@/clients/http';
 import { MasteryIcon } from '@/components/icons/CustomIcons';
 import { useChampionImage } from '@/providers/data-dragon-provider';
-import { Avatar, Card, CardBody } from '@heroui/react';
+import { Card, CardBody } from '@/components/ui/card';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Crown, Star } from 'lucide-react';
@@ -110,12 +110,15 @@ function MasteryItem({ champion, index }: MasteryItemProps) {
     >
       <div className={classes.container}>
         <div className="relative mb-3">
-          <Avatar
-            src={championImageUrl}
-            alt={champion.championName}
-            className={classes.avatar}
-            radius="lg"
-          />
+          <div
+            className={`${classes.avatar} overflow-hidden rounded-2xl bg-neutral-800`}
+          >
+            <img
+              src={championImageUrl}
+              alt={champion.championName}
+              className="h-full w-full object-cover"
+            />
+          </div>
           <div className={`absolute -top-1 -right-1 p-1 ${classes.crownBg} rounded-full border-2 border-neutral-900`}>
             <Crown className={`${classes.crown} text-white`} />
           </div>

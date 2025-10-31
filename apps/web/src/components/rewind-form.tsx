@@ -3,7 +3,15 @@
 import type React from 'react';
 
 import { http } from '@/clients/http';
-import { Button, Input, Select, SelectItem } from '@heroui/react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
@@ -53,12 +61,14 @@ export function RewindForm() {
           `/v1/${encodeURIComponent(region)}/${encodeURIComponent(summonerName)}/${encodeURIComponent(tagline)}/rewind`,
         );
         
-        // If player has a completed rewind, redirect to rewind page
+        // If player has a completed rewind, redirect to the overview page
         if (statusRes.data.status === 'completed' && statusRes.data.rewindId) {
           navigate({
-            to: '/rewind/$id',
+            to: '/$region/$name/$tag',
             params: {
-              id: statusRes.data.rewindId,
+              region,
+              name: summonerName,
+              tag: tagline,
             },
           });
           return { rewindId: statusRes.data.rewindId };
@@ -105,41 +115,36 @@ export function RewindForm() {
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className="flex flex-col gap-4 rounded-xl border border-divider bg-content1/50 p-6 backdrop-blur-sm md:flex-row md:items-end md:p-8">
+      <div className="flex flex-col gap-4 rounded-xl border border-divider bg-content1/50 p-6 backdrop-blur-sm md:flex-row md:items-center md:p-8">
         {/* Region Select */}
         <div className="flex-shrink-0 space-y-2 md:w-48">
           <Select
-            placeholder="Select region"
-            selectedKeys={region ? [region] : []}
-            onSelectionChange={(keys) => {
-              const selected = Array.from(keys)[0] as string;
-              setRegion(selected);
+            value={region}
+            onValueChange={(value) => {
+              setRegion(value);
             }}
-            className="w-full"
-            size="lg"
           >
-            {REGIONS.map((r) => (
-              <SelectItem key={r.value}>{r.label}</SelectItem>
-            ))}
+            <SelectTrigger className="h-12 w-full border-slate-600 bg-slate-900/70 text-slate-100">
+              <SelectValue placeholder="Select region" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-900 text-slate-100">
+              {REGIONS.map((r) => (
+                <SelectItem key={r.value} value={r.value}>
+                  {r.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
 
         <div className="flex-1 space-y-2">
-          <div className="flex rounded-lg border border-slate-600 bg-slate-800/50 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all">
+          <div className="flex h-12 items-center rounded-lg border border-slate-600 bg-slate-800/50 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all">
             <Input
               placeholder="Summoner"
               value={summonerName}
-              onValueChange={setSummonerName}
-              className="flex-1 border-0 bg-transparent hover:bg-transparent"
-              size="lg"
-              isRequired
-              classNames={{
-                input: 'bg-transparent border-0 focus:ring-0',
-                inputWrapper:
-                  'bg-transparent border-0 shadow-none hover:bg-transparent group-data-[focus=true]:bg-transparent',
-                label: 'text-slate-300',
-                base: 'bg-transparent border-0 focus:ring-0',
-              }}
+              onChange={(event) => setSummonerName(event.target.value)}
+              className="flex-1 border-0 bg-transparent hover:bg-transparent focus-visible:ring-0"
+              required
             />
             <div className="flex items-center px-3 text-slate-400 font-mono text-lg">
               #
@@ -147,17 +152,9 @@ export function RewindForm() {
             <Input
               placeholder="EUW"
               value={tagline}
-              onValueChange={setTagline}
-              className="w-20 border-0 bg-transparent"
-              size="lg"
-              isRequired
-              classNames={{
-                input: 'bg-transparent border-0 focus:ring-0',
-                inputWrapper:
-                  'bg-transparent border-0 shadow-none hover:bg-transparent group-data-[focus=true]:bg-transparent',
-                label: 'text-slate-300',
-                base: 'bg-transparent border-0 focus:ring-0',
-              }}
+              onChange={(event) => setTagline(event.target.value)}
+              className="w-20 border-0 bg-transparent focus-visible:ring-0"
+              required
             />
           </div>
         </div>
@@ -167,12 +164,19 @@ export function RewindForm() {
           <Button
             type="submit"
             size="lg"
+            variant="flat"
             className="h-12 flex-shrink-0 bg-slate-700 hover:bg-slate-600 border border-slate-600 hover:border-slate-500 px-8 text-base font-medium text-slate-200 hover:text-white transition-all duration-200 md:w-auto"
-            startContent={<Sparkles className="h-5 w-5" />}
-            isDisabled={startRewindMutation.isPending || !region || !summonerName || !tagline}
-            isLoading={startRewindMutation.isPending}
+            disabled={
+              startRewindMutation.isPending ||
+              !region ||
+              !summonerName ||
+              !tagline
+            }
           >
-            {startRewindMutation.isPending ? 'Starting…' : 'Start Rewind'}
+            <span className="flex items-center gap-2">
+              <Sparkles className={`h-5 w-5 ${startRewindMutation.isPending ? 'animate-pulse' : ''}`} />
+              {startRewindMutation.isPending ? 'Starting…' : 'Start Rewind'}
+            </span>
           </Button>
           {error && (
             <div className="text-sm text-red-400">{error}</div>

@@ -1,7 +1,14 @@
 import { http } from '@/clients/http';
 import { ProfileShareButton } from '@/components/profile-share-button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardBody } from '@/components/ui/card';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import { Card, CardBody, Chip, Tooltip } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
@@ -76,7 +83,7 @@ export function ProfileHeader({
       transition={{ duration: 0.6 }}
       className="mb-8"
     >
-      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative">
+      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative py-0">
         <CardBody className="p-0">
           <div className="flex items-center gap-6 h-36">
             {/* Profile Icon */}
@@ -118,45 +125,42 @@ export function ProfileHeader({
                   </span>
                 </div>
               ) : badges && badges.length > 0 ? (
-                <div className="flex flex-wrap gap-3">
-                  {badges.map((b, idx) => (
-                    <Tooltip
-                      key={`${b.title}-hdr-${idx}`}
-                      content={
-                        <div className="max-w-xs text-left p-3">
-                          <p className="text-sm font-semibold text-neutral-100 mb-2">
-                            {b.title}
-                          </p>
-                          <p className="text-xs text-neutral-300 leading-relaxed">
-                            {b.reason}
-                          </p>
-                        </div>
-                      }
-                      placement="top"
-                      className="bg-black/95 border border-white/10 shadow-soft-lg"
-                    >
-                      <div className="relative overflow-hidden rounded-full">
-                        <Chip
-                          variant="flat"
-                          color="default"
-                          size="md"
-                          className={`${
-                            (b.polarity ?? 'neutral') === 'good'
-                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-800/40'
-                              : (b.polarity ?? 'neutral') === 'bad'
-                                ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800/40'
-                                : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700/40'
-                          } font-semibold transition-colors duration-150 cursor-default px-4 py-2 relative`}
-                        >
-                          {b.title}
-                        </Chip>
-                        {isBadgesFetching && (
-                          <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                        )}
-                      </div>
-                    </Tooltip>
-                  ))}
-                </div>
+                <TooltipProvider>
+                  <div className="flex flex-wrap gap-3">
+                    {badges.map((b, idx) => (
+                      <Tooltip key={`${b.title}-hdr-${idx}`}>
+                        <TooltipTrigger asChild>
+                          <div className="relative overflow-hidden rounded-full">
+                            <Badge
+                              className={`${
+                                (b.polarity ?? 'neutral') === 'good'
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-800/40'
+                                  : (b.polarity ?? 'neutral') === 'bad'
+                                    ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800/40'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700/40'
+                              } font-semibold transition-colors duration-150 cursor-default px-4 py-2 relative`}
+                            >
+                              {b.title}
+                            </Badge>
+                            {isBadgesFetching && (
+                              <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs bg-black/95 border border-white/10 text-neutral-100">
+                          <div className="space-y-2">
+                            <p className="text-sm font-semibold text-neutral-100">
+                              {b.title}
+                            </p>
+                            <p className="text-xs text-neutral-300 leading-relaxed">
+                              {b.reason}
+                            </p>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </TooltipProvider>
               ) : null}
             </div>
 

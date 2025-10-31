@@ -1,7 +1,10 @@
 import { http } from '@/clients/http';
 import { HeatmapOverlay } from '@/components/heatmap-overlay';
 import { useDataDragon } from '@/providers/data-dragon-provider';
-import { Avatar, Button, Card, CardBody, Chip } from '@heroui/react';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardBody } from '@/components/ui/card';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -321,22 +324,19 @@ function ChampionsComponent() {
                   <Button
                     variant="flat"
                     size="sm"
-                    isDisabled={page <= 1}
-                    onPress={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
                   >
                     Previous
                   </Button>
-                  <Chip
-                    size="sm"
-                    className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300"
-                  >
+                  <Badge className="bg-neutral-800/70 border border-neutral-700/50 text-neutral-300">
                     {`Page ${page} / ${totalPages}`}
-                  </Chip>
+                  </Badge>
                   <Button
                     variant="flat"
                     size="sm"
-                    isDisabled={page >= totalPages}
-                    onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   >
                     Next
                   </Button>
@@ -606,12 +606,12 @@ function ChampionRow({
       >
         <div className="flex items-center gap-4">
           <div className="relative flex-shrink-0">
-            <Avatar
-              src={getChampionImageUrl(row.championName, 'square')}
-              alt={row.championName}
-              className="size-16 border border-neutral-600"
-              radius="md"
-            />
+            <Avatar className="size-16 rounded-xl border border-neutral-600">
+              <AvatarImage
+                src={getChampionImageUrl(row.championName, 'square')}
+                alt={row.championName}
+              />
+            </Avatar>
             <img
               src={getRoleIconUrl(row.role)}
               alt={row.role}
@@ -625,12 +625,9 @@ function ChampionRow({
                 {row.championName}
               </span>
               {aiScore !== undefined && aiScore !== null ? (
-                <Chip
-                  size="sm"
-                  className={`${getScoreTone(aiScore)} border px-2`}
-                >
+                <Badge className={`${getScoreTone(aiScore)} border px-2 text-xs font-semibold`}>
                   {Math.round(aiScore)} RiftScore
-                </Chip>
+                </Badge>
               ) : null}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
@@ -862,9 +859,9 @@ function ChampionRow({
                                         })}
                                       </span>
                                       {evaluation ? (
-                                        <span className={evaluation.className}>
+                                        <Badge className={evaluation.className}>
                                           {evaluation.label}
-                                        </span>
+                                        </Badge>
                                       ) : null}
                                     </div>
                                   </td>

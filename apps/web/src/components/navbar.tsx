@@ -1,5 +1,5 @@
 import { Link, useLocation } from '@tanstack/react-router';
-import { Button } from '@heroui/react';
+import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { http } from '@/clients/http';
@@ -53,11 +53,13 @@ export function Navbar() {
             <Button
               size="sm"
               variant="ghost"
-              className="text-neutral-300 hover:text-white hover:bg-neutral-800"
-              startContent={<RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />}
-              onPress={handleRefresh}
-              isDisabled={isRefreshing}
+              className="flex items-center gap-2 text-neutral-300 hover:text-white hover:bg-neutral-800"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
             >
+              <RefreshCw
+                className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
+              />
               {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
             </Button>
           )}
