@@ -145,16 +145,20 @@ export const playerChampRolePercentilesAggregation = (
           { $divide: [{ $ifNull: ['$info.gameDuration', 0] }, 60] },
         ],
       },
+    },
+  },
+  {
+    $set: {
       dpm: {
         $divide: [
           { $ifNull: ['$info.participants.totalDamageDealtToChampions', 0] },
-          { $max: [1, { $divide: [{ $ifNull: ['$info.gameDuration', 0] }, 60] }] },
+          '$_gameDurationMin',
         ],
       },
       dtpm: {
         $divide: [
           { $ifNull: ['$info.participants.totalDamageTaken', 0] },
-          { $max: [1, { $divide: [{ $ifNull: ['$info.gameDuration', 0] }, 60] }] },
+          '$_gameDurationMin',
         ],
       },
       kpm: {
