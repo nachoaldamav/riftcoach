@@ -1,10 +1,10 @@
 import { http } from '@/clients/http';
 import { HeatmapOverlay } from '@/components/heatmap-overlay';
-import { useDataDragon } from '@/providers/data-dragon-provider';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
+import { useDataDragon } from '@/providers/data-dragon-provider';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -625,7 +625,9 @@ function ChampionRow({
                 {row.championName}
               </span>
               {aiScore !== undefined && aiScore !== null ? (
-                <Badge className={`${getScoreTone(aiScore)} border px-2 text-xs font-semibold`}>
+                <Badge
+                  className={`${getScoreTone(aiScore)} border px-2 text-xs font-semibold`}
+                >
                   {Math.round(aiScore)} RiftScore
                 </Badge>
               ) : null}
@@ -813,12 +815,6 @@ function ChampionRow({
                                   (mean)
                                 </span>
                               </th>
-                              <th className="px-3 py-2 font-semibold">
-                                Player Median
-                                <span className="ml-1 text-neutral-500 font-normal">
-                                  (p50)
-                                </span>
-                              </th>
                               <th className="px-3 py-2 font-semibold">P50</th>
                               <th className="px-3 py-2 font-semibold">P75</th>
                               <th className="px-3 py-2 font-semibold">P90</th>
@@ -835,7 +831,6 @@ function ChampionRow({
                                 percentiles,
                                 metric.invert,
                               );
-                              const playerMedian = playerMedianFor(metric.key);
                               return (
                                 <tr
                                   key={metric.label}
@@ -843,13 +838,6 @@ function ChampionRow({
                                 >
                                   <td className="px-3 py-2 text-neutral-200">
                                     {metric.label}
-                                    <span className="ml-2 text-[10px] text-neutral-500">
-                                      {metric.key === 'kpm' ||
-                                      metric.key === 'apm' ||
-                                      metric.key === 'deathsPerMin'
-                                        ? 'higher precision shown'
-                                        : ''}
-                                    </span>
                                   </td>
                                   <td className="px-3 py-2">
                                     <div className="flex flex-wrap items-center gap-2">
@@ -864,11 +852,6 @@ function ChampionRow({
                                         </Badge>
                                       ) : null}
                                     </div>
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    {formatValue(playerMedian, {
-                                      digits: metric.digits,
-                                    })}
                                   </td>
                                   <td className="px-3 py-2">
                                     {formatValue(percentiles?.p50, {
