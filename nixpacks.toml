@@ -3,7 +3,7 @@ nixPkgs = ["pnpm"]
 
 [phases.install]
 cmds = [
-  "wget -qO- https://get.pnpm.io/install.sh | ENV=\"$HOME/.shrc\" SHELL=\"$(which sh)\" sh -"
+  "wget -qO- https://get.pnpm.io/install.sh | ENV='$HOME/.shrc' SHELL='$(which sh)' sh -"
   "pnpm env use --global lts",
   "pnpm install --frozen-lockfile"
 ]
