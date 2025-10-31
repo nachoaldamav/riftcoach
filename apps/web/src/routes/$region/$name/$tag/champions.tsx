@@ -862,7 +862,7 @@ function ChampionRow({
               </div>
 
               <div className="grid gap-6 lg:grid-cols-5">
-                <div className="space-y-6 col-span-3">
+                <div className="space-y-6 col-span-3 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -1130,7 +1130,14 @@ function ChampionRow({
                               <div className="flex flex-col items-center">
                                 <div className="inline-flex gap-2 items-center justify-center">
                                   {col.items
-                                    .filter((item) => item.pickrate > 0.15)
+                                    .filter((item) =>
+                                      col.items.some((i) => i.pickrate >= 0.15)
+                                        ? item.pickrate >= 0.15
+                                        : item.pickrate >=
+                                          Math.max(
+                                            ...col.items.map((i) => i.pickrate),
+                                          ),
+                                    )
                                     .map((item) => (
                                       <img
                                         key={`bo-item-${item.itemId}`}
