@@ -61,6 +61,7 @@ function buildPrompt(
       'p90',
       'cohort',
       'median',
+      'suboptimal builds',
     ],
     negativeMetrics: ['deathsPerMin', 'dtpm', 'firstItemCompletionTime'],
   } as const;
@@ -387,6 +388,7 @@ Style and rules:
   - Speak directly to the player using "you".
   - Treat "average" as the typical midpoint level (not the mean). Internally use p50 as the cohort's midpoint reference, but do not say "median" or other statistical terms.
   - If a metric is just below the midpoint (slightly under p50), avoid saying "below average". Prefer gentler phrasing like "slightly below typical levels" or "a bit behind most players".
+  - It's ok if a player does not have any weaknesses, just say "no weaknesses".
   - Translate percentile comparisons into everyday phrases:
     - ≥ p95: "best-in-class", "among the very top"
     - p90–p95: "elite"
@@ -400,7 +402,10 @@ Style and rules:
   - comparisons[metric].summaryText already converts the percentile math into natural language—use it to keep statements precise.
   - Treat near_p50 (abs delta < 3%) as "about average".
   - For negative metrics (deathsPerMin, dtpm, firstItemCompletionTime): higher = worse, lower = better.
-  - For time metrics like "First item completion time", shorter times are better; if your time is lower than the typical level, highlight it as a strength.
+  - For time metrics like "First item completion time":
+    - Shorter times are better; if your time is lower than the typical level, highlight it as a strength.
+    - Never present a faster first item as a weakness, and do not recommend slowing down your first item timing.
+    - Do not infer build quality from timing alone; avoid phrases like "suboptimal builds".
   - derived.riskProfile tells you whether heavy damage intake is controlled ('absorbsPressureWell'), neutral ('tradesEvenly'), or reckless ('overextending'); highlight this when appropriate.
   - If derived.killHunting === 'killSeeker', point out that the player is tunnel-visioning on kills and should protect their life bar.
   - Cite at most one key metric per bullet.
