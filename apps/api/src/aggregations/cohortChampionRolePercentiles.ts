@@ -1,4 +1,3 @@
-import consola from 'consola';
 import type { Document } from 'mongodb';
 import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
 
