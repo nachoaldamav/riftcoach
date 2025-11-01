@@ -52,6 +52,7 @@ function buildPrompt(
       csAt15: 'CS at 15',
       kda: 'KDA',
       winRate: 'Win Rate',
+      firstItemCompletionTime: 'First item completion time',
     },
     bannedPhrases: [
       'key presses per minute',
@@ -61,7 +62,7 @@ function buildPrompt(
       'cohort',
       'median',
     ],
-    negativeMetrics: ['deathsPerMin', 'dtpm'],
+    negativeMetrics: ['deathsPerMin', 'dtpm', 'firstItemCompletionTime'],
   } as const;
 
   const getNumber = (v: unknown): number | null =>
@@ -91,6 +92,7 @@ function buildPrompt(
     damageTakenShare: getNumber(stats.avgDamageTakenShare),
     objectiveParticipationPct: getNumber(stats.avgObjectiveParticipationPct),
     earlyGankDeathRate: getNumber(stats.earlyGankDeathRateSmart),
+    firstItemCompletionTime: getNumber(stats.avgFirstItemCompletionTime),
   };
 
   const minutesPerDeath =
@@ -147,6 +149,7 @@ function buildPrompt(
     'goldAt15',
     'csAt15',
     'kda',
+    'firstItemCompletionTime',
   ];
 
   const comparisons: Record<
@@ -282,7 +285,7 @@ function buildPrompt(
     );
     const baseScore = bandToScore(band);
     const isHigherBetter = !lexicon.negativeMetrics.includes(
-      m as 'dtpm' | 'deathsPerMin',
+      m as 'dtpm' | 'deathsPerMin' | 'firstItemCompletionTime',
     );
     const performanceScore =
       baseScore == null
@@ -359,6 +362,7 @@ function buildPrompt(
       damageTakenShare: averages.damageTakenShare,
       objectiveParticipationPct: averages.objectiveParticipationPct,
       earlyGankDeathRate: averages.earlyGankDeathRate,
+      firstItemCompletionTime: averages.firstItemCompletionTime,
     },
     cohortPercentiles: percentiles,
     comparisons,
@@ -395,7 +399,8 @@ Style and rules:
   - Use comparisons[metric] for judgments: rely on directionRelativeToP50 and band.
   - comparisons[metric].summaryText already converts the percentile math into natural language—use it to keep statements precise.
   - Treat near_p50 (abs delta < 3%) as "about average".
-  - For negative metrics (deathsPerMin, dtpm): higher = worse, lower = better.
+  - For negative metrics (deathsPerMin, dtpm, firstItemCompletionTime): higher = worse, lower = better.
+  - For time metrics like "First item completion time", shorter times are better; if your time is lower than the typical level, highlight it as a strength.
   - derived.riskProfile tells you whether heavy damage intake is controlled ('absorbsPressureWell'), neutral ('tradesEvenly'), or reckless ('overextending'); highlight this when appropriate.
   - If derived.killHunting === 'killSeeker', point out that the player is tunnel-visioning on kills and should protect their life bar.
   - Cite at most one key metric per bullet.

@@ -1,4 +1,3 @@
-import consola from 'consola';
 import type { Document } from 'mongodb';
 import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
 
@@ -21,10 +20,22 @@ export const cohortChampionRolePercentilesAggregation = (params: {
   winsOnly?: boolean;
   sampleLimit?: number; // default 500
   sortDesc?: boolean; // true -> newest first
+  completedItemIds?: number[];
 }): Document[] => {
   const sampleLimit =
     typeof params.sampleLimit === 'number' ? params.sampleLimit : 500;
   const sortDirection = params.sortDesc === false ? 1 : -1;
+
+  const completedItemIds = params.completedItemIds ?? [];
+  const itemPurchaseCondition = completedItemIds.length
+    ? {
+        $and: [
+          { $eq: ['$$e.type', 'ITEM_PURCHASED'] },
+          { $in: ['$$e.itemId', completedItemIds] },
+          { $gte: [{ $ifNull: ['$$e.timestamp', -1] }, 0] },
+        ],
+      }
+    : false;
 
   const roleAliases = (() => {
     switch (params.role) {
@@ -161,6 +172,61 @@ export const cohortChampionRolePercentilesAggregation = (params: {
                   },
                 },
               },
+              events: {
+                $let: {
+                  vars: {
+                    all: {
+                      $reduce: {
+                        input: {
+                          $map: {
+                            input: '$info.frames',
+                            as: 'fr',
+                            in: { $ifNull: ['$$fr.events', []] },
+                          },
+                        },
+                        initialValue: [],
+                        in: { $concatArrays: ['$$value', '$$this'] },
+                      },
+                    },
+                  },
+                  in: {
+                    $filter: {
+                      input: '$$all',
+                      as: 'e',
+                      cond: {
+                        $or: [
+                          {
+                            $and: [
+                              { $eq: ['$$e.type', 'CHAMPION_KILL'] },
+                              { $lt: [{ $ifNull: ['$$e.timestamp', 0] }, 900000] },
+                              { $gt: [{ $ifNull: ['$$e.killerId', 0] }, 0] },
+                              { $ne: [{ $type: '$$e.position' }, 'missing'] },
+                            ],
+                          },
+                          {
+                            $and: [
+                              { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
+                              {
+                                $in: [
+                                  { $ifNull: ['$$e.monsterType', ''] },
+                                  [
+                                    'DRAGON',
+                                    'RIFTHERALD',
+                                    'BARON_NASHOR',
+                                    'HORDE',
+                                    'ATAKHAN',
+                                  ],
+                                ],
+                              },
+                            ],
+                          },
+                          itemPurchaseCondition,
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
         ],
@@ -174,7 +240,11 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         timeline: {
           $ifNull: [
             { $first: '$timelineData' },
-            { snap10: { gold: 0, cs: 0 }, snap15: { gold: 0, cs: 0 } },
+            {
+              snap10: { gold: 0, cs: 0 },
+              snap15: { gold: 0, cs: 0 },
+              events: [],
+            },
           ],
         },
       },
@@ -278,6 +348,72 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             { $ifNull: ['$participant.neutralMinionsKilled', 0] },
           ],
         },
+        firstItemCompletionTime: {
+          $let: {
+            vars: {
+              purchases: {
+                $filter: {
+                  input: { $ifNull: ['$timeline.events', []] },
+                  as: 'ev',
+                  cond: { $eq: ['$$ev.type', 'ITEM_PURCHASED'] },
+                },
+              },
+            },
+            in: {
+              $let: {
+                vars: {
+                  earliest: {
+                    $reduce: {
+                      input: '$$purchases',
+                      initialValue: null,
+                      in: {
+                        $let: {
+                          vars: { ts: { $ifNull: ['$$this.timestamp', null] } },
+                          in: {
+                            $cond: [
+                              {
+                                $or: [
+                                  { $eq: ['$$value', null] },
+                                  {
+                                    $and: [
+                                      { $ne: ['$$ts', null] },
+                                      { $lt: ['$$ts', '$$value'] },
+                                    ],
+                                  },
+                                ],
+                              },
+                              '$$ts',
+                              '$$value',
+                            ],
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                in: {
+                  $cond: [
+                    {
+                      $or: [
+                        { $eq: ['$$earliest', null] },
+                        {
+                          $not: {
+                            $in: [
+                              { $type: '$$earliest' },
+                              ['double', 'int', 'long', 'decimal'],
+                            ],
+                          },
+                        },
+                      ],
+                    },
+                    null,
+                    { $divide: ['$$earliest', 1000] },
+                  ],
+                },
+              },
+            },
+          },
+        },
       },
     },
 
@@ -352,6 +488,13 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         p50_cspm: {
           $percentile: { input: '$cspm', p: [0.5], method: 'approximate' },
         },
+        p50_firstItemCompletionTime: {
+          $percentile: {
+            input: '$firstItemCompletionTime',
+            p: [0.5],
+            method: 'approximate',
+          },
+        },
 
         // p75
         p75_kills: {
@@ -418,6 +561,13 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         },
         p75_cspm: {
           $percentile: { input: '$cspm', p: [0.75], method: 'approximate' },
+        },
+        p75_firstItemCompletionTime: {
+          $percentile: {
+            input: '$firstItemCompletionTime',
+            p: [0.75],
+            method: 'approximate',
+          },
         },
 
         // p90
@@ -486,6 +636,13 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         p90_cspm: {
           $percentile: { input: '$cspm', p: [0.9], method: 'approximate' },
         },
+        p90_firstItemCompletionTime: {
+          $percentile: {
+            input: '$firstItemCompletionTime',
+            p: [0.9],
+            method: 'approximate',
+          },
+        },
 
         // p95
         p95_kills: {
@@ -553,6 +710,13 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         p95_cspm: {
           $percentile: { input: '$cspm', p: [0.95], method: 'approximate' },
         },
+        p95_firstItemCompletionTime: {
+          $percentile: {
+            input: '$firstItemCompletionTime',
+            p: [0.95],
+            method: 'approximate',
+          },
+        },
       },
     },
 
@@ -579,6 +743,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             kpm: { $arrayElemAt: ['$p50_kpm', 0] },
             apm: { $arrayElemAt: ['$p50_apm', 0] },
             deathsPerMin: { $arrayElemAt: ['$p50_dpmDeaths', 0] },
+            firstItemCompletionTime: {
+              $arrayElemAt: ['$p50_firstItemCompletionTime', 0],
+            },
           },
           p75: {
             kills: { $arrayElemAt: ['$p75_kills', 0] },
@@ -596,6 +763,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             kpm: { $arrayElemAt: ['$p75_kpm', 0] },
             apm: { $arrayElemAt: ['$p75_apm', 0] },
             deathsPerMin: { $arrayElemAt: ['$p75_dpmDeaths', 0] },
+            firstItemCompletionTime: {
+              $arrayElemAt: ['$p75_firstItemCompletionTime', 0],
+            },
           },
           p90: {
             kills: { $arrayElemAt: ['$p90_kills', 0] },
@@ -613,6 +783,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             kpm: { $arrayElemAt: ['$p90_kpm', 0] },
             apm: { $arrayElemAt: ['$p90_apm', 0] },
             deathsPerMin: { $arrayElemAt: ['$p90_dpmDeaths', 0] },
+            firstItemCompletionTime: {
+              $arrayElemAt: ['$p90_firstItemCompletionTime', 0],
+            },
           },
           p95: {
             kills: { $arrayElemAt: ['$p95_kills', 0] },
@@ -630,6 +803,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             kpm: { $arrayElemAt: ['$p95_kpm', 0] },
             apm: { $arrayElemAt: ['$p95_apm', 0] },
             deathsPerMin: { $arrayElemAt: ['$p95_dpmDeaths', 0] },
+            firstItemCompletionTime: {
+              $arrayElemAt: ['$p95_firstItemCompletionTime', 0],
+            },
           },
         },
       },

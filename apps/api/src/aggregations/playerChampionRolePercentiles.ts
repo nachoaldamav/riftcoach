@@ -10,7 +10,20 @@ export const playerChampRolePercentilesAggregation = (
   puuid: string,
   championName: string,
   role: string,
-): Document[] => [
+  options?: { completedItemIds?: number[] },
+): Document[] => {
+  const completedItemIds = options?.completedItemIds ?? [];
+  const itemPurchaseCondition = completedItemIds.length
+    ? {
+        $and: [
+          { $eq: ['$$e.type', 'ITEM_PURCHASED'] },
+          { $in: ['$$e.itemId', completedItemIds] },
+          { $gte: [{ $ifNull: ['$$e.timestamp', -1] }, 0] },
+        ],
+      }
+    : false;
+
+  return [
   // 1) Index‑friendly match on participant PUUID
   {
     $match: {
@@ -26,15 +39,92 @@ export const playerChampRolePercentilesAggregation = (
     },
   },
 
-  // 3) Lookup timeline by matchId for minute snapshots
+  // 3) Lookup timeline by matchId for minute snapshots and relevant events
   {
     $lookup: {
       from: 'timelines',
-      localField: 'metadata.matchId',
-      foreignField: 'metadata.matchId',
-      as: 'tl',
+      let: {
+        matchId: '$metadata.matchId',
+        pid: '$info.participants.participantId',
+      },
+      pipeline: [
+        { $match: { $expr: { $eq: ['$metadata.matchId', '$$matchId'] } } },
+        { $project: { _id: 0, frames: '$info.frames' } },
+        {
+          $project: {
+            f10: { $ifNull: [{ $arrayElemAt: ['$frames', 10] }, null] },
+            f15: { $ifNull: [{ $arrayElemAt: ['$frames', 15] }, null] },
+            events: {
+              $let: {
+                vars: {
+                  all: {
+                    $reduce: {
+                      input: {
+                        $map: {
+                          input: '$frames',
+                          as: 'fr',
+                          in: { $ifNull: ['$$fr.events', []] },
+                        },
+                      },
+                      initialValue: [],
+                      in: { $concatArrays: ['$$value', '$$this'] },
+                    },
+                  },
+                },
+                in: {
+                  $filter: {
+                    input: '$$all',
+                    as: 'e',
+                    cond: {
+                      $or: [
+                        {
+                          $and: [
+                            { $eq: ['$$e.type', 'CHAMPION_KILL'] },
+                            { $lt: [{ $ifNull: ['$$e.timestamp', 0] }, 900000] },
+                            { $gt: [{ $ifNull: ['$$e.killerId', 0] }, 0] },
+                            { $ne: [{ $type: '$$e.position' }, 'missing'] },
+                          ],
+                        },
+                        {
+                          $and: [
+                            { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
+                            {
+                              $in: [
+                                { $ifNull: ['$$e.monsterType', ''] },
+                                [
+                                  'DRAGON',
+                                  'RIFTHERALD',
+                                  'BARON_NASHOR',
+                                  'HORDE',
+                                  'ATAKHAN',
+                                ],
+                              ],
+                            },
+                          ],
+                        },
+                        itemPurchaseCondition,
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        { $project: { f10: 1, f15: 1, events: 1 } },
+      ],
+      as: 'snap',
     },
   },
+
+  {
+    $set: {
+      _snap: {
+        $ifNull: [{ $first: '$snap' }, { f10: null, f15: null, events: [] }],
+      },
+    },
+  },
+  { $project: { snap: 0 } },
 
   // 4) Normalize role and helpers
   {
@@ -50,9 +140,6 @@ export const playerChampRolePercentilesAggregation = (
           ],
           default: 'UNKNOWN',
         },
-      },
-      _frames: {
-        $ifNull: [ { $arrayElemAt: ['$tl.info.frames', 0] }, [] ],
       },
       _pId: '$info.participants.participantId',
     },
@@ -72,31 +159,27 @@ export const playerChampRolePercentilesAggregation = (
       _at10: {
         $let: {
           vars: {
-            f: { $ifNull: [{ $arrayElemAt: ['$_frames', 10] }, {}] },
-            p: { $toString: '$_pId' },
-          },
-          in: {
-            $let: {
-              vars: {
-                pf: {
-                  $first: {
-                    $filter: {
-                      input: { $ifNull: [{ $objectToArray: '$$f.participantFrames' }, []] },
-                      as: 'kv',
-                      cond: { $eq: ['$$kv.k', '$$p'] },
+            pf: {
+              $first: {
+                $filter: {
+                  input: {
+                    $objectToArray: {
+                      $ifNull: ['$_snap.f10.participantFrames', {}],
                     },
                   },
+                  as: 'kv',
+                  cond: { $eq: ['$$kv.k', { $toString: '$_pId' }] },
                 },
               },
-              in: {
-                gold: { $ifNull: ['$$pf.v.totalGold', 0] },
-                cs: {
-                  $add: [
-                    { $ifNull: ['$$pf.v.minionsKilled', 0] },
-                    { $ifNull: ['$$pf.v.jungleMinionsKilled', 0] },
-                  ],
-                },
-              },
+            },
+          },
+          in: {
+            gold: { $ifNull: ['$$pf.v.totalGold', 0] },
+            cs: {
+              $add: [
+                { $ifNull: ['$$pf.v.minionsKilled', 0] },
+                { $ifNull: ['$$pf.v.jungleMinionsKilled', 0] },
+              ],
             },
           },
         },
@@ -104,35 +187,107 @@ export const playerChampRolePercentilesAggregation = (
       _at15: {
         $let: {
           vars: {
-            f: { $ifNull: [{ $arrayElemAt: ['$_frames', 15] }, {}] },
-            p: { $toString: '$_pId' },
-          },
-          in: {
-            $let: {
-              vars: {
-                pf: {
-                  $first: {
-                    $filter: {
-                      input: { $ifNull: [{ $objectToArray: '$$f.participantFrames' }, []] },
-                      as: 'kv',
-                      cond: { $eq: ['$$kv.k', '$$p'] },
+            pf: {
+              $first: {
+                $filter: {
+                  input: {
+                    $objectToArray: {
+                      $ifNull: ['$_snap.f15.participantFrames', {}],
                     },
                   },
-                },
-              },
-              in: {
-                gold: { $ifNull: ['$$pf.v.totalGold', 0] },
-                cs: {
-                  $add: [
-                    { $ifNull: ['$$pf.v.minionsKilled', 0] },
-                    { $ifNull: ['$$pf.v.jungleMinionsKilled', 0] },
-                  ],
+                  as: 'kv',
+                  cond: { $eq: ['$$kv.k', { $toString: '$_pId' }] },
                 },
               },
             },
           },
+          in: {
+            gold: { $ifNull: ['$$pf.v.totalGold', 0] },
+            cs: {
+              $add: [
+                { $ifNull: ['$$pf.v.minionsKilled', 0] },
+                { $ifNull: ['$$pf.v.jungleMinionsKilled', 0] },
+              ],
+            },
+          },
         },
       },
+      _events: { $ifNull: ['$_snap.events', []] },
+    },
+  },
+
+  {
+    $set: {
+      _firstCompletedItemSeconds: completedItemIds.length
+        ? {
+            $let: {
+              vars: {
+                purchases: {
+                  $filter: {
+                    input: '$_events',
+                    as: 'ev',
+                    cond: { $eq: ['$$ev.type', 'ITEM_PURCHASED'] },
+                  },
+                },
+              },
+              in: {
+                $let: {
+                  vars: {
+                    earliest: {
+                      $reduce: {
+                        input: '$$purchases',
+                        initialValue: null,
+                        in: {
+                          $let: {
+                            vars: {
+                              ts: { $ifNull: ['$$this.timestamp', null] },
+                            },
+                            in: {
+                              $cond: [
+                                {
+                                  $or: [
+                                    { $eq: ['$$value', null] },
+                                    {
+                                      $and: [
+                                        { $ne: ['$$ts', null] },
+                                        { $lt: ['$$ts', '$$value'] },
+                                      ],
+                                    },
+                                  ],
+                                },
+                                '$$ts',
+                                '$$value',
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  in: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$$earliest', null] },
+                          {
+                            $not: {
+                              $in: [
+                                { $type: '$$earliest' },
+                                ['double', 'int', 'long', 'decimal'],
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                      null,
+                      { $divide: ['$$earliest', 1000] },
+                    ],
+                  },
+                },
+              },
+            },
+          }
+        : null,
     },
   },
 
@@ -215,6 +370,7 @@ export const playerChampRolePercentilesAggregation = (
       kpmArr: { $push: { $ifNull: ['$kpm', 0] } },
       apmArr: { $push: { $ifNull: ['$apm', 0] } },
       deathsPerMinArr: { $push: { $ifNull: ['$deathsPerMin', 0] } },
+      firstItemCompletionArr: { $push: '$_firstCompletedItemSeconds' },
 
       avgKills: { $avg: '$info.participants.kills' },
       avgDeaths: { $avg: '$info.participants.deaths' },
@@ -237,6 +393,29 @@ export const playerChampRolePercentilesAggregation = (
       avgKpm: { $avg: '$kpm' },
       avgApm: { $avg: '$apm' },
       avgDeathsPerMin: { $avg: '$deathsPerMin' },
+      avgFirstItemCompletionTime: { $avg: '$_firstCompletedItemSeconds' },
+    },
+  },
+
+  {
+    $set: {
+      _firstItemCompletionArr: {
+        $filter: {
+          input: '$firstItemCompletionArr',
+          as: 'val',
+          cond: {
+            $and: [
+              { $ne: ['$$val', null] },
+              {
+                $in: [
+                  { $type: '$$val' },
+                  ['double', 'int', 'long', 'decimal'],
+                ],
+              },
+            ],
+          },
+        },
+      },
     },
   },
 
@@ -271,6 +450,13 @@ export const playerChampRolePercentilesAggregation = (
       avgKpm: { $round: ['$avgKpm', 3] },
       avgApm: { $round: ['$avgApm', 3] },
       avgDeathsPerMin: { $round: ['$avgDeathsPerMin', 3] },
+      avgFirstItemCompletionTime: {
+        $cond: [
+          { $ne: ['$avgFirstItemCompletionTime', null] },
+          { $round: ['$avgFirstItemCompletionTime', 2] },
+          null,
+        ],
+      },
 
       percentiles: {
         p50: {
@@ -358,6 +544,34 @@ export const playerChampRolePercentilesAggregation = (
               3,
             ],
           },
+          firstItemCompletionTime: {
+            $let: {
+              vars: { arr: '$_firstItemCompletionArr' },
+              in: {
+                $cond: [
+                  { $gt: [{ $size: '$$arr' }, 0] },
+                  {
+                    $round: [
+                      {
+                        $arrayElemAt: [
+                          {
+                            $percentile: {
+                              input: '$$arr',
+                              p: [0.5],
+                              method: 'approximate',
+                            },
+                          },
+                          0,
+                        ],
+                      },
+                      2,
+                    ],
+                  },
+                  null,
+                ],
+              },
+            },
+          },
         },
         p75: {
           kills: {
@@ -443,6 +657,34 @@ export const playerChampRolePercentilesAggregation = (
               { $arrayElemAt: [ { $percentile: { input: '$deathsPerMinArr', p: [0.75], method: 'approximate' } }, 0 ] },
               3,
             ],
+          },
+          firstItemCompletionTime: {
+            $let: {
+              vars: { arr: '$_firstItemCompletionArr' },
+              in: {
+                $cond: [
+                  { $gt: [{ $size: '$$arr' }, 0] },
+                  {
+                    $round: [
+                      {
+                        $arrayElemAt: [
+                          {
+                            $percentile: {
+                              input: '$$arr',
+                              p: [0.75],
+                              method: 'approximate',
+                            },
+                          },
+                          0,
+                        ],
+                      },
+                      2,
+                    ],
+                  },
+                  null,
+                ],
+              },
+            },
           },
         },
         p90: {
@@ -530,6 +772,34 @@ export const playerChampRolePercentilesAggregation = (
               3,
             ],
           },
+          firstItemCompletionTime: {
+            $let: {
+              vars: { arr: '$_firstItemCompletionArr' },
+              in: {
+                $cond: [
+                  { $gt: [{ $size: '$$arr' }, 0] },
+                  {
+                    $round: [
+                      {
+                        $arrayElemAt: [
+                          {
+                            $percentile: {
+                              input: '$$arr',
+                              p: [0.9],
+                              method: 'approximate',
+                            },
+                          },
+                          0,
+                        ],
+                      },
+                      2,
+                    ],
+                  },
+                  null,
+                ],
+              },
+            },
+          },
         },
         p95: {
           kills: {
@@ -616,6 +886,34 @@ export const playerChampRolePercentilesAggregation = (
               3,
             ],
           },
+          firstItemCompletionTime: {
+            $let: {
+              vars: { arr: '$_firstItemCompletionArr' },
+              in: {
+                $cond: [
+                  { $gt: [{ $size: '$$arr' }, 0] },
+                  {
+                    $round: [
+                      {
+                        $arrayElemAt: [
+                          {
+                            $percentile: {
+                              input: '$$arr',
+                              p: [0.95],
+                              method: 'approximate',
+                            },
+                          },
+                          0,
+                        ],
+                      },
+                      2,
+                    ],
+                  },
+                  null,
+                ],
+              },
+            },
+          },
         },
       },
     },
@@ -624,3 +922,4 @@ export const playerChampRolePercentilesAggregation = (
   // 10) Sort for stable ordering (single doc)
   { $sort: { championName: 1, role: 1 } },
 ];
+};

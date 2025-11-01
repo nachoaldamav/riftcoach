@@ -8,7 +8,22 @@ import type { Document } from 'mongodb';
  * - $lookup returns only frames[10], frames[15], and filtered events (<= 15m kills + all elite monsters),
  *   so we avoid reducing huge arrays in the main pipeline.
  */
-export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
+export const playerChampRoleStatsAggregation = (
+  puuid: string,
+  options?: { completedItemIds?: number[] },
+): Document[] => {
+  const completedItemIds = options?.completedItemIds ?? [];
+  const itemPurchaseCondition = completedItemIds.length
+    ? {
+        $and: [
+          { $eq: ['$$e.type', 'ITEM_PURCHASED'] },
+          { $in: ['$$e.itemId', completedItemIds] },
+          { $gte: [{ $ifNull: ['$$e.timestamp', -1] }, 0] },
+        ],
+      }
+    : false;
+
+  return [
   // 1) Index‑friendly predicate pushdown (participant + queue)
   {
     $match: {
@@ -106,6 +121,7 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
                             },
                           ],
                         },
+                        itemPurchaseCondition,
                       ],
                     },
                   },
@@ -243,6 +259,81 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
         },
       },
       _events: { $ifNull: ['$_snap.events', []] },
+    },
+  },
+
+  {
+    $set: {
+      _firstCompletedItemSeconds: completedItemIds.length
+        ? {
+            $let: {
+              vars: {
+                purchases: {
+                  $filter: {
+                    input: '$_events',
+                    as: 'ev',
+                    cond: { $eq: ['$$ev.type', 'ITEM_PURCHASED'] },
+                  },
+                },
+              },
+              in: {
+                $let: {
+                  vars: {
+                    earliest: {
+                      $reduce: {
+                        input: '$$purchases',
+                        initialValue: null,
+                        in: {
+                          $let: {
+                            vars: {
+                              ts: { $ifNull: ['$$this.timestamp', null] },
+                            },
+                            in: {
+                              $cond: [
+                                {
+                                  $or: [
+                                    { $eq: ['$$value', null] },
+                                    {
+                                      $and: [
+                                        { $ne: ['$$ts', null] },
+                                        { $lt: ['$$ts', '$$value'] },
+                                      ],
+                                    },
+                                  ],
+                                },
+                                '$$ts',
+                                '$$value',
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  in: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$$earliest', null] },
+                          {
+                            $not: {
+                              $in: [
+                                { $type: '$$earliest' },
+                                ['double', 'int', 'long', 'decimal'],
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                      null,
+                      { $divide: ['$$earliest', 1000] },
+                    ],
+                  },
+                },
+              },
+            },
+          }
+        : null,
     },
   },
 
@@ -653,6 +744,7 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
       avgDamageTakenShare: { $avg: '$damageTakenShare' },
       avgObjectiveParticipationPct: { $avg: '$objectiveParticipationPct' },
       earlyGankDeathRateSmart: { $avg: '$earlyGankDeathSmart' },
+      avgFirstItemCompletionTime: { $avg: '$_firstCompletedItemSeconds' },
     },
   },
 
@@ -687,6 +779,13 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
       avgKpm: { $round: ['$avgKpm', 3] },
       avgDeathsPerMin: { $round: ['$avgDeathsPerMin', 3] },
       avgApm: { $round: ['$avgApm', 3] },
+      avgFirstItemCompletionTime: {
+        $cond: [
+          { $ne: ['$avgFirstItemCompletionTime', null] },
+          { $round: ['$avgFirstItemCompletionTime', 2] },
+          null,
+        ],
+      },
       avgDamageShare: { $round: ['$avgDamageShare', 3] },
       avgDamageTakenShare: { $round: ['$avgDamageTakenShare', 3] },
       avgObjectiveParticipationPct: {
@@ -699,3 +798,4 @@ export const playerChampRoleStatsAggregation = (puuid: string): Document[] => [
   // 12) Sort by volume, then role
   { $sort: { totalMatches: -1, championName: 1, role: 1 } },
 ];
+};
