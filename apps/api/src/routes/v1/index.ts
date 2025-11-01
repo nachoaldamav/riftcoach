@@ -635,6 +635,18 @@ app.get(
     const championName = c.req.param('championName');
     const role = c.req.param('role');
 
+    // ---------- Cache (easy to purge on re-index) ----------
+    // Key pattern allows bulk deletion: `del cache:champion-insights:v2:${puuid}:*`
+    const cacheKey = `cache:champion-insights:v2:${account.puuid}:${championName}:${role}`;
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      try {
+        return c.json(JSON.parse(cached));
+      } catch (_) {
+        // If cache is corrupted, fall through and recompute
+      }
+    }
+
     const completedItemIds = await getCompletedItemIds();
 
     // Fetch player's champion-role stats and select the requested entry
@@ -681,7 +693,7 @@ app.get(
       playerPercentiles,
     );
 
-    return c.json({
+    const response = {
       championName,
       role,
       aiScore: ai?.aiScore ?? null,
@@ -690,7 +702,17 @@ app.get(
       cohort,
       playerPercentiles,
       insights,
-    });
+    };
+
+    // Cache for 1 hour; queues can invalidate on (re-)index
+    const ttlSeconds = Math.floor(ms('1h') / 1000);
+    try {
+      await redis.setex(cacheKey, ttlSeconds, JSON.stringify(response));
+    } catch (_) {
+      // Non-blocking: if redis fails, just return the response
+    }
+
+    return c.json(response);
   },
 );
 

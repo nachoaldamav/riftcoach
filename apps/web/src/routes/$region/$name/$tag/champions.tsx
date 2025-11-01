@@ -358,7 +358,7 @@ function ChampionsComponent() {
   return (
     <div className="space-y-6">
       {/* List */}
-      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg">
+      <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg py-0">
         <CardBody className="p-6 space-y-4">
           {isLoading || !championsData ? (
             <div className="animate-pulse space-y-4">
@@ -508,6 +508,9 @@ function ChampionRow({
     queryFn: async () => {
       const res = await http.get<ChampionRoleDetailResponse>(
         `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/champions/${encodeURIComponent(row.championName)}/${encodeURIComponent(row.role)}`,
+        {
+          timeout: 1000 * 60 * 5,
+        }
       );
       return res.data;
     },

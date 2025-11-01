@@ -174,6 +174,9 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
           const championMasteryKeys = await connection.keys(
             `cache:champion-mastery:v2:${rewindId}:*`,
           );
+          const champInsightsKeys = await connection.keys(
+            `cache:champion-insights:v2:${rewindId}:*`,
+          );
 
           if (recentMatchKeys.length > 0) {
             await connection.del(...recentMatchKeys);
@@ -181,10 +184,13 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
           if (championMasteryKeys.length > 0) {
             await connection.del(...championMasteryKeys);
           }
+          if (champInsightsKeys.length > 0) {
+            await connection.del(...champInsightsKeys);
+          }
 
           consola.info(
             chalk.yellow(
-              `Deleted ${recentMatchKeys.length + championMasteryKeys.length} cache keys`,
+              `Deleted ${recentMatchKeys.length + championMasteryKeys.length + champInsightsKeys.length} cache keys`,
             ),
           );
 
@@ -293,12 +299,18 @@ const workerFn = async (job: Job<MergedJobOptions>) => {
           const championMasteryKeys = await connection.keys(
             `cache:champion-mastery:v2:${rewindId}:*`,
           );
+          const champInsightsKeys = await connection.keys(
+            `cache:champion-insights:v2:${rewindId}:*`,
+          );
 
           if (recentMatchKeys.length > 0) {
             await connection.del(...recentMatchKeys);
           }
           if (championMasteryKeys.length > 0) {
             await connection.del(...championMasteryKeys);
+          }
+          if (champInsightsKeys.length > 0) {
+            await connection.del(...champInsightsKeys);
           }
 
           // Remove from visual queue

@@ -1,4 +1,4 @@
-import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { ConverseCommand, type Message } from '@aws-sdk/client-bedrock-runtime';
 import chalk from 'chalk';
 import consola from 'consola';
 import { bedrockClient } from '../clients/bedrock.js';
@@ -22,11 +22,36 @@ export type ChampionRoleInsightResult = {
   weaknesses: string[];
 };
 
-function buildPrompt(
+// In-memory cache and inflight de-duplication to avoid redundant Bedrock calls
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const insightCache = new Map<string, { ts: number; result: ChampionRoleInsightResult }>();
+const inflightRequests = new Map<string, Promise<ChampionRoleInsightResult>>();
+
+function buildCacheKey(
   stats: ChampionRoleStats,
   cohort: CohortPercentilesDoc | null,
   player: PlayerPercentilesDoc | null,
 ): string {
+  return JSON.stringify({ stats, cohort, player });
+}
+
+// Extract plain text from Bedrock converse message
+function extractTextFromMessage(message: Message | undefined): string {
+  if (!message?.content) return '';
+  const textBlocks = message.content
+    .map((block) => ('text' in block && block.text ? block.text : null))
+    .filter((v): v is string => typeof v === 'string');
+  const raw = textBlocks
+    .join('\n')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
+  return raw.replace('```json', '').replace('```', '').trim();
+}
+
+function buildPrompts(
+  stats: ChampionRoleStats,
+  cohort: CohortPercentilesDoc | null,
+  player: PlayerPercentilesDoc | null,
+): { systemPrompt: string; userPrompt: string } {
   const percentiles = cohort?.percentiles ?? null;
   const playerPercentiles = player?.percentiles ?? null;
   // Controlled lexicon and numeric guardrails
@@ -375,49 +400,35 @@ function buildPrompt(
     lexicon,
   };
 
-  return `You are a supportive League of Legends coach. Give a concise, human, friendly analysis of the player's performance on ${stats.championName} (${stats.role}). Use the cohort percentiles only to calibrate comparisons internally — do not mention the words "percentile", "p75", "p90", or "cohort" in the output. Prefer plain-English phrases and helpful context.
+  const schemaHint = [
+    'Return STRICT JSON matching:',
+    '{',
+    '  "summary": string',
+    '  "strengths": string[] (max 3)',
+    '  "weaknesses": string[] (max 3)',
+    '}',
+  ].join('\n');
 
-Return ONLY valid JSON:
-{
-  "summary": "One-sentence overview in plain English",
-  "strengths": ["Human-friendly insight with simple numbers"],
-  "weaknesses": ["Human-friendly insight with simple numbers"]
-}
+  const systemPrompt = [
+    'You are RiftCoach, a League of Legends coaching assistant.',
+    'Use ONLY the provided player data. If data is missing, say so and avoid fabrications.',
+    'Speak directly to the player using "you".',
+    'Treat "average" as the typical midpoint level (internally use p50). Do not mention percentiles or cohort terms.',
+    'For negative metrics (deathsPerMin, dtpm, firstItemCompletionTime): higher = worse; lower = better.',
+    'For timing metrics: shorter is better; never infer build quality solely from timing; avoid "suboptimal builds".',
+    'Use lexicon.metricLabels for names; apm = "Assists per minute" (never "key presses per minute").',
+    'Cite at most one key metric per bullet; keep bullets to 1–2 short sentences.',
+    'Limit strengths/weaknesses to max 3 each.',
+    'Return STRICT JSON only. No markdown, no explanations.',
+    schemaHint,
+  ].join('\n');
 
-Style and rules:
-  - Speak directly to the player using "you".
-  - Treat "average" as the typical midpoint level (not the mean). Internally use p50 as the cohort's midpoint reference, but do not say "median" or other statistical terms.
-  - If a metric is just below the midpoint (slightly under p50), avoid saying "below average". Prefer gentler phrasing like "slightly below typical levels" or "a bit behind most players".
-  - It's ok if a player does not have any weaknesses, just say "no weaknesses".
-  - Translate percentile comparisons into everyday phrases:
-    - ≥ p95: "best-in-class", "among the very top"
-    - p90–p95: "elite"
-    - p75–p90: "strong", "better than most players"
-    - p50–p75: "solid", "slightly above average"
-    - p25–p50: "about average"
-    - < p25: "needs improvement", "below most players"
-  - Do NOT use technical terms like "percentile", "p75/p90", or "cohort" in the output.
-  - Use lexicon.metricLabels for metric names; apm = "Assists per minute" (never "key presses per minute").
-  - Use comparisons[metric] for judgments: rely on directionRelativeToP50 and band.
-  - comparisons[metric].summaryText already converts the percentile math into natural language—use it to keep statements precise.
-  - Treat near_p50 (abs delta < 3%) as "about average".
-  - For negative metrics (deathsPerMin, dtpm, firstItemCompletionTime): higher = worse, lower = better.
-  - For time metrics like "First item completion time":
-    - Shorter times are better; if your time is lower than the typical level, highlight it as a strength.
-    - Never present a faster first item as a weakness, and do not recommend slowing down your first item timing.
-    - Do not infer build quality from timing alone; avoid phrases like "suboptimal builds".
-  - derived.riskProfile tells you whether heavy damage intake is controlled ('absorbsPressureWell'), neutral ('tradesEvenly'), or reckless ('overextending'); highlight this when appropriate.
-  - If derived.killHunting === 'killSeeker', point out that the player is tunnel-visioning on kills and should protect their life bar.
-  - Cite at most one key metric per bullet.
-  - Prefer clean numbers: round decimals; convert rates to intuitive units (e.g., say "about one death every 7–8 minutes" using derived.minutesPerDeath).
-  - Keep each bullet to 1–2 short sentences. Limit to max 3 strengths and 3 weaknesses.
-  - If data is insufficient for a metric, say so instead of guessing.
-  - Avoid using total CS per game because match length varies; prefer CS at 10/15 minutes (provided) and per-minute metrics if present.
-   - Avoid using total CS per game because match length varies; prefer CS per minute (CSPM, provided) and CS at 10/15 minutes.
+  const userPrompt = [
+    'Player data (JSON):',
+    JSON.stringify(payload),
+  ].join('\n');
 
-Player data:
-${JSON.stringify(payload, null, 2)}
-`;
+  return { systemPrompt, userPrompt };
 }
 
 export async function generateChampionRoleInsights(
@@ -425,57 +436,135 @@ export async function generateChampionRoleInsights(
   cohort: CohortPercentilesDoc | null,
   player: PlayerPercentilesDoc | null,
 ): Promise<ChampionRoleInsightResult> {
-  try {
-    const prompt = buildPrompt(stats, cohort, player);
-    const command = new InvokeModelCommand({
-      modelId: 'mistral.mixtral-8x7b-instruct-v0:1',
-      contentType: 'application/json',
-      body: JSON.stringify({
-        prompt: `<s>[INST] ${prompt} [/INST]`,
-        max_tokens: 1500,
-        temperature: 0.2,
-        top_p: 0.9,
-        top_k: 50,
-      }),
-    });
-
-    const response = await bedrockClient.send(command);
-    if (!response.body) throw new Error('No response body from Bedrock');
-
-    const raw = JSON.parse(
-      new TextDecoder().decode(response.body as Uint8Array),
-    );
-    const text: string = raw.outputs?.[0]?.text ?? '{}';
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    const json = start !== -1 && end !== -1 ? text.slice(start, end + 1) : text;
-    const parsed = JSON.parse(json) as Partial<ChampionRoleInsightResult>;
-
-    const summary =
-      typeof parsed.summary === 'string'
-        ? parsed.summary
-        : `Performance review for ${stats.championName} (${stats.role}).`;
-
-    const strengths = Array.isArray(parsed.strengths)
-      ? parsed.strengths.slice(0, 3).map((s) => String(s))
-      : [];
-
-    const weaknesses = Array.isArray(parsed.weaknesses)
-      ? parsed.weaknesses.slice(0, 3).map((s) => String(s))
-      : [];
-
-    return { summary, strengths, weaknesses };
-  } catch (error) {
-    const err = error as Error;
-    consola.error(
-      chalk.red('[champion-role-insights] Failed to generate AI insights'),
-      err.message,
-    );
-
-    return {
-      summary: `With ${stats.totalMatches} games and ${(stats.winRate * 100).toFixed(1)}% win rate on ${stats.championName} (${stats.role}), additional insights are unavailable.`,
-      strengths: [],
-      weaknesses: [],
-    };
+  const cacheKey = buildCacheKey(stats, cohort, player);
+  const cached = insightCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.result;
   }
+
+  if (inflightRequests.has(cacheKey)) {
+    return await inflightRequests.get(cacheKey)!;
+  }
+
+  const work = (async (): Promise<ChampionRoleInsightResult> => {
+    try {
+      const { systemPrompt, userPrompt } = buildPrompts(stats, cohort, player);
+      const messages: Message[] = [
+        { role: 'user', content: [{ text: userPrompt }] },
+      ];
+      let finalMessage: Message | undefined;
+
+      // Mirror match-insights: multi-turn loop until we get a text block
+      const MAX_ITERATIONS = 3;
+      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        const command = new ConverseCommand({
+          modelId: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
+          system: [{ text: systemPrompt }],
+          messages,
+          inferenceConfig: { maxTokens: 3000 },
+          additionalModelRequestFields: {
+            reasoning_config: { type: 'enabled', budget_tokens: 1024 },
+          },
+        });
+
+        // Simple retry for Bedrock rate limits (single retry)
+        let response: any;
+        const maxAttempts = 2;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          try {
+            response = await bedrockClient.send(command);
+            break;
+          } catch (err) {
+            const msg = (err as Error)?.message || '';
+            if (msg.toLowerCase().includes('too many requests') && attempt < maxAttempts - 1) {
+              const delayMs = 500;
+              consola.warn('[champion-role-insights] rate limited, retrying', { attempt: attempt + 1, delayMs });
+              await new Promise((res) => setTimeout(res, delayMs));
+              continue;
+            }
+            throw err;
+          }
+        }
+
+        const assistantMessage =
+          response.output && 'message' in response.output
+            ? (response.output.message as Message)
+            : undefined;
+        if (!assistantMessage) throw new Error('No assistant message received');
+        const contentBlocks = assistantMessage.content ?? [];
+        const hasText = contentBlocks.some(
+          (block) => 'text' in block && typeof (block as any).text === 'string' && (block as any).text.trim().length > 0,
+        );
+        const endsWithThinking =
+          contentBlocks.length > 0 && ('reasoningContent' in contentBlocks[contentBlocks.length - 1]);
+
+        // If the assistant produced text, capture and exit
+        if (hasText) {
+          messages.push(assistantMessage);
+          finalMessage = assistantMessage;
+          break;
+        }
+
+        // If the assistant responded only with reasoning, DO NOT add it to messages.
+        // Nudge with a brief user reminder to return strict JSON.
+        if (!hasText && endsWithThinking) {
+          messages.push({
+            role: 'user',
+            content: [{ text: 'Return STRICT JSON matching the requested schema. No markdown, no explanations.' }],
+          });
+          continue;
+        }
+
+        // Fallback: if no usable text and not thinking-only, gently remind again
+        messages.push({
+          role: 'user',
+          content: [{ text: 'Please provide the JSON output now.' }],
+        });
+        continue;
+      }
+
+      if (!finalMessage) finalMessage = messages[messages.length - 1];
+
+      const aiText = extractTextFromMessage(finalMessage) || '{}';
+      consola.debug('[champion-role-insights] AI response (truncated)', aiText.slice(0, 400));
+
+      const start = aiText.indexOf('{');
+      const end = aiText.lastIndexOf('}');
+      const json = start !== -1 && end !== -1 ? aiText.slice(start, end + 1) : aiText;
+      const parsed = JSON.parse(json) as Partial<ChampionRoleInsightResult>;
+
+      const summary =
+        typeof parsed.summary === 'string'
+          ? parsed.summary
+          : `Performance review for ${stats.championName} (${stats.role}).`;
+
+      const strengths = Array.isArray(parsed.strengths)
+        ? parsed.strengths.slice(0, 3).map((s) => String(s))
+        : [];
+
+      const weaknesses = Array.isArray(parsed.weaknesses)
+        ? parsed.weaknesses.slice(0, 3).map((s) => String(s))
+        : [];
+
+      return { summary, strengths, weaknesses };
+    } catch (error) {
+      const err = error as Error;
+      consola.error(
+        chalk.red('[champion-role-insights] Failed to generate AI insights'),
+        err.message,
+      );
+
+      return {
+        summary: `With ${stats.totalMatches} games and ${(stats.winRate * 100).toFixed(1)}% win rate on ${stats.championName} (${stats.role}), additional insights are unavailable.`,
+        strengths: [],
+        weaknesses: [],
+      };
+    }
+  })();
+
+  inflightRequests.set(cacheKey, work);
+  const result = await work;
+  inflightRequests.delete(cacheKey);
+  insightCache.set(cacheKey, { ts: Date.now(), result });
+  return result;
 }
