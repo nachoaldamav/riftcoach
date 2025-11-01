@@ -432,7 +432,7 @@ export async function generateChampionRoleInsights(
       contentType: 'application/json',
       body: JSON.stringify({
         prompt: `<s>[INST] ${prompt} [/INST]`,
-        max_tokens: 800,
+        max_tokens: 1500,
         temperature: 0.2,
         top_p: 0.9,
         top_k: 50,
