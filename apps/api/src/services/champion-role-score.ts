@@ -31,6 +31,7 @@ export type ChampionRoleStats = {
   avgDamageTakenShare?: number;
   avgObjectiveParticipationPct?: number;
   earlyGankDeathRateSmart?: number;
+  avgFirstItemCompletionTime?: number | null;
 };
 
 type PercentilesDoc = ChampionRoleStats & {
@@ -85,6 +86,7 @@ function buildPrompt(
       damageTakenShare: stats.avgDamageTakenShare ?? null,
       objectivePartPct: stats.avgObjectiveParticipationPct ?? null,
       earlyGankDeathRate: stats.earlyGankDeathRateSmart ?? null,
+      firstItemCompletionTime: stats.avgFirstItemCompletionTime ?? null,
     },
     percentiles: dist?.percentiles ?? null,
   }));
@@ -163,6 +165,7 @@ async function invokeAIScoring(prompt: string): Promise<ChampionRoleAIScore[]> {
 export async function generateChampionRoleAIScores(
   puuid: string,
   rows: ChampionRoleStats[],
+  options?: { completedItemIds?: number[] },
 ): Promise<ChampionRoleAIScore[]> {
   try {
     // Fetch percentiles per champion-role (for current page only)
@@ -175,6 +178,7 @@ export async function generateChampionRoleAIScores(
               puuid,
               r.championName,
               r.role,
+              { completedItemIds: options?.completedItemIds },
             ),
             { allowDiskUse: true },
           )

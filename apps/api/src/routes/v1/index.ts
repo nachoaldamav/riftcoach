@@ -54,6 +54,7 @@ import {
   resolveItemNames,
 } from '../../utils/ddragon-items.js';
 import { deriveSynergy } from '../../utils/synergy.js';
+import { getCompletedItemIds } from '../../utils/completed-items.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
@@ -582,8 +583,12 @@ app.get(
     );
     const skip = (page - 1) * pageSize;
 
+    const completedItemIds = await getCompletedItemIds();
+
     // Base aggregation returns champion-role stats grouped by champion and normalized role
-    const fullAgg = playerChampRoleStatsAggregation(account.puuid);
+    const fullAgg = playerChampRoleStatsAggregation(account.puuid, {
+      completedItemIds,
+    });
 
     // Count total distinct champion-role rows with a $facet to avoid re-running aggregation twice
     const facetPipeline = [
@@ -630,8 +635,12 @@ app.get(
     const championName = c.req.param('championName');
     const role = c.req.param('role');
 
+    const completedItemIds = await getCompletedItemIds();
+
     // Fetch player's champion-role stats and select the requested entry
-    const statsAgg = playerChampRoleStatsAggregation(account.puuid);
+    const statsAgg = playerChampRoleStatsAggregation(account.puuid, {
+      completedItemIds,
+    });
     const aggCursor = collections.matches.aggregate<ChampionRoleStats>(
       statsAgg,
       { allowDiskUse: true },
@@ -650,14 +659,15 @@ app.get(
 
     // Defer to AI scoring service for single champion-role
     const [cohort, aiScores, playerPercentilesDocs] = await Promise.all([
-      fetchCohortPercentiles(championName, role),
-      generateChampionRoleAIScores(account.puuid, [target]),
+      fetchCohortPercentiles(championName, role, { completedItemIds }),
+      generateChampionRoleAIScores(account.puuid, [target], { completedItemIds }),
       collections.matches
         .aggregate<PlayerPercentilesDoc>(
           playerChampRolePercentilesAggregation(
             account.puuid,
             championName,
             role,
+            { completedItemIds },
           ),
           { allowDiskUse: true },
         )

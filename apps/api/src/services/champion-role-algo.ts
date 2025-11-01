@@ -8,6 +8,7 @@ import {
 } from '../aggregations/cohortChampionRolePercentiles.js';
 import { redis } from '../clients/redis.js';
 import type { ChampionRoleStats } from './champion-role-score.js';
+import { getCompletedItemIds } from '../utils/completed-items.js';
 
 export type CohortPercentilesDoc = {
   championName: string;
@@ -194,6 +195,7 @@ export function computeChampionRoleAlgoScore(
 
 export async function fetchBulkCohortPercentiles(
   requests: Array<{ championName: string; role: string }>,
+  options?: { completedItemIds?: number[] },
 ): Promise<Array<CohortPercentilesDoc | null>> {
   try {
     // Group unique champion-role combinations to avoid duplicate queries
@@ -202,6 +204,9 @@ export async function fetchBulkCohortPercentiles(
         requests.map((req) => [`${req.championName}:${req.role}`, req]),
       ).values(),
     );
+
+    const completedItemIds =
+      options?.completedItemIds ?? (await getCompletedItemIds());
 
     // Try to get as many as possible from cache first
     const cacheKeys = uniqueRequests.map(
@@ -271,6 +276,7 @@ export async function fetchBulkCohortPercentiles(
                 winsOnly: false,
                 sampleLimit: 100,
                 sortDesc: true,
+                completedItemIds,
               });
 
               const start = Date.now();
@@ -331,7 +337,9 @@ export async function fetchBulkCohortPercentiles(
     consola.warn('[champion-role-algo] bulk cohort percentiles failed', e);
     // Fallback to individual fetches
     return Promise.all(
-      requests.map((req) => fetchCohortPercentiles(req.championName, req.role)),
+      requests.map((req) =>
+        fetchCohortPercentiles(req.championName, req.role, { completedItemIds }),
+      ),
     );
   }
 }
@@ -339,6 +347,7 @@ export async function fetchBulkCohortPercentiles(
 export async function fetchCohortPercentiles(
   championName: string,
   role: string,
+  options?: { completedItemIds?: number[] },
 ): Promise<CohortPercentilesDoc | null> {
   try {
     // Simple cache keyed by champion-role and fixed cohort parameters
@@ -358,6 +367,9 @@ export async function fetchCohortPercentiles(
     const startTs = Date.UTC(2025, 0, 1);
     const endTs = Date.UTC(2026, 0, 1);
 
+    const completedItemIds =
+      options?.completedItemIds ?? (await getCompletedItemIds());
+
     const pipeline = cohortChampionRolePercentilesAggregation({
       championName,
       role,
@@ -366,6 +378,7 @@ export async function fetchCohortPercentiles(
       winsOnly: false,
       sampleLimit: 1000,
       sortDesc: true,
+      completedItemIds,
     });
     consola.debug(
       '[champion-role-algo] getting cohorts for',

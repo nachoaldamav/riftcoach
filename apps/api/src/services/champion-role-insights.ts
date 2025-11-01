@@ -52,6 +52,7 @@ function buildPrompt(
       csAt15: 'CS at 15',
       kda: 'KDA',
       winRate: 'Win Rate',
+      firstItemCompletionTime: 'First item completion time',
     },
     bannedPhrases: [
       'key presses per minute',
@@ -61,7 +62,7 @@ function buildPrompt(
       'cohort',
       'median',
     ],
-    negativeMetrics: ['deathsPerMin', 'dtpm'],
+    negativeMetrics: ['deathsPerMin', 'dtpm', 'firstItemCompletionTime'],
   } as const;
 
   const getNumber = (v: unknown): number | null =>
@@ -91,6 +92,7 @@ function buildPrompt(
     damageTakenShare: getNumber(stats.avgDamageTakenShare),
     objectiveParticipationPct: getNumber(stats.avgObjectiveParticipationPct),
     earlyGankDeathRate: getNumber(stats.earlyGankDeathRateSmart),
+    firstItemCompletionTime: getNumber(stats.avgFirstItemCompletionTime),
   };
 
   const minutesPerDeath =
@@ -147,6 +149,7 @@ function buildPrompt(
     'goldAt15',
     'csAt15',
     'kda',
+    'firstItemCompletionTime',
   ];
 
   const comparisons: Record<

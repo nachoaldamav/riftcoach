@@ -48,6 +48,7 @@ type ChampionRoleStatItem = {
   avgDamageTakenShare?: number;
   avgObjectiveParticipationPct?: number;
   earlyGankDeathRateSmart?: number;
+  avgFirstItemCompletionTime?: number | null;
   aiScore?: number;
 };
 
@@ -154,6 +155,14 @@ const normalizeChampionName = (name: string): string => {
   };
 
   return nameMapping[normalized] || normalized;
+};
+
+const formatSecondsAsClock = (value: number | undefined | null) => {
+  if (value === undefined || value === null || Number.isNaN(value)) return '—';
+  const totalSeconds = Math.max(0, value);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds - minutes * 60);
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 };
 
 // Boots classification helpers
@@ -753,6 +762,13 @@ function ChampionRow({
       digits: 3,
       invert: true,
     },
+    {
+      label: 'First Item Timing',
+      value: statsSource.avgFirstItemCompletionTime ?? undefined,
+      key: 'firstItemCompletionTime',
+      invert: true,
+      format: formatSecondsAsClock,
+    },
   ];
 
   return (
@@ -994,6 +1010,18 @@ function ChampionRow({
                                 percentiles,
                                 metric.invert,
                               );
+                              const playerDisplay =
+                                metric.format?.(metric.value) ??
+                                formatValue(metric.value, {
+                                  digits: metric.digits,
+                                  percent: metric.percent,
+                                });
+                              const formatPercentile = (val?: number) =>
+                                metric.format?.(val) ??
+                                formatValue(val, {
+                                  digits: metric.digits,
+                                  percent: metric.percent,
+                                });
                               return (
                                 <tr
                                   key={metric.label}
@@ -1004,11 +1032,7 @@ function ChampionRow({
                                   </td>
                                   <td className="px-3 py-2">
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <span>
-                                        {formatValue(metric.value, {
-                                          digits: metric.digits,
-                                        })}
-                                      </span>
+                                      <span>{playerDisplay}</span>
                                       {evaluation ? (
                                         <Badge className={evaluation.className}>
                                           {evaluation.label}
@@ -1017,19 +1041,13 @@ function ChampionRow({
                                     </div>
                                   </td>
                                   <td className="px-3 py-2">
-                                    {formatValue(percentiles?.p50, {
-                                      digits: metric.digits,
-                                    })}
+                                    {formatPercentile(percentiles?.p50)}
                                   </td>
                                   <td className="px-3 py-2">
-                                    {formatValue(percentiles?.p75, {
-                                      digits: metric.digits,
-                                    })}
+                                    {formatPercentile(percentiles?.p75)}
                                   </td>
                                   <td className="px-3 py-2">
-                                    {formatValue(percentiles?.p90, {
-                                      digits: metric.digits,
-                                    })}
+                                    {formatPercentile(percentiles?.p90)}
                                   </td>
                                 </tr>
                               );
