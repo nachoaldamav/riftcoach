@@ -1,16 +1,8 @@
 import { http } from '@/clients/http';
-import { useDataDragon } from '@/providers/data-dragon-provider';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Command,
   CommandEmpty,
@@ -19,11 +11,22 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useDataDragon } from '@/providers/data-dragon-provider';
 import { useQuery } from '@tanstack/react-query';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
-import { Clock } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/$region/$name/$tag/matches')({
@@ -124,7 +127,7 @@ function MatchesComponent() {
   );
   const [isChampionPickerOpen, setIsChampionPickerOpen] = useState(false);
   const [page, setPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(10);
+  const pageSize = 10;
 
   const championList = useMemo(
     () =>
@@ -137,7 +140,8 @@ function MatchesComponent() {
   const selectedChampion = useMemo(
     () =>
       selectedChampionKey
-        ? championList.find((champ) => champ.key === selectedChampionKey) ?? null
+        ? (championList.find((champ) => champ.key === selectedChampionKey) ??
+          null)
         : null,
     [championList, selectedChampionKey],
   );
@@ -183,24 +187,19 @@ function MatchesComponent() {
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(filteredMatches.length / pageSize)),
-    [filteredMatches.length, pageSize],
+    [filteredMatches.length],
   );
 
   const paginatedMatches = useMemo(() => {
     const start = (page - 1) * pageSize;
     return filteredMatches.slice(start, start + pageSize);
-  }, [filteredMatches, page, pageSize]);
+  }, [filteredMatches, page]);
 
   // Clamp page within available range
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
     if (page < 1) setPage(1);
   }, [totalPages, page]);
-
-  const formatGameDuration = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}m`;
-  };
 
   const getTimeAgo = (timestamp: number) => {
     const now = Date.now();
@@ -251,7 +250,9 @@ function MatchesComponent() {
               >
                 <SelectTrigger className="h-10 w-full border-neutral-700 bg-neutral-800/70 text-neutral-100">
                   {(() => {
-                    const role = ROLE_OPTIONS.find((r) => r.key === selectedRole);
+                    const role = ROLE_OPTIONS.find(
+                      (r) => r.key === selectedRole,
+                    );
                     if (!role) {
                       return <SelectValue placeholder="Role" />;
                     }
@@ -259,7 +260,11 @@ function MatchesComponent() {
                     return (
                       <div className="flex items-center gap-2">
                         {iconUrl ? (
-                          <img src={iconUrl} alt={role.label} className="h-4 w-4" />
+                          <img
+                            src={iconUrl}
+                            alt={role.label}
+                            className="h-4 w-4"
+                          />
                         ) : null}
                         <span>{role.label}</span>
                       </div>
@@ -273,7 +278,11 @@ function MatchesComponent() {
                       <SelectItem key={role.key} value={role.key}>
                         <div className="flex items-center gap-2">
                           {iconUrl ? (
-                            <img src={iconUrl} alt={role.label} className="h-4 w-4" />
+                            <img
+                              src={iconUrl}
+                              alt={role.label}
+                              className="h-4 w-4"
+                            />
                           ) : null}
                           <span>{role.label}</span>
                         </div>
@@ -299,7 +308,10 @@ function MatchesComponent() {
                       <span className="flex items-center gap-2">
                         <Avatar className="h-6 w-6 rounded-lg border border-neutral-700">
                           <AvatarImage
-                            src={getChampionImageUrl(selectedChampion.id, 'square')}
+                            src={getChampionImageUrl(
+                              selectedChampion.id,
+                              'square',
+                            )}
                             alt={selectedChampion.name}
                           />
                         </Avatar>
