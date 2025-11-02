@@ -5,7 +5,10 @@ import type { Item } from '@riftcoach/shared.lol-types';
 import consola from 'consola';
 import type { Document } from 'mongodb';
 import { bedrockClient } from '../clients/bedrock.js';
-import { getChampionMap, findChampionByName } from '../utils/ddragon-champions.js';
+import {
+  findChampionByName,
+  getChampionMap,
+} from '../utils/ddragon-champions.js';
 import type { ChampionMapById } from '../utils/ddragon-champions.js';
 
 // Types
@@ -130,7 +133,10 @@ interface BuildOrderEntry {
 }
 
 // --- Item stat/tag helpers for grounding and validation ---
-function getStat(stats: Record<string, number> | null | undefined, keys: string[]): number | null {
+function getStat(
+  stats: Record<string, number> | null | undefined,
+  keys: string[],
+): number | null {
   if (!stats) return null;
   for (const k of keys) {
     const v = stats[k];
@@ -143,43 +149,63 @@ function itemProvidesArmor(item: ItemData | null | undefined): boolean {
   if (!item) return false;
   const fromStats = getStat(item.stats, ['Armor', 'FlatArmorMod']);
   const fromTags = Array.isArray(item.tags) && item.tags.includes('Armor');
-  const byDesc = typeof item.description === 'string' && /\barmor\b/i.test(item.description);
+  const byDesc =
+    typeof item.description === 'string' && /\barmor\b/i.test(item.description);
   return Boolean(fromStats) || fromTags || byDesc;
 }
 
 function itemProvidesMR(item: ItemData | null | undefined): boolean {
   if (!item) return false;
-  const fromStats = getStat(item.stats, ['MagicResist', 'SpellBlock', 'FlatSpellBlockMod']);
-  const fromTags = Array.isArray(item.tags) && (item.tags.includes('SpellBlock') || item.tags.includes('MagicResist'));
-  const byDesc = typeof item.description === 'string' && /\bmagic resist|spell block\b/i.test(item.description);
+  const fromStats = getStat(item.stats, [
+    'MagicResist',
+    'SpellBlock',
+    'FlatSpellBlockMod',
+  ]);
+  const fromTags =
+    Array.isArray(item.tags) &&
+    (item.tags.includes('SpellBlock') || item.tags.includes('MagicResist'));
+  const byDesc =
+    typeof item.description === 'string' &&
+    /\bmagic resist|spell block\b/i.test(item.description);
   return Boolean(fromStats) || fromTags || byDesc;
 }
 
 function itemProvidesAP(item: ItemData | null | undefined): boolean {
   if (!item) return false;
   const fromStats = getStat(item.stats, ['AbilityPower', 'FlatMagicDamageMod']);
-  const fromTags = Array.isArray(item.tags) && (item.tags.includes('SpellDamage') || item.tags.includes('Mage')); // SpellDamage often marks AP items
+  const fromTags =
+    Array.isArray(item.tags) &&
+    (item.tags.includes('SpellDamage') || item.tags.includes('Mage')); // SpellDamage often marks AP items
   return Boolean(fromStats) || fromTags;
 }
 
 function itemProvidesAD(item: ItemData | null | undefined): boolean {
   if (!item) return false;
-  const fromStats = getStat(item.stats, ['AttackDamage', 'FlatPhysicalDamageMod']);
-  const fromTags = Array.isArray(item.tags) && (item.tags.includes('Damage') || item.tags.includes('Marksman'));
+  const fromStats = getStat(item.stats, [
+    'AttackDamage',
+    'FlatPhysicalDamageMod',
+  ]);
+  const fromTags =
+    Array.isArray(item.tags) &&
+    (item.tags.includes('Damage') || item.tags.includes('Marksman'));
   return Boolean(fromStats) || fromTags;
 }
 
 function itemProvidesHaste(item: ItemData | null | undefined): boolean {
   if (!item) return false;
   const fromStats = getStat(item.stats, ['AbilityHaste']);
-  const byDesc = typeof item.description === 'string' && /ability haste/i.test(item.description || '');
+  const byDesc =
+    typeof item.description === 'string' &&
+    /ability haste/i.test(item.description || '');
   return Boolean(fromStats) || byDesc;
 }
 
 function itemProvidesHealth(item: ItemData | null | undefined): boolean {
   if (!item) return false;
   const fromStats = getStat(item.stats, ['Health', 'FlatHPMod']);
-  const byDesc = typeof item.description === 'string' && /\bhealth\b/i.test(item.description || '');
+  const byDesc =
+    typeof item.description === 'string' &&
+    /\bhealth\b/i.test(item.description || '');
   return Boolean(fromStats) || byDesc;
 }
 
@@ -197,8 +223,10 @@ function summarizeItem(item: ItemData | null | undefined): string {
   if (itemProvidesAP(item)) parts.push('Ability Power');
   if (itemProvidesHaste(item)) parts.push('Ability Haste');
   if (itemProvidesHealth(item)) parts.push('Health');
-  if (Array.isArray(item.tags) && item.tags.includes('Boots')) parts.push('Boots');
-  if (Array.isArray(item.tags) && item.tags.includes('Spellblade')) parts.push('Spellblade');
+  if (Array.isArray(item.tags) && item.tags.includes('Boots'))
+    parts.push('Boots');
+  if (Array.isArray(item.tags) && item.tags.includes('Spellblade'))
+    parts.push('Spellblade');
   return `${item.name}: ${parts.length > 0 ? parts.join(', ') : 'no core stats detected'}${item.group ? ` | group: ${item.group}` : ''}`;
 }
 
@@ -1051,6 +1079,18 @@ Hard rules:
   • Only replace tier-3 boots with tier-3 boots; NEVER upgrade from tier-2 to tier-3.
   • Cassiopeia cannot buy Boots; ignore boots recommendations for her.
 - Pickrate guidance: Use pickrate as guidance, not a mandate; adapt to match context (enemy damage profile, CC/healing/shielding, champion role/kit, and game state). Example (non-extensive): vs full AP team, avoid armor stacking for K'Sante; prefer MR-oriented choices.
+  • Deviation policy:
+    - Default: stay in-population for the current purchase position (see Time-Sorted Build Columns).
+    - You may deviate ONLY if at least one strong trigger is present:
+      1) enemy healing high AND team lacks anti-heal,
+      2) enemy CC high AND subject lacks tenacity/QSS,
+      3) enemy damage skewed (≥65% AP or ≥65% AD) AND subject has 0 items vs that type,
+      4) single fed enemy carry,
+      5) subject is behind and needs cheap spike.
+    - If no trigger → pick the top viable item from the SAME column.
+    - Prefer small, intra-archetype swaps over rebuilding the core.
+    - Avoid item groups conflicting with each other (e.g., multiple Lifeline, multiple Manaflow).
+  - Respect existing good/contextual items on the subject; do NOT replace correct boots or correct defense.
 - Tank early defense match: If the subject is a tank/frontliner (e.g., K'Sante), the FIRST TWO purchases must counter the lane enemy damage type:
   • Vs AP-heavy teams: prioritize MR boots and an MR defensive item before armor choices.
   • Vs AD-heavy teams: prioritize armor boots and an armor defensive item before MR choices.
@@ -1184,7 +1224,12 @@ ${orderSummary}
 Task:
 - Recommend a PURCHASE ORDER (1..N) tailored to this match. Treat pickrate as guidance, not a mandate; justify deviations based on enemy comp and performance (e.g., vs full AP, avoid armor on K'Sante; prefer MR options).
 - Respect boots policy and uniqueness of item groups.
- - Ground every claim about stats/defenses in metaById and provided item lists; avoid false statements (e.g., do not claim Iceborn Gauntlet grants MR if meta shows no MR).
+- Ground every claim about stats/defenses in metaById and provided item lists; avoid false statements (e.g., do not claim Iceborn Gauntlet grants MR if meta shows no MR).
+
+Important:
+- You are currently selecting for purchase position N according to the columns above.
+- Prefer the item with the highest pickrate in that column that does NOT violate groups/boots/conflicts.
+- If you pick an item from another column or archetype, name the trigger that forced you to do it.
 
 Return JSON with 'buildOrder' and 'overallAnalysis' only.`;
 }
@@ -1196,7 +1241,9 @@ function computeKitDamageProfileString(
   let ap = 0;
   let ad = 0;
   let mix = 0;
-  function infer(champName: string | undefined): 'AP' | 'AD' | 'mixed' | 'unknown' {
+  function infer(
+    champName: string | undefined,
+  ): 'AP' | 'AD' | 'mixed' | 'unknown' {
     if (!champName) return 'unknown';
     const ch = findChampionByName(champName, champMap);
     if (!ch) return 'unknown';
@@ -1206,7 +1253,8 @@ function computeKitDamageProfileString(
     for (const s of ch.spells || []) {
       if (s?.sanitizedDescription) texts.push(s.sanitizedDescription);
     }
-    if (ch.passive?.sanitizedDescription) texts.push(ch.passive.sanitizedDescription);
+    if (ch.passive?.sanitizedDescription)
+      texts.push(ch.passive.sanitizedDescription);
     for (const t of texts) {
       if (/magic damage/i.test(t)) apHits += 1;
       if (/physical damage/i.test(t)) adHits += 1;
@@ -1411,7 +1459,10 @@ export async function generateBuildSuggestions(
   const systemPrompt = generateSystemPrompt(itemsData);
   // Fetch champion kit data and derive kit-based damage profile string
   const championMap = await getChampionMap(match.gameVersion);
-  const kitDamageProfileStr = computeKitDamageProfileString(contextData, championMap);
+  const kitDamageProfileStr = computeKitDamageProfileString(
+    contextData,
+    championMap,
+  );
   const userPrompt = generateUserPrompt(
     contextData,
     itemsData,
@@ -1561,9 +1612,7 @@ export async function generateBuildSuggestions(
       candidate = replaceableItems.find((r) => hasTag(r.id, 'Boots'));
     }
     if (!candidate && recGroup) {
-      candidate = replaceableItems.find(
-        (r) => getItemGroup(r.id) === recGroup,
-      );
+      candidate = replaceableItems.find((r) => getItemGroup(r.id) === recGroup);
     }
     if (!candidate) {
       candidate = replaceableItems[0];
