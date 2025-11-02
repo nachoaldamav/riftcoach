@@ -1,14 +1,13 @@
 import { collections } from '@riftcoach/clients.mongodb';
 import consola from 'consola';
 import ms from 'ms';
-import { bulkCohortChampionRolePercentilesAggregation } from '../aggregations/bulkCohortChampionRolePercentiles.js';
 import {
   cohortChampionRolePercentilesAggregation,
   cohortChampionRolePercentilesOptions,
 } from '../aggregations/cohortChampionRolePercentiles.js';
 import { redis } from '../clients/redis.js';
-import type { ChampionRoleStats } from './champion-role-score.js';
 import { getCompletedItemIds } from '../utils/completed-items.js';
+import type { ChampionRoleStats } from './champion-role-score.js';
 
 export type CohortPercentilesDoc = {
   championName: string;
@@ -338,7 +337,9 @@ export async function fetchBulkCohortPercentiles(
     // Fallback to individual fetches
     return Promise.all(
       requests.map((req) =>
-        fetchCohortPercentiles(req.championName, req.role, { completedItemIds }),
+        fetchCohortPercentiles(req.championName, req.role, {
+          completedItemIds,
+        }),
       ),
     );
   }
@@ -376,7 +377,7 @@ export async function fetchCohortPercentiles(
       startTs,
       endTs,
       winsOnly: false,
-      sampleLimit: 1000,
+      sampleLimit: 10_00,
       sortDesc: true,
       completedItemIds,
     });
