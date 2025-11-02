@@ -1,41 +1,19 @@
-import type { Document } from 'mongodb';
 import { ALLOWED_QUEUE_IDS } from '@riftcoach/shared.constants';
+import type { Document } from 'mongodb';
 
-/**
- * Optimized aggregation pipeline for champion role percentiles
- * 
- * Performance optimizations applied:
- * 1. Replaced complex $objectToArray + $filter with direct $getField access
- * 2. Combined multiple $set stages into single operations
- * 3. Added index hints for better query planning
- * 4. Moved participant unwinding before projection to reduce memory usage
- * 5. Simplified timeline data extraction using direct field access
- * 6. Pre-calculated per-minute metrics to avoid repeated calculations
- */
 export const cohortChampionRolePercentilesAggregation = (params: {
   championName: string;
   role: string;
   startTs?: number;
   endTs?: number;
   winsOnly?: boolean;
-  sampleLimit?: number; // default 500
-  sortDesc?: boolean; // true -> newest first
+  sampleLimit?: number;
+  sortDesc?: boolean;
   completedItemIds?: number[];
 }): Document[] => {
-  const sampleLimit =
-    typeof params.sampleLimit === 'number' ? params.sampleLimit : 500;
+  const sampleLimit = params.sampleLimit ?? 500;
   const sortDirection = params.sortDesc === false ? 1 : -1;
-
   const completedItemIds = params.completedItemIds ?? [];
-  const itemPurchaseCondition = completedItemIds.length
-    ? {
-        $and: [
-          { $eq: ['$$e.type', 'ITEM_PURCHASED'] },
-          { $in: ['$$e.itemId', completedItemIds] },
-          { $gte: [{ $ifNull: ['$$e.timestamp', -1] }, 0] },
-        ],
-      }
-    : false;
 
   const roleAliases = (() => {
     switch (params.role) {
@@ -54,240 +32,240 @@ export const cohortChampionRolePercentilesAggregation = (params: {
     }
   })();
 
-  // ── Optimized pushdown: combine time + participant predicates using $elemMatch ─────
   const firstMatch: Document = {
+    'info.queueId': { $in: ALLOWED_QUEUE_IDS },
     'info.participants': {
       $elemMatch: {
-        ...(params.winsOnly ? { win: true } : {}),
         championName: params.championName,
         teamPosition: { $in: roleAliases },
       },
     },
-    // Add queue filter early for better index usage
-    'info.queueId': { $in: ALLOWED_QUEUE_IDS },
   };
+
   if (typeof params.startTs === 'number' && typeof params.endTs === 'number') {
-    firstMatch['info.gameCreation'] = { $gte: params.startTs, $lt: params.endTs };
+    firstMatch['info.gameCreation'] = {
+      $gte: params.startTs,
+      $lt: params.endTs,
+    };
   }
 
   const pipeline: Document[] = [
     { $match: firstMatch },
-
-    // Preserve full participant list for later calculations
-    { $set: { _allParticipants: '$info.participants' } },
-
-    // Unwind and filter participants early to reduce document size
-    { $unwind: '$info.participants' },
-    {
-      $match: {
-        ...(params.winsOnly ? { 'info.participants.win': true } : {}),
-        'info.participants.championName': params.championName,
-        'info.participants.teamPosition': { $in: roleAliases },
-      },
-    },
-
-    // Sort + Limit early (covered by compound index if created)
     { $sort: { 'info.gameCreation': sortDirection } },
-    { $limit: sampleLimit },
 
-    // Project only needed fields early to reduce memory usage
+    // Project early but keep what we need
     {
       $project: {
-        _id: 0,
         matchId: '$metadata.matchId',
-        participantId: '$info.participants.participantId',
         gameCreation: '$info.gameCreation',
         gameDuration: '$info.gameDuration',
-        participant: '$info.participants',
-        _allParticipants: '$_allParticipants',
+        participants: '$info.participants',
+        // Extract participant IDs map ONCE, before unwinding
+        participantIdMap: {
+          $arrayToObject: {
+            $map: {
+              input: '$info.participants',
+              as: 'p',
+              in: {
+                k: { $toString: '$$p.participantId' },
+                v: '$$p.teamPosition',
+              },
+            },
+          },
+        },
       },
     },
 
-    // ── Optimized lookup with simplified timeline extraction ───────────────
+    { $unwind: '$participants' },
+
+    {
+      $match: {
+        'participants.championName': params.championName,
+        'participants.teamPosition': { $in: roleAliases },
+        ...(params.winsOnly ? { 'participants.win': true } : {}),
+      },
+    },
+
+    { $limit: sampleLimit },
+
+    // Simplified timeline lookup with minimal processing
     {
       $lookup: {
         from: 'timelines',
         let: {
           matchId: '$matchId',
-          participantId: '$participantId',
+          pId: '$participants.participantId',
         },
         pipeline: [
           { $match: { $expr: { $eq: ['$metadata.matchId', '$$matchId'] } } },
-          // Use direct array access instead of complex $let expressions
           {
             $project: {
               _id: 0,
-              // Direct field access using computed field paths
-              snap10: {
-                $let: {
-                  vars: {
-                    frame10: { $arrayElemAt: ['$info.frames', 10] },
-                    pIdStr: { $toString: '$$participantId' },
-                  },
-                  in: {
-                    $let: {
-                      vars: {
-                        participantFrame: {
-                          $getField: {
-                            field: '$$pIdStr',
-                            input: { $ifNull: ['$$frame10.participantFrames', {}] },
-                          },
-                        },
-                      },
-                      in: {
-                        gold: { $ifNull: ['$$participantFrame.totalGold', 0] },
-                        cs: {
-                          $add: [
-                            { $ifNull: ['$$participantFrame.minionsKilled', 0] },
-                            { $ifNull: ['$$participantFrame.jungleMinionsKilled', 0] },
-                          ],
-                        },
-                      },
+              // Get frames 10 and 15 directly
+              pf10: {
+                $getField: {
+                  field: { $toString: '$$pId' },
+                  input: {
+                    $getField: {
+                      field: 'participantFrames',
+                      input: { $arrayElemAt: ['$info.frames', 10] },
                     },
                   },
                 },
               },
-              snap15: {
-                $let: {
-                  vars: {
-                    frame15: { $arrayElemAt: ['$info.frames', 15] },
-                    pIdStr: { $toString: '$$participantId' },
-                  },
-                  in: {
-                    $let: {
-                      vars: {
-                        participantFrame: {
-                          $getField: {
-                            field: '$$pIdStr',
-                            input: { $ifNull: ['$$frame15.participantFrames', {}] },
-                          },
-                        },
-                      },
-                      in: {
-                        gold: { $ifNull: ['$$participantFrame.totalGold', 0] },
-                        cs: {
-                          $add: [
-                            { $ifNull: ['$$participantFrame.minionsKilled', 0] },
-                            { $ifNull: ['$$participantFrame.jungleMinionsKilled', 0] },
-                          ],
-                        },
-                      },
+              pf15: {
+                $getField: {
+                  field: { $toString: '$$pId' },
+                  input: {
+                    $getField: {
+                      field: 'participantFrames',
+                      input: { $arrayElemAt: ['$info.frames', 15] },
                     },
                   },
                 },
               },
-              events: {
-                $let: {
-                  vars: {
-                    all: {
-                      $reduce: {
-                        input: {
-                          $map: {
-                            input: '$info.frames',
-                            as: 'fr',
-                            in: { $ifNull: ['$$fr.events', []] },
-                          },
-                        },
-                        initialValue: [],
-                        in: { $concatArrays: ['$$value', '$$this'] },
-                      },
-                    },
-                  },
+              // Get all events up to 15 minutes in one go
+              allEvents: {
+                $reduce: {
+                  input: { $slice: ['$info.frames', 15] },
+                  initialValue: [],
                   in: {
-                    $filter: {
-                      input: '$$all',
-                      as: 'e',
-                      cond: {
-                        $or: [
-                          {
-                            $and: [
-                              { $eq: ['$$e.type', 'CHAMPION_KILL'] },
-                              { $lt: [{ $ifNull: ['$$e.timestamp', 0] }, 900000] },
-                              { $gt: [{ $ifNull: ['$$e.killerId', 0] }, 0] },
-                              { $ne: [{ $type: '$$e.position' }, 'missing'] },
-                            ],
-                          },
-                          {
-                            $and: [
-                              { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
-                              {
-                                $in: [
-                                  { $ifNull: ['$$e.monsterType', ''] },
-                                  [
-                                    'DRAGON',
-                                    'RIFTHERALD',
-                                    'BARON_NASHOR',
-                                    'HORDE',
-                                    'ATAKHAN',
-                                  ],
-                                ],
-                              },
-                            ],
-                          },
-                          itemPurchaseCondition,
-                        ],
-                      },
-                    },
+                    $concatArrays: [
+                      '$$value',
+                      { $ifNull: ['$$this.events', []] },
+                    ],
                   },
                 },
               },
             },
           },
+          {
+            $project: {
+              goldAt10: { $ifNull: ['$pf10.totalGold', 0] },
+              csAt10: {
+                $add: [
+                  { $ifNull: ['$pf10.minionsKilled', 0] },
+                  { $ifNull: ['$pf10.jungleMinionsKilled', 0] },
+                ],
+              },
+              goldAt15: { $ifNull: ['$pf15.totalGold', 0] },
+              csAt15: {
+                $add: [
+                  { $ifNull: ['$pf15.minionsKilled', 0] },
+                  { $ifNull: ['$pf15.jungleMinionsKilled', 0] },
+                ],
+              },
+              // Separate events by type for easier processing
+              kills: {
+                $filter: {
+                  input: '$allEvents',
+                  as: 'e',
+                  cond: {
+                    $and: [
+                      { $eq: ['$$e.type', 'CHAMPION_KILL'] },
+                      { $lt: ['$$e.timestamp', 900000] },
+                      { $gt: ['$$e.killerId', 0] },
+                    ],
+                  },
+                },
+              },
+              objectives: {
+                $filter: {
+                  input: '$allEvents',
+                  as: 'e',
+                  cond: {
+                    $and: [
+                      { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
+                      {
+                        $in: [
+                          '$$e.monsterType',
+                          [
+                            'DRAGON',
+                            'RIFTHERALD',
+                            'BARON_NASHOR',
+                            'HORDE',
+                            'ATAKHAN',
+                          ],
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
+              ...(completedItemIds.length > 0
+                ? {
+                    items: {
+                      $filter: {
+                        input: '$allEvents',
+                        as: 'e',
+                        cond: {
+                          $and: [
+                            { $eq: ['$$e.type', 'ITEM_PURCHASED'] },
+                            { $in: ['$$e.itemId', completedItemIds] },
+                            { $gte: ['$$e.timestamp', 0] },
+                          ],
+                        },
+                      },
+                    },
+                  }
+                : {}),
+            },
+          },
         ],
-        as: 'timelineData',
+        as: 'tl',
       },
     },
-    
-    // Flatten timeline data
+
     {
       $set: {
-        timeline: {
+        tl: {
           $ifNull: [
-            { $first: '$timelineData' },
+            { $first: '$tl' },
             {
-              snap10: { gold: 0, cs: 0 },
-              snap15: { gold: 0, cs: 0 },
-              events: [],
+              goldAt10: 0,
+              csAt10: 0,
+              goldAt15: 0,
+              csAt15: 0,
+              kills: [],
+              objectives: [],
+              items: [],
             },
           ],
         },
+        gameDurationMin: { $max: [1, { $divide: ['$gameDuration', 60] }] },
       },
     },
-    { $unset: 'timelineData' },
 
-    // ── scalar metrics ──────────────────────────────────────────────────────
+    // Calculate all metrics
     {
       $set: {
         role: {
           $switch: {
             branches: [
               {
-                case: { $eq: ['$participant.teamPosition', 'TOP'] },
+                case: { $eq: ['$participants.teamPosition', 'TOP'] },
                 then: 'TOP',
               },
               {
-                case: { $eq: ['$participant.teamPosition', 'JUNGLE'] },
+                case: { $eq: ['$participants.teamPosition', 'JUNGLE'] },
                 then: 'JUNGLE',
               },
               {
                 case: {
-                  $in: ['$participant.teamPosition', ['MIDDLE', 'MID']],
+                  $in: ['$participants.teamPosition', ['MIDDLE', 'MID']],
                 },
                 then: 'MIDDLE',
               },
               {
                 case: {
-                  $in: [
-                    '$participant.teamPosition',
-                    ['BOTTOM', 'ADC', 'BOT'],
-                  ],
+                  $in: ['$participants.teamPosition', ['BOTTOM', 'ADC', 'BOT']],
                 },
                 then: 'BOTTOM',
               },
               {
                 case: {
                   $in: [
-                    '$participant.teamPosition',
+                    '$participants.teamPosition',
                     ['UTILITY', 'SUPPORT', 'SUP'],
                   ],
                 },
@@ -297,347 +275,135 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             default: 'UNKNOWN',
           },
         },
-        _gameDurationMin: {
-          $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }],
+        kills: '$participants.kills',
+        deaths: '$participants.deaths',
+        assists: '$participants.assists',
+        cs: {
+          $add: [
+            '$participants.totalMinionsKilled',
+            '$participants.neutralMinionsKilled',
+          ],
         },
-        // Pre-calculate per-minute metrics to avoid repeated calculations
+        goldEarned: '$participants.goldEarned',
+        goldAt10: '$tl.goldAt10',
+        csAt10: '$tl.csAt10',
+        goldAt15: '$tl.goldAt15',
+        csAt15: '$tl.csAt15',
         dpm: {
           $divide: [
-            { $ifNull: ['$participant.totalDamageDealtToChampions', 0] },
-            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
+            '$participants.totalDamageDealtToChampions',
+            '$gameDurationMin',
           ],
         },
         dtpm: {
-          $divide: [
-            { $ifNull: ['$participant.totalDamageTaken', 0] },
-            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
-          ],
+          $divide: ['$participants.totalDamageTaken', '$gameDurationMin'],
         },
-        kpm: {
-          $divide: [
-            { $ifNull: ['$participant.kills', 0] },
-            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
-          ],
-        },
-        apm: {
-          $divide: [
-            { $ifNull: ['$participant.assists', 0] },
-            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
-          ],
-        },
-        deathsPerMin: {
-          $divide: [
-            { $ifNull: ['$participant.deaths', 0] },
-            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
-          ],
-        },
+        kpm: { $divide: ['$participants.kills', '$gameDurationMin'] },
+        apm: { $divide: ['$participants.assists', '$gameDurationMin'] },
+        deathsPerMin: { $divide: ['$participants.deaths', '$gameDurationMin'] },
         cspm: {
           $divide: [
             {
               $add: [
-                { $ifNull: ['$participant.totalMinionsKilled', 0] },
-                { $ifNull: ['$participant.neutralMinionsKilled', 0] },
+                '$participants.totalMinionsKilled',
+                '$participants.neutralMinionsKilled',
               ],
             },
-            { $max: [1, { $divide: [{ $ifNull: ['$gameDuration', 0] }, 60] }] },
-          ],
-        },
-        goldAt10: '$timeline.snap10.gold',
-        csAt10: '$timeline.snap10.cs',
-        goldAt15: '$timeline.snap15.gold',
-        csAt15: '$timeline.snap15.cs',
-        cs: {
-          $add: [
-            { $ifNull: ['$participant.totalMinionsKilled', 0] },
-            { $ifNull: ['$participant.neutralMinionsKilled', 0] },
+            '$gameDurationMin',
           ],
         },
         firstItemCompletionTime: {
-          $let: {
-            vars: {
-              purchases: {
-                $filter: {
-                  input: { $ifNull: ['$timeline.events', []] },
-                  as: 'ev',
-                  cond: { $eq: ['$$ev.type', 'ITEM_PURCHASED'] },
-                },
-              },
-            },
-            in: {
-              $let: {
-                vars: {
-                  earliest: {
-                    $reduce: {
-                      input: '$$purchases',
-                      initialValue: null,
-                      in: {
-                        $let: {
-                          vars: { ts: { $ifNull: ['$$this.timestamp', null] } },
-                          in: {
-                            $cond: [
-                              {
-                                $or: [
-                                  { $eq: ['$$value', null] },
-                                  {
-                                    $and: [
-                                      { $ne: ['$$ts', null] },
-                                      { $lt: ['$$ts', '$$value'] },
-                                    ],
-                                  },
-                                ],
-                              },
-                              '$$ts',
-                              '$$value',
-                            ],
-                          },
-                        },
-                      },
-                    },
+          $cond: [
+            { $gt: [{ $size: { $ifNull: ['$tl.items', []] } }, 0] },
+            {
+              $divide: [
+                {
+                  $min: {
+                    $map: { input: '$tl.items', as: 'i', in: '$$i.timestamp' },
                   },
                 },
-                in: {
-                  $cond: [
-                    {
-                      $or: [
-                        { $eq: ['$$earliest', null] },
-                        {
-                          $not: {
-                            $in: [
-                              { $type: '$$earliest' },
-                              ['double', 'int', 'long', 'decimal'],
-                            ],
-                          },
-                        },
-                      ],
-                    },
-                    null,
-                    { $divide: ['$$earliest', 1000] },
-                  ],
-                },
-              },
+                1000,
+              ],
             },
-          },
+            null,
+          ],
         },
         objectiveParticipationPct: {
           $let: {
             vars: {
-              evs: { $ifNull: ['$timeline.events', []] },
-              pId: '$participant.participantId',
-            },
-            in: {
-              $let: {
-                vars: {
-                  teamEpic: {
-                    $size: {
-                      $filter: {
-                        input: '$$evs',
-                        as: 'e',
-                        cond: {
-                          $and: [
-                            { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
-                            { $gt: [{ $ifNull: ['$$e.killerId', 0] }, 0] },
+              total: { $size: '$tl.objectives' },
+              involved: {
+                $size: {
+                  $filter: {
+                    input: '$tl.objectives',
+                    as: 'o',
+                    cond: {
+                      $or: [
+                        {
+                          $eq: ['$$o.killerId', '$participants.participantId'],
+                        },
+                        {
+                          $in: [
+                            '$participants.participantId',
+                            { $ifNull: ['$$o.assistingParticipantIds', []] },
                           ],
                         },
-                      },
+                      ],
                     },
                   },
-                  myInvolved: {
-                    $size: {
-                      $filter: {
-                        input: '$$evs',
-                        as: 'e',
-                        cond: {
-                          $and: [
-                            { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
-                            {
-                              $or: [
-                                { $eq: ['$$e.killerId', '$$pId'] },
-                                {
-                                  $in: [
-                                    '$$pId',
-                                    {
-                                      $ifNull: [
-                                        '$$e.assistingParticipantIds',
-                                        [],
-                                      ],
-                                    },
-                                  ],
-                                },
-                              ],
-                            },
-                          ],
-                        },
-                      },
-                    },
-                  },
-                },
-                in: {
-                  $cond: [
-                    { $gt: ['$$teamEpic', 0] },
-                    { $divide: ['$$myInvolved', '$$teamEpic'] },
-                    null,
-                  ],
                 },
               },
+            },
+            in: {
+              $cond: [
+                { $gt: ['$$total', 0] },
+                { $divide: ['$$involved', '$$total'] },
+                null,
+              ],
             },
           },
         },
-      },
-    },
-
-    {
-      $set: {
-        _gankFlags: {
-          $map: {
-            input: {
-              $filter: {
-                input: { $ifNull: ['$timeline.events', []] },
-                as: 'e',
-                cond: { $eq: ['$$e.type', 'CHAMPION_KILL'] },
-              },
-            },
-            as: 'ev',
-            in: {
-              $let: {
-                vars: {
-                  x: { $ifNull: ['$$ev.position.x', -1] },
-                  y: { $ifNull: ['$$ev.position.y', -1] },
-                  killer: {
-                    $first: {
-                      $filter: {
-                        input: { $ifNull: ['$_allParticipants', []] },
-                        as: 'pp',
-                        cond: { $eq: ['$$pp.participantId', '$$ev.killerId'] },
-                      },
-                    },
-                  },
-                },
-                in: {
-                  zone: {
-                    $switch: {
-                      branches: [
-                        {
-                          case: {
-                            $lte: [
-                              {
-                                $abs: {
-                                  $subtract: [{ $add: ['$$x', '$$y'] }, 15000],
-                                },
-                              },
-                              1200,
-                            ],
-                          },
-                          then: 'RIVER',
-                        },
-                        {
-                          case: {
-                            $lte: [{ $abs: { $subtract: ['$$x', '$$y'] } }, 1200],
-                          },
-                          then: 'LANE_MID',
-                        },
-                        {
-                          case: { $gt: [{ $subtract: ['$$y', '$$x'] }, 2500] },
-                          then: 'LANE_TOP',
-                        },
-                        {
-                          case: { $gt: [{ $subtract: ['$$x', '$$y'] }, 2500] },
-                          then: 'LANE_BOTTOM',
-                        },
-                      ],
-                      default: 'JUNGLE',
-                    },
-                  },
-                  killerRole: {
-                    $switch: {
-                      branches: [
-                        {
-                          case: {
-                            $eq: [
-                              { $ifNull: ['$$killer.teamPosition', ''] },
-                              'TOP',
-                            ],
-                          },
-                          then: 'TOP',
-                        },
-                        {
-                          case: {
-                            $eq: [
-                              { $ifNull: ['$$killer.teamPosition', ''] },
-                              'JUNGLE',
-                            ],
-                          },
-                          then: 'JUNGLE',
-                        },
-                        {
-                          case: {
-                            $in: [
-                              { $ifNull: ['$$killer.teamPosition', ''] },
-                              ['MIDDLE', 'MID'],
-                            ],
-                          },
-                          then: 'MIDDLE',
-                        },
-                        {
-                          case: {
-                            $in: [
-                              { $ifNull: ['$$killer.teamPosition', ''] },
-                              ['BOTTOM', 'ADC', 'BOT'],
-                            ],
-                          },
-                          then: 'BOTTOM',
-                        },
-                        {
-                          case: {
-                            $in: [
-                              { $ifNull: ['$$killer.teamPosition', ''] },
-                              ['UTILITY', 'SUPPORT', 'SUP'],
-                            ],
-                          },
-                          then: 'UTILITY',
-                        },
-                      ],
-                      default: 'UNKNOWN',
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-
-    {
-      $set: {
         earlyGankDeathRate: {
           $cond: [
-            { $eq: ['$role', 'JUNGLE'] },
+            { $eq: ['$participants.teamPosition', 'JUNGLE'] },
             null,
             {
               $cond: [
                 {
-                  $anyElementTrue: {
-                    $map: {
-                      input: '$_gankFlags',
-                      as: 'g',
-                      in: {
-                        $and: [
-                          {
-                            $in: [
-                              '$$g.zone',
-                              ['LANE_TOP', 'LANE_MID', 'LANE_BOTTOM'],
-                            ],
+                  $gt: [
+                    {
+                      $size: {
+                        $filter: {
+                          input: '$tl.kills',
+                          as: 'k',
+                          cond: {
+                            $let: {
+                              vars: {
+                                killerRole: {
+                                  $getField: {
+                                    field: { $toString: '$$k.killerId' },
+                                    input: '$participantIdMap',
+                                  },
+                                },
+                              },
+                              in: {
+                                $or: [
+                                  { $eq: ['$$killerRole', 'JUNGLE'] },
+                                  {
+                                    $ne: [
+                                      '$$killerRole',
+                                      '$participants.teamPosition',
+                                    ],
+                                  },
+                                ],
+                              },
+                            },
                           },
-                          {
-                            $or: [
-                              { $eq: ['$$g.killerRole', 'JUNGLE'] },
-                              { $ne: ['$$g.killerRole', '$role'] },
-                            ],
-                          },
-                        ],
+                        },
                       },
                     },
-                  },
+                    0,
+                  ],
                 },
                 1,
                 0,
@@ -648,493 +414,286 @@ export const cohortChampionRolePercentilesAggregation = (params: {
       },
     },
 
-    { $unset: ['_gankFlags', '_allParticipants'] },
+    // Project only what's needed for grouping
+    {
+      $project: {
+        role: 1,
+        kills: 1,
+        deaths: 1,
+        assists: 1,
+        cs: 1,
+        cspm: 1,
+        goldEarned: 1,
+        goldAt10: 1,
+        csAt10: 1,
+        goldAt15: 1,
+        csAt15: 1,
+        dpm: 1,
+        dtpm: 1,
+        kpm: 1,
+        apm: 1,
+        deathsPerMin: 1,
+        firstItemCompletionTime: 1,
+        objectiveParticipationPct: 1,
+        earlyGankDeathRate: 1,
+      },
+    },
 
-    // ── group & percentile accumulators (no arrays) ────────────────────────
+    // Single percentile calculation per metric
     {
       $group: {
-        _id: { champ: '$participant.championName', role: '$role' },
-
-        // p50
-        p50_kills: {
+        _id: '$role',
+        kills_pct: {
           $percentile: {
-            input: '$participant.kills',
-            p: [0.5],
+            input: '$kills',
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
-        p50_deaths: {
+        deaths_pct: {
           $percentile: {
-            input: '$participant.deaths',
-            p: [0.5],
+            input: '$deaths',
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
-        p50_assists: {
+        assists_pct: {
           $percentile: {
-            input: '$participant.assists',
-            p: [0.5],
+            input: '$assists',
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
-        p50_cs: {
-          $percentile: { input: '$cs', p: [0.5], method: 'approximate' },
-        },
-        p50_goldEarned: {
+        cs_pct: {
           $percentile: {
-            input: '$participant.goldEarned',
-            p: [0.5],
+            input: '$cs',
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
-        p50_goldAt10: {
-          $percentile: { input: '$goldAt10', p: [0.5], method: 'approximate' },
+        cspm_pct: {
+          $percentile: {
+            input: '$cspm',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_csAt10: {
-          $percentile: { input: '$csAt10', p: [0.5], method: 'approximate' },
+        goldEarned_pct: {
+          $percentile: {
+            input: '$goldEarned',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_goldAt15: {
-          $percentile: { input: '$goldAt15', p: [0.5], method: 'approximate' },
+        goldAt10_pct: {
+          $percentile: {
+            input: '$goldAt10',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_csAt15: {
-          $percentile: { input: '$csAt15', p: [0.5], method: 'approximate' },
+        csAt10_pct: {
+          $percentile: {
+            input: '$csAt10',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_dpm: {
-          $percentile: { input: '$dpm', p: [0.5], method: 'approximate' },
+        goldAt15_pct: {
+          $percentile: {
+            input: '$goldAt15',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_dtpm: {
-          $percentile: { input: '$dtpm', p: [0.5], method: 'approximate' },
+        csAt15_pct: {
+          $percentile: {
+            input: '$csAt15',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_kpm: {
-          $percentile: { input: '$kpm', p: [0.5], method: 'approximate' },
+        dpm_pct: {
+          $percentile: {
+            input: '$dpm',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_apm: {
-          $percentile: { input: '$apm', p: [0.5], method: 'approximate' },
+        dtpm_pct: {
+          $percentile: {
+            input: '$dtpm',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
         },
-        p50_dpmDeaths: {
+        kpm_pct: {
+          $percentile: {
+            input: '$kpm',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
+        },
+        apm_pct: {
+          $percentile: {
+            input: '$apm',
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
+        },
+        deathsPerMin_pct: {
           $percentile: {
             input: '$deathsPerMin',
-            p: [0.5],
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
-        p50_cspm: {
-          $percentile: { input: '$cspm', p: [0.5], method: 'approximate' },
-        },
-        p50_firstItemCompletionTime: {
+        firstItemCompletionTime_pct: {
           $percentile: {
             input: '$firstItemCompletionTime',
-            p: [0.5],
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
-        p50_objectiveParticipationPct: {
+        objectiveParticipationPct_pct: {
           $percentile: {
             input: '$objectiveParticipationPct',
-            p: [0.5],
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
-        p50_earlyGankDeathRate: {
+        earlyGankDeathRate_pct: {
           $percentile: {
             input: '$earlyGankDeathRate',
-            p: [0.5],
-            method: 'approximate',
-          },
-        },
-
-        // p75
-        p75_kills: {
-          $percentile: {
-            input: '$info.participants.kills',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-        p75_deaths: {
-          $percentile: {
-            input: '$info.participants.deaths',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-        p75_assists: {
-          $percentile: {
-            input: '$info.participants.assists',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-        p75_cs: {
-          $percentile: { input: '$cs', p: [0.75], method: 'approximate' },
-        },
-        p75_goldEarned: {
-          $percentile: {
-            input: '$info.participants.goldEarned',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-        p75_goldAt10: {
-          $percentile: { input: '$goldAt10', p: [0.75], method: 'approximate' },
-        },
-        p75_csAt10: {
-          $percentile: { input: '$csAt10', p: [0.75], method: 'approximate' },
-        },
-        p75_goldAt15: {
-          $percentile: { input: '$goldAt15', p: [0.75], method: 'approximate' },
-        },
-        p75_csAt15: {
-          $percentile: { input: '$csAt15', p: [0.75], method: 'approximate' },
-        },
-        p75_dpm: {
-          $percentile: { input: '$dpm', p: [0.75], method: 'approximate' },
-        },
-        p75_dtpm: {
-          $percentile: { input: '$dtpm', p: [0.75], method: 'approximate' },
-        },
-        p75_kpm: {
-          $percentile: { input: '$kpm', p: [0.75], method: 'approximate' },
-        },
-        p75_apm: {
-          $percentile: { input: '$apm', p: [0.75], method: 'approximate' },
-        },
-        p75_dpmDeaths: {
-          $percentile: {
-            input: '$deathsPerMin',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-        p75_cspm: {
-          $percentile: { input: '$cspm', p: [0.75], method: 'approximate' },
-        },
-        p75_firstItemCompletionTime: {
-          $percentile: {
-            input: '$firstItemCompletionTime',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-        p75_objectiveParticipationPct: {
-          $percentile: {
-            input: '$objectiveParticipationPct',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-        p75_earlyGankDeathRate: {
-          $percentile: {
-            input: '$earlyGankDeathRate',
-            p: [0.75],
-            method: 'approximate',
-          },
-        },
-
-        // p90
-        p90_kills: {
-          $percentile: {
-            input: '$info.participants.kills',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-        p90_deaths: {
-          $percentile: {
-            input: '$info.participants.deaths',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-        p90_assists: {
-          $percentile: {
-            input: '$info.participants.assists',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-        p90_cs: {
-          $percentile: { input: '$cs', p: [0.9], method: 'approximate' },
-        },
-        p90_goldEarned: {
-          $percentile: {
-            input: '$info.participants.goldEarned',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-        p90_goldAt10: {
-          $percentile: { input: '$goldAt10', p: [0.9], method: 'approximate' },
-        },
-        p90_csAt10: {
-          $percentile: { input: '$csAt10', p: [0.9], method: 'approximate' },
-        },
-        p90_goldAt15: {
-          $percentile: { input: '$goldAt15', p: [0.9], method: 'approximate' },
-        },
-        p90_csAt15: {
-          $percentile: { input: '$csAt15', p: [0.9], method: 'approximate' },
-        },
-        p90_dpm: {
-          $percentile: { input: '$dpm', p: [0.9], method: 'approximate' },
-        },
-        p90_dtpm: {
-          $percentile: { input: '$dtpm', p: [0.9], method: 'approximate' },
-        },
-        p90_kpm: {
-          $percentile: { input: '$kpm', p: [0.9], method: 'approximate' },
-        },
-        p90_apm: {
-          $percentile: { input: '$apm', p: [0.9], method: 'approximate' },
-        },
-        p90_dpmDeaths: {
-          $percentile: {
-            input: '$deathsPerMin',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-        p90_cspm: {
-          $percentile: { input: '$cspm', p: [0.9], method: 'approximate' },
-        },
-        p90_firstItemCompletionTime: {
-          $percentile: {
-            input: '$firstItemCompletionTime',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-        p90_objectiveParticipationPct: {
-          $percentile: {
-            input: '$objectiveParticipationPct',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-        p90_earlyGankDeathRate: {
-          $percentile: {
-            input: '$earlyGankDeathRate',
-            p: [0.9],
-            method: 'approximate',
-          },
-        },
-
-        // p95
-        p95_kills: {
-          $percentile: {
-            input: '$info.participants.kills',
-            p: [0.95],
-            method: 'approximate',
-          },
-        },
-        p95_deaths: {
-          $percentile: {
-            input: '$info.participants.deaths',
-            p: [0.95],
-            method: 'approximate',
-          },
-        },
-        p95_assists: {
-          $percentile: {
-            input: '$info.participants.assists',
-            p: [0.95],
-            method: 'approximate',
-          },
-        },
-        p95_cs: {
-          $percentile: { input: '$cs', p: [0.95], method: 'approximate' },
-        },
-        p95_goldEarned: {
-          $percentile: {
-            input: '$info.participants.goldEarned',
-            p: [0.95],
-            method: 'approximate',
-          },
-        },
-        p95_goldAt10: {
-          $percentile: { input: '$goldAt10', p: [0.95], method: 'approximate' },
-        },
-        p95_csAt10: {
-          $percentile: { input: '$csAt10', p: [0.95], method: 'approximate' },
-        },
-        p95_goldAt15: {
-          $percentile: { input: '$goldAt15', p: [0.95], method: 'approximate' },
-        },
-        p95_csAt15: {
-          $percentile: { input: '$csAt15', p: [0.95], method: 'approximate' },
-        },
-        p95_dpm: {
-          $percentile: { input: '$dpm', p: [0.95], method: 'approximate' },
-        },
-        p95_dtpm: {
-          $percentile: { input: '$dtpm', p: [0.95], method: 'approximate' },
-        },
-        p95_kpm: {
-          $percentile: { input: '$kpm', p: [0.95], method: 'approximate' },
-        },
-        p95_apm: {
-          $percentile: { input: '$apm', p: [0.95], method: 'approximate' },
-        },
-        p95_dpmDeaths: {
-          $percentile: {
-            input: '$deathsPerMin',
-            p: [0.95],
-            method: 'approximate',
-          },
-        },
-        p95_cspm: {
-          $percentile: { input: '$cspm', p: [0.95], method: 'approximate' },
-        },
-        p95_firstItemCompletionTime: {
-          $percentile: {
-            input: '$firstItemCompletionTime',
-            p: [0.95],
-            method: 'approximate',
-          },
-        },
-        p95_objectiveParticipationPct: {
-          $percentile: {
-            input: '$objectiveParticipationPct',
-            p: [0.95],
-            method: 'approximate',
-          },
-        },
-        p95_earlyGankDeathRate: {
-          $percentile: {
-            input: '$earlyGankDeathRate',
-            p: [0.95],
+            p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
         },
       },
     },
 
-    // format accumulator arrays (each is [value]) to scalars
+    // Format output (unchanged)
     {
       $project: {
         _id: 0,
-        championName: '$_id.champ',
-        role: '$_id.role',
+        championName: params.championName,
+        role: '$_id',
         percentiles: {
           p50: {
-            kills: { $arrayElemAt: ['$p50_kills', 0] },
-            deaths: { $arrayElemAt: ['$p50_deaths', 0] },
-            assists: { $arrayElemAt: ['$p50_assists', 0] },
-            cs: { $arrayElemAt: ['$p50_cs', 0] },
-            cspm: { $arrayElemAt: ['$p50_cspm', 0] },
-            goldEarned: { $arrayElemAt: ['$p50_goldEarned', 0] },
-            goldAt10: { $arrayElemAt: ['$p50_goldAt10', 0] },
-            csAt10: { $arrayElemAt: ['$p50_csAt10', 0] },
-            goldAt15: { $arrayElemAt: ['$p50_goldAt15', 0] },
-            csAt15: { $arrayElemAt: ['$p50_csAt15', 0] },
-            dpm: { $arrayElemAt: ['$p50_dpm', 0] },
-            dtpm: { $arrayElemAt: ['$p50_dtpm', 0] },
-            kpm: { $arrayElemAt: ['$p50_kpm', 0] },
-            apm: { $arrayElemAt: ['$p50_apm', 0] },
-            deathsPerMin: { $arrayElemAt: ['$p50_dpmDeaths', 0] },
+            kills: { $arrayElemAt: ['$kills_pct', 0] },
+            deaths: { $arrayElemAt: ['$deaths_pct', 0] },
+            assists: { $arrayElemAt: ['$assists_pct', 0] },
+            cs: { $arrayElemAt: ['$cs_pct', 0] },
+            cspm: { $arrayElemAt: ['$cspm_pct', 0] },
+            goldEarned: { $arrayElemAt: ['$goldEarned_pct', 0] },
+            goldAt10: { $arrayElemAt: ['$goldAt10_pct', 0] },
+            csAt10: { $arrayElemAt: ['$csAt10_pct', 0] },
+            goldAt15: { $arrayElemAt: ['$goldAt15_pct', 0] },
+            csAt15: { $arrayElemAt: ['$csAt15_pct', 0] },
+            dpm: { $arrayElemAt: ['$dpm_pct', 0] },
+            dtpm: { $arrayElemAt: ['$dtpm_pct', 0] },
+            kpm: { $arrayElemAt: ['$kpm_pct', 0] },
+            apm: { $arrayElemAt: ['$apm_pct', 0] },
+            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 0] },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$p50_firstItemCompletionTime', 0],
+              $arrayElemAt: ['$firstItemCompletionTime_pct', 0],
             },
             objectiveParticipationPct: {
-              $arrayElemAt: ['$p50_objectiveParticipationPct', 0],
+              $arrayElemAt: ['$objectiveParticipationPct_pct', 0],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$p50_earlyGankDeathRate', 0],
+              $arrayElemAt: ['$earlyGankDeathRate_pct', 0],
             },
           },
           p75: {
-            kills: { $arrayElemAt: ['$p75_kills', 0] },
-            deaths: { $arrayElemAt: ['$p75_deaths', 0] },
-            assists: { $arrayElemAt: ['$p75_assists', 0] },
-            cs: { $arrayElemAt: ['$p75_cs', 0] },
-            cspm: { $arrayElemAt: ['$p75_cspm', 0] },
-            goldEarned: { $arrayElemAt: ['$p75_goldEarned', 0] },
-            goldAt10: { $arrayElemAt: ['$p75_goldAt10', 0] },
-            csAt10: { $arrayElemAt: ['$p75_csAt10', 0] },
-            goldAt15: { $arrayElemAt: ['$p75_goldAt15', 0] },
-            csAt15: { $arrayElemAt: ['$p75_csAt15', 0] },
-            dpm: { $arrayElemAt: ['$p75_dpm', 0] },
-            dtpm: { $arrayElemAt: ['$p75_dtpm', 0] },
-            kpm: { $arrayElemAt: ['$p75_kpm', 0] },
-            apm: { $arrayElemAt: ['$p75_apm', 0] },
-            deathsPerMin: { $arrayElemAt: ['$p75_dpmDeaths', 0] },
+            kills: { $arrayElemAt: ['$kills_pct', 1] },
+            deaths: { $arrayElemAt: ['$deaths_pct', 1] },
+            assists: { $arrayElemAt: ['$assists_pct', 1] },
+            cs: { $arrayElemAt: ['$cs_pct', 1] },
+            cspm: { $arrayElemAt: ['$cspm_pct', 1] },
+            goldEarned: { $arrayElemAt: ['$goldEarned_pct', 1] },
+            goldAt10: { $arrayElemAt: ['$goldAt10_pct', 1] },
+            csAt10: { $arrayElemAt: ['$csAt10_pct', 1] },
+            goldAt15: { $arrayElemAt: ['$goldAt15_pct', 1] },
+            csAt15: { $arrayElemAt: ['$csAt15_pct', 1] },
+            dpm: { $arrayElemAt: ['$dpm_pct', 1] },
+            dtpm: { $arrayElemAt: ['$dtpm_pct', 1] },
+            kpm: { $arrayElemAt: ['$kpm_pct', 1] },
+            apm: { $arrayElemAt: ['$apm_pct', 1] },
+            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 1] },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$p75_firstItemCompletionTime', 0],
+              $arrayElemAt: ['$firstItemCompletionTime_pct', 1],
             },
             objectiveParticipationPct: {
-              $arrayElemAt: ['$p75_objectiveParticipationPct', 0],
+              $arrayElemAt: ['$objectiveParticipationPct_pct', 1],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$p75_earlyGankDeathRate', 0],
+              $arrayElemAt: ['$earlyGankDeathRate_pct', 1],
             },
           },
           p90: {
-            kills: { $arrayElemAt: ['$p90_kills', 0] },
-            deaths: { $arrayElemAt: ['$p90_deaths', 0] },
-            assists: { $arrayElemAt: ['$p90_assists', 0] },
-            cs: { $arrayElemAt: ['$p90_cs', 0] },
-            cspm: { $arrayElemAt: ['$p90_cspm', 0] },
-            goldEarned: { $arrayElemAt: ['$p90_goldEarned', 0] },
-            goldAt10: { $arrayElemAt: ['$p90_goldAt10', 0] },
-            csAt10: { $arrayElemAt: ['$p90_csAt10', 0] },
-            goldAt15: { $arrayElemAt: ['$p90_goldAt15', 0] },
-            csAt15: { $arrayElemAt: ['$p90_csAt15', 0] },
-            dpm: { $arrayElemAt: ['$p90_dpm', 0] },
-            dtpm: { $arrayElemAt: ['$p90_dtpm', 0] },
-            kpm: { $arrayElemAt: ['$p90_kpm', 0] },
-            apm: { $arrayElemAt: ['$p90_apm', 0] },
-            deathsPerMin: { $arrayElemAt: ['$p90_dpmDeaths', 0] },
+            kills: { $arrayElemAt: ['$kills_pct', 2] },
+            deaths: { $arrayElemAt: ['$deaths_pct', 2] },
+            assists: { $arrayElemAt: ['$assists_pct', 2] },
+            cs: { $arrayElemAt: ['$cs_pct', 2] },
+            cspm: { $arrayElemAt: ['$cspm_pct', 2] },
+            goldEarned: { $arrayElemAt: ['$goldEarned_pct', 2] },
+            goldAt10: { $arrayElemAt: ['$goldAt10_pct', 2] },
+            csAt10: { $arrayElemAt: ['$csAt10_pct', 2] },
+            goldAt15: { $arrayElemAt: ['$goldAt15_pct', 2] },
+            csAt15: { $arrayElemAt: ['$csAt15_pct', 2] },
+            dpm: { $arrayElemAt: ['$dpm_pct', 2] },
+            dtpm: { $arrayElemAt: ['$dtpm_pct', 2] },
+            kpm: { $arrayElemAt: ['$kpm_pct', 2] },
+            apm: { $arrayElemAt: ['$apm_pct', 2] },
+            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 2] },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$p90_firstItemCompletionTime', 0],
+              $arrayElemAt: ['$firstItemCompletionTime_pct', 2],
             },
             objectiveParticipationPct: {
-              $arrayElemAt: ['$p90_objectiveParticipationPct', 0],
+              $arrayElemAt: ['$objectiveParticipationPct_pct', 2],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$p90_earlyGankDeathRate', 0],
+              $arrayElemAt: ['$earlyGankDeathRate_pct', 2],
             },
           },
           p95: {
-            kills: { $arrayElemAt: ['$p95_kills', 0] },
-            deaths: { $arrayElemAt: ['$p95_deaths', 0] },
-            assists: { $arrayElemAt: ['$p95_assists', 0] },
-            cs: { $arrayElemAt: ['$p95_cs', 0] },
-            cspm: { $arrayElemAt: ['$p95_cspm', 0] },
-            goldEarned: { $arrayElemAt: ['$p95_goldEarned', 0] },
-            goldAt10: { $arrayElemAt: ['$p95_goldAt10', 0] },
-            csAt10: { $arrayElemAt: ['$p95_csAt10', 0] },
-            goldAt15: { $arrayElemAt: ['$p95_goldAt15', 0] },
-            csAt15: { $arrayElemAt: ['$p95_csAt15', 0] },
-            dpm: { $arrayElemAt: ['$p95_dpm', 0] },
-            dtpm: { $arrayElemAt: ['$p95_dtpm', 0] },
-            kpm: { $arrayElemAt: ['$p95_kpm', 0] },
-            apm: { $arrayElemAt: ['$p95_apm', 0] },
-            deathsPerMin: { $arrayElemAt: ['$p95_dpmDeaths', 0] },
+            kills: { $arrayElemAt: ['$kills_pct', 3] },
+            deaths: { $arrayElemAt: ['$deaths_pct', 3] },
+            assists: { $arrayElemAt: ['$assists_pct', 3] },
+            cs: { $arrayElemAt: ['$cs_pct', 3] },
+            cspm: { $arrayElemAt: ['$cspm_pct', 3] },
+            goldEarned: { $arrayElemAt: ['$goldEarned_pct', 3] },
+            goldAt10: { $arrayElemAt: ['$goldAt10_pct', 3] },
+            csAt10: { $arrayElemAt: ['$csAt10_pct', 3] },
+            goldAt15: { $arrayElemAt: ['$goldAt15_pct', 3] },
+            csAt15: { $arrayElemAt: ['$csAt15_pct', 3] },
+            dpm: { $arrayElemAt: ['$dpm_pct', 3] },
+            dtpm: { $arrayElemAt: ['$dtpm_pct', 3] },
+            kpm: { $arrayElemAt: ['$kpm_pct', 3] },
+            apm: { $arrayElemAt: ['$apm_pct', 3] },
+            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 3] },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$p95_firstItemCompletionTime', 0],
+              $arrayElemAt: ['$firstItemCompletionTime_pct', 3],
             },
             objectiveParticipationPct: {
-              $arrayElemAt: ['$p95_objectiveParticipationPct', 0],
+              $arrayElemAt: ['$objectiveParticipationPct_pct', 3],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$p95_earlyGankDeathRate', 0],
+              $arrayElemAt: ['$earlyGankDeathRate_pct', 3],
             },
           },
         },
       },
     },
 
-    { $sort: { championName: 1, role: 1 } },
+    { $sort: { role: 1 } },
   ];
 
   return pipeline;
 };
 
-/**
- * Aggregation options for optimal performance
- */
 export const cohortChampionRolePercentilesOptions = {
-  allowDiskUse: true, // Allow using disk for large datasets
-  maxTimeMS: 30000, // 30 second timeout
-  // Rely on MongoDB's query planner; avoid explicit hints that may not exist
+  allowDiskUse: true,
+  maxTimeMS: 60_000,
 };

@@ -377,7 +377,7 @@ export async function fetchCohortPercentiles(
       startTs,
       endTs,
       winsOnly: false,
-      sampleLimit: 10_000,
+      sampleLimit: 3_000,
       sortDesc: true,
       completedItemIds,
     });
