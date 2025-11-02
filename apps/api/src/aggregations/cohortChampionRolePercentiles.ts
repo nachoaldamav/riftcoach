@@ -73,6 +73,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
   const pipeline: Document[] = [
     { $match: firstMatch },
 
+    // Preserve full participant list for later calculations
+    { $set: { _allParticipants: '$info.participants' } },
+
     // Unwind and filter participants early to reduce document size
     { $unwind: '$info.participants' },
     {
@@ -96,6 +99,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         gameCreation: '$info.gameCreation',
         gameDuration: '$info.gameDuration',
         participant: '$info.participants',
+        _allParticipants: '$_allParticipants',
       },
     },
 
@@ -414,8 +418,237 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             },
           },
         },
+        objectiveParticipationPct: {
+          $let: {
+            vars: {
+              evs: { $ifNull: ['$timeline.events', []] },
+              pId: '$participant.participantId',
+            },
+            in: {
+              $let: {
+                vars: {
+                  teamEpic: {
+                    $size: {
+                      $filter: {
+                        input: '$$evs',
+                        as: 'e',
+                        cond: {
+                          $and: [
+                            { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
+                            { $gt: [{ $ifNull: ['$$e.killerId', 0] }, 0] },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  myInvolved: {
+                    $size: {
+                      $filter: {
+                        input: '$$evs',
+                        as: 'e',
+                        cond: {
+                          $and: [
+                            { $eq: ['$$e.type', 'ELITE_MONSTER_KILL'] },
+                            {
+                              $or: [
+                                { $eq: ['$$e.killerId', '$$pId'] },
+                                {
+                                  $in: [
+                                    '$$pId',
+                                    {
+                                      $ifNull: [
+                                        '$$e.assistingParticipantIds',
+                                        [],
+                                      ],
+                                    },
+                                  ],
+                                },
+                              ],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+                in: {
+                  $cond: [
+                    { $gt: ['$$teamEpic', 0] },
+                    { $divide: ['$$myInvolved', '$$teamEpic'] },
+                    null,
+                  ],
+                },
+              },
+            },
+          },
+        },
       },
     },
+
+    {
+      $set: {
+        _gankFlags: {
+          $map: {
+            input: {
+              $filter: {
+                input: { $ifNull: ['$timeline.events', []] },
+                as: 'e',
+                cond: { $eq: ['$$e.type', 'CHAMPION_KILL'] },
+              },
+            },
+            as: 'ev',
+            in: {
+              $let: {
+                vars: {
+                  x: { $ifNull: ['$$ev.position.x', -1] },
+                  y: { $ifNull: ['$$ev.position.y', -1] },
+                  killer: {
+                    $first: {
+                      $filter: {
+                        input: { $ifNull: ['$_allParticipants', []] },
+                        as: 'pp',
+                        cond: { $eq: ['$$pp.participantId', '$$ev.killerId'] },
+                      },
+                    },
+                  },
+                },
+                in: {
+                  zone: {
+                    $switch: {
+                      branches: [
+                        {
+                          case: {
+                            $lte: [
+                              {
+                                $abs: {
+                                  $subtract: [{ $add: ['$$x', '$$y'] }, 15000],
+                                },
+                              },
+                              1200,
+                            ],
+                          },
+                          then: 'RIVER',
+                        },
+                        {
+                          case: {
+                            $lte: [{ $abs: { $subtract: ['$$x', '$$y'] } }, 1200],
+                          },
+                          then: 'LANE_MID',
+                        },
+                        {
+                          case: { $gt: [{ $subtract: ['$$y', '$$x'] }, 2500] },
+                          then: 'LANE_TOP',
+                        },
+                        {
+                          case: { $gt: [{ $subtract: ['$$x', '$$y'] }, 2500] },
+                          then: 'LANE_BOTTOM',
+                        },
+                      ],
+                      default: 'JUNGLE',
+                    },
+                  },
+                  killerRole: {
+                    $switch: {
+                      branches: [
+                        {
+                          case: {
+                            $eq: [
+                              { $ifNull: ['$$killer.teamPosition', ''] },
+                              'TOP',
+                            ],
+                          },
+                          then: 'TOP',
+                        },
+                        {
+                          case: {
+                            $eq: [
+                              { $ifNull: ['$$killer.teamPosition', ''] },
+                              'JUNGLE',
+                            ],
+                          },
+                          then: 'JUNGLE',
+                        },
+                        {
+                          case: {
+                            $in: [
+                              { $ifNull: ['$$killer.teamPosition', ''] },
+                              ['MIDDLE', 'MID'],
+                            ],
+                          },
+                          then: 'MIDDLE',
+                        },
+                        {
+                          case: {
+                            $in: [
+                              { $ifNull: ['$$killer.teamPosition', ''] },
+                              ['BOTTOM', 'ADC', 'BOT'],
+                            ],
+                          },
+                          then: 'BOTTOM',
+                        },
+                        {
+                          case: {
+                            $in: [
+                              { $ifNull: ['$$killer.teamPosition', ''] },
+                              ['UTILITY', 'SUPPORT', 'SUP'],
+                            ],
+                          },
+                          then: 'UTILITY',
+                        },
+                      ],
+                      default: 'UNKNOWN',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    {
+      $set: {
+        earlyGankDeathRate: {
+          $cond: [
+            { $eq: ['$role', 'JUNGLE'] },
+            null,
+            {
+              $cond: [
+                {
+                  $anyElementTrue: {
+                    $map: {
+                      input: '$_gankFlags',
+                      as: 'g',
+                      in: {
+                        $and: [
+                          {
+                            $in: [
+                              '$$g.zone',
+                              ['LANE_TOP', 'LANE_MID', 'LANE_BOTTOM'],
+                            ],
+                          },
+                          {
+                            $or: [
+                              { $eq: ['$$g.killerRole', 'JUNGLE'] },
+                              { $ne: ['$$g.killerRole', '$role'] },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+                1,
+                0,
+              ],
+            },
+          ],
+        },
+      },
+    },
+
+    { $unset: ['_gankFlags', '_allParticipants'] },
 
     // ── group & percentile accumulators (no arrays) ────────────────────────
     {
@@ -495,6 +728,20 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
+        p50_objectiveParticipationPct: {
+          $percentile: {
+            input: '$objectiveParticipationPct',
+            p: [0.5],
+            method: 'approximate',
+          },
+        },
+        p50_earlyGankDeathRate: {
+          $percentile: {
+            input: '$earlyGankDeathRate',
+            p: [0.5],
+            method: 'approximate',
+          },
+        },
 
         // p75
         p75_kills: {
@@ -565,6 +812,20 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         p75_firstItemCompletionTime: {
           $percentile: {
             input: '$firstItemCompletionTime',
+            p: [0.75],
+            method: 'approximate',
+          },
+        },
+        p75_objectiveParticipationPct: {
+          $percentile: {
+            input: '$objectiveParticipationPct',
+            p: [0.75],
+            method: 'approximate',
+          },
+        },
+        p75_earlyGankDeathRate: {
+          $percentile: {
+            input: '$earlyGankDeathRate',
             p: [0.75],
             method: 'approximate',
           },
@@ -643,6 +904,20 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
+        p90_objectiveParticipationPct: {
+          $percentile: {
+            input: '$objectiveParticipationPct',
+            p: [0.9],
+            method: 'approximate',
+          },
+        },
+        p90_earlyGankDeathRate: {
+          $percentile: {
+            input: '$earlyGankDeathRate',
+            p: [0.9],
+            method: 'approximate',
+          },
+        },
 
         // p95
         p95_kills: {
@@ -717,6 +992,20 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
+        p95_objectiveParticipationPct: {
+          $percentile: {
+            input: '$objectiveParticipationPct',
+            p: [0.95],
+            method: 'approximate',
+          },
+        },
+        p95_earlyGankDeathRate: {
+          $percentile: {
+            input: '$earlyGankDeathRate',
+            p: [0.95],
+            method: 'approximate',
+          },
+        },
       },
     },
 
@@ -746,6 +1035,12 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             firstItemCompletionTime: {
               $arrayElemAt: ['$p50_firstItemCompletionTime', 0],
             },
+            objectiveParticipationPct: {
+              $arrayElemAt: ['$p50_objectiveParticipationPct', 0],
+            },
+            earlyGankDeathRate: {
+              $arrayElemAt: ['$p50_earlyGankDeathRate', 0],
+            },
           },
           p75: {
             kills: { $arrayElemAt: ['$p75_kills', 0] },
@@ -765,6 +1060,12 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             deathsPerMin: { $arrayElemAt: ['$p75_dpmDeaths', 0] },
             firstItemCompletionTime: {
               $arrayElemAt: ['$p75_firstItemCompletionTime', 0],
+            },
+            objectiveParticipationPct: {
+              $arrayElemAt: ['$p75_objectiveParticipationPct', 0],
+            },
+            earlyGankDeathRate: {
+              $arrayElemAt: ['$p75_earlyGankDeathRate', 0],
             },
           },
           p90: {
@@ -786,6 +1087,12 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             firstItemCompletionTime: {
               $arrayElemAt: ['$p90_firstItemCompletionTime', 0],
             },
+            objectiveParticipationPct: {
+              $arrayElemAt: ['$p90_objectiveParticipationPct', 0],
+            },
+            earlyGankDeathRate: {
+              $arrayElemAt: ['$p90_earlyGankDeathRate', 0],
+            },
           },
           p95: {
             kills: { $arrayElemAt: ['$p95_kills', 0] },
@@ -805,6 +1112,12 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             deathsPerMin: { $arrayElemAt: ['$p95_dpmDeaths', 0] },
             firstItemCompletionTime: {
               $arrayElemAt: ['$p95_firstItemCompletionTime', 0],
+            },
+            objectiveParticipationPct: {
+              $arrayElemAt: ['$p95_objectiveParticipationPct', 0],
+            },
+            earlyGankDeathRate: {
+              $arrayElemAt: ['$p95_earlyGankDeathRate', 0],
             },
           },
         },
