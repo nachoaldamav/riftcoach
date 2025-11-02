@@ -211,7 +211,7 @@ export async function fetchBulkCohortPercentiles(
     // Try to get as many as possible from cache first
     const cacheKeys = uniqueRequests.map(
       (req) =>
-        `cache:cohort:percentiles:v2:${req.championName}:${req.role}:2025:wins:limit100`,
+        `cache:cohort:percentiles:v3:${req.championName}:${req.role}:2025:wins:limit100`,
     );
 
     const cachedResults = await redis.mget(...cacheKeys);
@@ -262,7 +262,7 @@ export async function fetchBulkCohortPercentiles(
         const batchResults = await Promise.all(
           batch.map(async (req) => {
             const key = `${req.championName}:${req.role}`;
-            const cacheKey = `cache:cohort:percentiles:v2:${req.championName}:${req.role}:2025:wins:limit100`;
+            const cacheKey = `cache:cohort:percentiles:v3:${req.championName}:${req.role}:2025:wins:limit100`;
 
             try {
               const startTs = Date.UTC(2025, 0, 1);
@@ -351,7 +351,7 @@ export async function fetchCohortPercentiles(
 ): Promise<CohortPercentilesDoc | null> {
   try {
     // Simple cache keyed by champion-role and fixed cohort parameters
-    const cacheKey = `cache:cohort:percentiles:v4:${championName}:${role}:2025:limit1000`;
+    const cacheKey = `cache:cohort:percentiles:v5:${championName}:${role}:2025:limit1000`;
     const cached = await redis.get(cacheKey);
     if (cached) {
       try {
