@@ -78,6 +78,8 @@ function buildPrompts(
       kda: 'KDA',
       winRate: 'Win Rate',
       firstItemCompletionTime: 'First item completion time',
+      objectiveParticipationPct: 'Objective participation rate',
+      earlyGankDeathRate: 'Early gank death rate',
     },
     bannedPhrases: [
       'key presses per minute',
@@ -88,7 +90,12 @@ function buildPrompts(
       'median',
       'suboptimal builds',
     ],
-    negativeMetrics: ['deathsPerMin', 'dtpm', 'firstItemCompletionTime'],
+    negativeMetrics: [
+      'deathsPerMin',
+      'dtpm',
+      'firstItemCompletionTime',
+      'earlyGankDeathRate',
+    ],
   } as const;
 
   const getNumber = (v: unknown): number | null =>
@@ -169,12 +176,14 @@ function buildPrompts(
     'dtpm',
     'kpm',
     'apm',
+    'objectiveParticipationPct',
     'deathsPerMin',
     'goldAt10',
     'csAt10',
     'goldAt15',
     'csAt15',
     'kda',
+    'earlyGankDeathRate',
     'firstItemCompletionTime',
   ];
 
