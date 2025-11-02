@@ -7,6 +7,9 @@ import {
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Tooltip,
   TooltipContent,
@@ -17,6 +20,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
 import { ChevronRight, Clock, Map as MapIcon, Target, Zap } from 'lucide-react';
+import type { RiotAPITypes } from '@fightmegg/riot-api';
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 
@@ -37,6 +41,10 @@ type TimelineEvent = {
   killerId?: number;
   victimId?: number;
   assistingParticipantIds?: number[];
+  creatorId?: number;
+  itemId?: number | null;
+  beforeId?: number | null;
+  afterId?: number | null;
 };
 
 type ParticipantFrame = {
@@ -44,14 +52,47 @@ type ParticipantFrame = {
   level?: number;
   totalGold?: number;
   gold?: number;
+  currentGold?: number;
   minionsKilled?: number;
   jungleMinionsKilled?: number;
+  xp?: number;
+  championStats?: Record<string, number>;
+  damageStats?: Record<string, number>;
+  [key: string]: unknown;
 };
 
 type TimelineFrame = {
   timestamp?: number;
   events?: TimelineEvent[];
   participantFrames?: Record<string, ParticipantFrame>;
+};
+
+type SnapshotEntry = {
+  participantId: number;
+  championName: string;
+  teamId: number;
+  summonerName: string;
+  x: number;
+  y: number;
+  confidence: number;
+  radius: number;
+  isActor: boolean;
+  frame: ParticipantFrame | null;
+  frameTimestamp: number | null;
+  frameDeltaMs: number | null;
+  snapshotSource: 'previous' | 'next' | 'none';
+  currentGold: number | null;
+  totalGold: number | null;
+  cs: number;
+  inventory: number[];
+  hasGrievousWounds: boolean;
+  ts: number;
+};
+
+type EventSnapshot = {
+  ts: number;
+  eventPos: Vec2 | null;
+  entries: SnapshotEntry[];
 };
 
 const dist2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -160,6 +201,145 @@ function findClosestKillEvent(
   return best ? { event: best, diffMs: bestDiff } : null;
 }
 
+const ITEM_EVENT_TYPES = new Set<string>([
+  'ITEM_PURCHASED',
+  'ITEM_SOLD',
+  'ITEM_DESTROYED',
+  'ITEM_UNDO',
+  'ITEM_TRANSFORMED',
+]);
+
+const GRIEVOUS_WOUND_ITEM_IDS = new Set<number>([
+  3916, 3165, 3011, 3123, 3033, 3076, 3075,
+]);
+
+function computeInventoryAtTime(
+  events: TimelineEvent[],
+  participantId: number,
+  ts: number,
+) {
+  if (!events.length) return { inventoryIds: [] as number[], hasGrievousWounds: false };
+  const inventory: number[] = [];
+
+  const add = (id?: number | null) => {
+    if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+      inventory.push(id);
+    }
+  };
+
+  const remove = (id?: number | null) => {
+    if (typeof id !== 'number' || !Number.isFinite(id) || id <= 0) return;
+    for (let i = inventory.length - 1; i >= 0; i -= 1) {
+      if (inventory[i] === id) {
+        inventory.splice(i, 1);
+        break;
+      }
+    }
+  };
+
+  for (const evt of events) {
+    if (evt.participantId !== participantId) continue;
+    const evtTs = typeof evt.timestamp === 'number' ? evt.timestamp : 0;
+    if (evtTs > ts) break;
+    if (!evt?.type || !ITEM_EVENT_TYPES.has(evt.type)) continue;
+
+    switch (evt.type) {
+      case 'ITEM_PURCHASED':
+        add(evt.itemId);
+        break;
+      case 'ITEM_SOLD':
+      case 'ITEM_DESTROYED':
+        remove(evt.itemId);
+        break;
+      case 'ITEM_UNDO':
+        if (evt.beforeId) remove(evt.beforeId);
+        if (evt.afterId) add(evt.afterId);
+        else if (evt.itemId) remove(evt.itemId);
+        break;
+      case 'ITEM_TRANSFORMED':
+        if (evt.beforeId) remove(evt.beforeId);
+        if (evt.afterId) add(evt.afterId);
+        else add(evt.itemId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  const hasGrievousWounds = inventory.some((id) => GRIEVOUS_WOUND_ITEM_IDS.has(id));
+  return { inventoryIds: inventory, hasGrievousWounds };
+}
+
+function selectParticipantFrameForTimestamp(
+  previous: TimelineFrame | null,
+  next: TimelineFrame | null,
+  participantId: number,
+  ts: number,
+) {
+  const prevFrame = previous?.participantFrames?.[String(participantId)] ?? null;
+  const nextFrame = next?.participantFrames?.[String(participantId)] ?? null;
+  const prevTs = Number(previous?.timestamp ?? Number.NaN);
+  const nextTs = Number(next?.timestamp ?? Number.NaN);
+
+  if (
+    prevFrame &&
+    nextFrame &&
+    Number.isFinite(prevTs) &&
+    Number.isFinite(nextTs)
+  ) {
+    const diffPrev = Math.abs(ts - prevTs);
+    const diffNext = Math.abs(nextTs - ts);
+    if (diffNext < diffPrev) {
+      return {
+        frame: nextFrame,
+        frameTimestamp: nextTs,
+        frameDeltaMs: diffNext,
+        snapshotSource: 'next' as const,
+      };
+    }
+    return {
+      frame: prevFrame,
+      frameTimestamp: prevTs,
+      frameDeltaMs: diffPrev,
+      snapshotSource: 'previous' as const,
+    };
+  }
+
+  if (prevFrame && Number.isFinite(prevTs)) {
+    return {
+      frame: prevFrame,
+      frameTimestamp: prevTs,
+      frameDeltaMs: Math.abs(ts - prevTs),
+      snapshotSource: 'previous' as const,
+    };
+  }
+
+  if (nextFrame && Number.isFinite(nextTs)) {
+    return {
+      frame: nextFrame,
+      frameTimestamp: nextTs,
+      frameDeltaMs: Math.abs(nextTs - ts),
+      snapshotSource: 'next' as const,
+    };
+  }
+
+  return {
+    frame: null,
+    frameTimestamp: null,
+    frameDeltaMs: null,
+    snapshotSource: 'none' as const,
+  };
+}
+
+const numberFormatter = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 0,
+});
+
+const preciseNumberFormatter = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 1,
+  minimumFractionDigits: 1,
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────────
@@ -253,12 +433,38 @@ function MatchAnalysisComponent() {
     return m;
   }, [matchData]);
 
+  const participantDetailsById = useMemo(() => {
+    if (!matchData)
+      return new Map<number, RiotAPITypes.MatchV5.ParticipantDTO>();
+    const map = new Map<number, RiotAPITypes.MatchV5.ParticipantDTO>();
+    for (const p of matchData.info.participants) {
+      map.set(p.participantId, p);
+    }
+    return map;
+  }, [matchData]);
+
+  const timelineEvents = useMemo(() => {
+    if (!timelineData) return [] as TimelineEvent[];
+    const frames: TimelineFrame[] = (timelineData.info.frames || []) as TimelineFrame[];
+    const evts: TimelineEvent[] = [];
+    for (const frame of frames) {
+      for (const evt of frame?.events ?? []) {
+        if (evt) evts.push(evt as TimelineEvent);
+      }
+    }
+    return evts.sort(
+      (a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0),
+    );
+  }, [timelineData]);
+
   // Interpolated snapshot at the event timestamp
   const eventSnapshot = useMemo(() => {
     if (!timelineData || !matchData || !selectedMoment) return null;
     const frames: TimelineFrame[] = (timelineData.info.frames ||
       []) as TimelineFrame[];
     const ts = selectedMoment.ts;
+
+    const { f0: frameBefore, f1: frameAfter } = boundingFrames(frames, ts);
 
     // Find closest CHAMPION_KILL to snap killer/victim to exact event position if appropriate
     const killInfo = findClosestKillEvent(frames, ts);
@@ -287,17 +493,7 @@ function MatchAnalysisComponent() {
       });
     }
 
-    const entries: Array<{
-      participantId: number;
-      championName: string;
-      teamId: number;
-      summonerName: string;
-      x: number;
-      y: number;
-      confidence: number;
-      radius: number; // map units
-      isActor: boolean;
-    }> = [];
+    const entries: SnapshotEntry[] = [];
 
     const SAFE_SNAP_MS = 250; // Only trust event position when very close in time
     const SAME_SPOT_EPS = 60; // Considered same spot in map units for snapping
@@ -334,6 +530,33 @@ function MatchAnalysisComponent() {
       }
 
       if (pos) {
+        const frameInfo = selectParticipantFrameForTimestamp(
+          frameBefore,
+          frameAfter,
+          pid,
+          ts,
+        );
+        const { inventoryIds, hasGrievousWounds } = computeInventoryAtTime(
+          timelineEvents,
+          pid,
+          ts,
+        );
+        const currentGold =
+          typeof frameInfo.frame?.currentGold === 'number'
+            ? frameInfo.frame.currentGold
+            : typeof frameInfo.frame?.gold === 'number'
+              ? frameInfo.frame.gold
+              : null;
+        const totalGold =
+          typeof frameInfo.frame?.totalGold === 'number'
+            ? frameInfo.frame.totalGold
+            : typeof frameInfo.frame?.gold === 'number'
+              ? frameInfo.frame.gold
+              : null;
+        const csValue =
+          (frameInfo.frame?.minionsKilled ?? 0) +
+          (frameInfo.frame?.jungleMinionsKilled ?? 0);
+
         entries.push({
           participantId: pid,
           championName: m.championName,
@@ -344,12 +567,22 @@ function MatchAnalysisComponent() {
           confidence: conf,
           radius: rad,
           isActor,
+          frame: frameInfo.frame,
+          frameTimestamp: frameInfo.frameTimestamp,
+          frameDeltaMs: frameInfo.frameDeltaMs,
+          snapshotSource: frameInfo.snapshotSource,
+          currentGold,
+          totalGold,
+          cs: csValue,
+          inventory: inventoryIds,
+          hasGrievousWounds,
+          ts,
         });
       }
     }
 
-    return { ts, eventPos, entries };
-  }, [timelineData, matchData, selectedMoment]);
+    return { ts, eventPos, entries } satisfies EventSnapshot;
+  }, [timelineData, matchData, selectedMoment, timelineEvents]);
 
   // AOI center for zooming (prefer event position, fallback to actors' centroid, then selectedMoment.coordinates[0])
   const [aoiZoomEnabled, setAoiZoomEnabled] = useState(true);
@@ -1014,45 +1247,67 @@ function MatchAnalysisComponent() {
                     />
 
                     {/* Interpolated player markers at selected moment */}
-                    {eventSnapshot?.entries.map((pp) => (
-                      <div
-                        key={`pp-${pp.participantId}`}
-                        className="absolute"
-                        style={coordToStyle(pp.x, pp.y)}
-                      >
-                        {/* Uncertainty halo */}
+                    {eventSnapshot?.entries.map((pp) => {
+                      const participantDetails = participantDetailsById.get(
+                        pp.participantId,
+                      );
+                      return (
                         <div
-                          className="absolute rounded-full border border-white/10 bg-white/5"
-                          style={{
-                            ...radiusToStyle(pp.radius),
-                            left: '50%',
-                            top: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            opacity: Math.max(
-                              0.25,
-                              Math.min(0.85, 1 - pp.confidence + 0.35),
-                            ),
-                            filter: 'blur(2px)',
-                          }}
-                        />
-                        {/* Avatar marker */}
-                        <Avatar
-                          className={cn(
-                            'h-6 w-6 rounded-md ring-2',
-                            pp.teamId === 100
-                              ? 'ring-blue-400'
-                              : 'ring-red-400',
-                            'shadow-md z-20',
-                            !pp.isActor ? 'opacity-50' : '',
-                          )}
+                          key={`pp-${pp.participantId}`}
+                          className="absolute"
+                          style={coordToStyle(pp.x, pp.y)}
                         >
-                          <AvatarImage
-                            src={getChampionSquare(pp.championName)}
-                            alt={pp.summonerName}
+                          {/* Uncertainty halo */}
+                          <div
+                            className="absolute rounded-full border border-white/10 bg-white/5"
+                            style={{
+                              ...radiusToStyle(pp.radius),
+                              left: '50%',
+                              top: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              opacity: Math.max(
+                                0.25,
+                                Math.min(0.85, 1 - pp.confidence + 0.35),
+                              ),
+                              filter: 'blur(2px)',
+                            }}
                           />
-                        </Avatar>
-                      </div>
-                    ))}
+                          {/* Avatar marker */}
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Avatar
+                                className={cn(
+                                  'h-6 w-6 cursor-pointer rounded-md ring-2 transition-transform hover:scale-[1.08]',
+                                  pp.teamId === 100
+                                    ? 'ring-blue-400'
+                                    : 'ring-red-400',
+                                  'shadow-md z-20',
+                                  !pp.isActor ? 'opacity-50' : '',
+                                )}
+                              >
+                                <AvatarImage
+                                  src={getChampionSquare(pp.championName)}
+                                  alt={pp.summonerName}
+                                />
+                              </Avatar>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              side="top"
+                              align="center"
+                              className="w-80 max-w-[18rem] border-neutral-700/70 bg-neutral-900/95 p-0 text-neutral-100"
+                            >
+                              <PlayerPopoverContent
+                                entry={pp}
+                                participant={participantDetails}
+                                formatClock={formatClock}
+                                getChampionSquare={getChampionSquare}
+                                getItemIcon={getItemIcon}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Corner controls (outside of transform so UI doesn't scale) */}
@@ -1186,5 +1441,321 @@ function MatchAnalysisComponent() {
       </motion.div>
       </div>
     </TooltipProvider>
+  );
+}
+
+type PlayerPopoverContentProps = {
+  entry: SnapshotEntry;
+  participant?: RiotAPITypes.MatchV5.ParticipantDTO;
+  formatClock: (ms: number) => string;
+  getItemIcon: (itemId?: number) => string;
+  getChampionSquare: (championName: string) => string;
+};
+
+function PlayerPopoverContent({
+  entry,
+  participant,
+  formatClock,
+  getItemIcon,
+  getChampionSquare,
+}: PlayerPopoverContentProps) {
+  const itemsFromParticipant = participant
+    ? [
+        participant.item0,
+        participant.item1,
+        participant.item2,
+        participant.item3,
+        participant.item4,
+        participant.item5,
+      ].filter((id): id is number => typeof id === 'number' && id > 0)
+    : [];
+
+  const inventory = entry.inventory.length > 0 ? entry.inventory : itemsFromParticipant;
+  const slots = Array.from({ length: 6 }, (_, idx) => inventory[idx] ?? null);
+  const overflow = inventory.length > 6 ? inventory.slice(6) : [];
+
+  const goldInBag =
+    typeof entry.currentGold === 'number' && Number.isFinite(entry.currentGold)
+      ? Math.max(0, Math.round(entry.currentGold))
+      : null;
+  const totalGold =
+    typeof entry.totalGold === 'number' && Number.isFinite(entry.totalGold)
+      ? Math.max(0, Math.round(entry.totalGold))
+      : participant && typeof participant.goldEarned === 'number'
+        ? participant.goldEarned
+        : null;
+
+  const level =
+    typeof entry.frame?.level === 'number'
+      ? entry.frame.level
+      : participant && typeof participant.champLevel === 'number'
+        ? participant.champLevel
+        : null;
+
+  const xp =
+    typeof entry.frame?.xp === 'number'
+      ? entry.frame.xp
+      : participant && typeof (participant as { champExperience?: number }).champExperience === 'number'
+        ? (participant as { champExperience?: number }).champExperience
+        : null;
+
+  const csFromParticipant =
+    (participant?.totalMinionsKilled ?? 0) + (participant?.neutralMinionsKilled ?? 0);
+  const cs = entry.frame ? entry.cs : csFromParticipant;
+  const frameReferenceTs = entry.frameTimestamp ?? entry.ts;
+  const elapsedMinutes = frameReferenceTs > 0 ? frameReferenceTs / 60000 : null;
+  const csPerMin =
+    elapsedMinutes && elapsedMinutes > 0
+      ? cs / elapsedMinutes
+      : null;
+
+  const damageDealt = {
+    physical: participant?.physicalDamageDealtToChampions ?? 0,
+    magic: participant?.magicDamageDealtToChampions ?? 0,
+    true: participant?.trueDamageDealtToChampions ?? 0,
+  };
+  const totalDamageDealt =
+    damageDealt.physical + damageDealt.magic + damageDealt.true;
+
+  const damageTaken = {
+    physical: participant?.physicalDamageTaken ?? 0,
+    magic: participant?.magicDamageTaken ?? 0,
+    true: participant?.trueDamageTaken ?? 0,
+  };
+  const totalDamageTaken =
+    damageTaken.physical + damageTaken.magic + damageTaken.true;
+
+  const snapshotClock =
+    typeof entry.frameTimestamp === 'number'
+      ? formatClock(entry.frameTimestamp)
+      : '–';
+  const deltaSeconds =
+    typeof entry.frameDeltaMs === 'number'
+      ? entry.frameDeltaMs / 1000
+      : null;
+  const deltaLabel =
+    deltaSeconds != null
+      ? `${entry.snapshotSource === 'previous' ? '−' : '+'}${preciseNumberFormatter.format(
+          Math.abs(deltaSeconds),
+        )}s`
+      : null;
+
+  const kda = participant
+    ? `${participant.kills}/${participant.deaths}/${participant.assists}`
+    : '—';
+  const visionScore =
+    typeof participant?.visionScore === 'number'
+      ? participant.visionScore
+      : null;
+
+  const renderDamageRow = (
+    label: string,
+    value: number,
+    total: number,
+  ) => (
+    <div key={label} className="space-y-1">
+      <div className="flex items-center justify-between text-xs text-neutral-400">
+        <span>{label}</span>
+        <span className="text-neutral-200">
+          {numberFormatter.format(Math.round(value))}
+        </span>
+      </div>
+      <Progress value={total > 0 ? Math.min(100, (value / total) * 100) : 0} />
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 p-4">
+      <div className="flex items-center gap-3">
+        <Avatar
+          className={cn(
+            'h-10 w-10 rounded-lg ring-2',
+            entry.teamId === 100 ? 'ring-blue-400/70' : 'ring-red-400/70',
+          )}
+        >
+          <AvatarImage
+            src={getChampionSquare(entry.championName)}
+            alt={entry.championName}
+          />
+        </Avatar>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="truncate text-sm font-semibold text-neutral-100">
+              {entry.summonerName}
+            </div>
+            <span
+              className={cn(
+                'text-xs font-medium',
+                entry.teamId === 100 ? 'text-accent-blue-200' : 'text-red-200',
+              )}
+            >
+              {entry.teamId === 100 ? 'Blue Side' : 'Red Side'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-neutral-400">
+            <span>{entry.championName}</span>
+            <span>•</span>
+            <span>Moment {formatClock(entry.ts)}</span>
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-500">
+            <span>Snapshot {snapshotClock}</span>
+            {deltaLabel ? <span>({deltaLabel})</span> : null}
+          </div>
+        </div>
+      </div>
+
+      <Tabs defaultValue="build" className="w-full">
+        <TabsList className="gap-1">
+          <TabsTrigger value="build">Build</TabsTrigger>
+          <TabsTrigger value="damage">Damage</TabsTrigger>
+          <TabsTrigger value="stats">Stats</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="build" className="space-y-3">
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            {slots.map((itemId, idx) => (
+              <div
+                key={`slot-${entry.participantId}-${idx}`}
+                className="flex flex-col items-center gap-1 text-[11px] text-neutral-400"
+              >
+                {itemId ? (
+                  <img
+                    src={getItemIcon(itemId) || undefined}
+                    alt={`Item ${itemId}`}
+                    title={`Item ${itemId}`}
+                    className="h-12 w-12 rounded-lg border border-neutral-700/60 bg-neutral-900 object-cover shadow"
+                  />
+                ) : (
+                  <div className="h-12 w-12 rounded-lg border border-dashed border-neutral-700/40 bg-neutral-800/40" />
+                )}
+                <span className="text-[10px] uppercase tracking-wide text-neutral-500">
+                  Slot {idx + 1}
+                </span>
+              </div>
+            ))}
+          </div>
+          {overflow.length > 0 ? (
+            <p className="text-xs text-neutral-400">
+              +{overflow.length} component{overflow.length > 1 ? 's' : ''} in inventory
+            </p>
+          ) : null}
+          <div className="space-y-1 text-sm">
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>Gold in bag</span>
+              <span className="font-semibold text-accent-yellow-200">
+                {goldInBag != null ? numberFormatter.format(goldInBag) : '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>Total gold earned</span>
+              <span>{
+                totalGold != null ? numberFormatter.format(Math.round(totalGold)) : '—'
+              }</span>
+            </div>
+          </div>
+          {entry.hasGrievousWounds ? (
+            <p className="text-[11px] text-accent-yellow-200">
+              Grievous Wounds item equipped at this moment.
+            </p>
+          ) : null}
+          {inventory.length === 0 && (
+            <p className="text-xs text-neutral-400">
+              No items purchased yet at this timestamp.
+            </p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="damage" className="space-y-4">
+          <div>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+              Damage Dealt
+            </h4>
+            <div className="mt-2 space-y-2">
+              {['physical', 'magic', 'true'].map((key) =>
+                renderDamageRow(
+                  key.charAt(0).toUpperCase() + key.slice(1),
+                  damageDealt[key as keyof typeof damageDealt],
+                  totalDamageDealt,
+                ),
+              )}
+            </div>
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+              Damage Taken
+            </h4>
+            <div className="mt-2 space-y-2">
+              {['physical', 'magic', 'true'].map((key) =>
+                renderDamageRow(
+                  key.charAt(0).toUpperCase() + key.slice(1),
+                  damageTaken[key as keyof typeof damageTaken],
+                  totalDamageTaken,
+                ),
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="stats" className="space-y-3">
+          <div className="grid grid-cols-2 gap-3 text-sm text-neutral-300">
+            <div>
+              <span className="block text-xs uppercase tracking-wide text-neutral-500">
+                Level
+              </span>
+              <span className="text-neutral-100">{level ?? '—'}</span>
+            </div>
+            <div>
+              <span className="block text-xs uppercase tracking-wide text-neutral-500">
+                K / D / A
+              </span>
+              <span className="text-neutral-100">{kda}</span>
+            </div>
+            <div>
+              <span className="block text-xs uppercase tracking-wide text-neutral-500">
+                Creep Score
+              </span>
+              <span className="text-neutral-100">
+                {numberFormatter.format(Math.round(cs))}
+                {csPerMin && Number.isFinite(csPerMin) ? (
+                  <span className="ml-1 text-[11px] text-neutral-400">
+                    ({preciseNumberFormatter.format(csPerMin)}/m)
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <div>
+              <span className="block text-xs uppercase tracking-wide text-neutral-500">
+                Experience
+              </span>
+              <span className="text-neutral-100">
+                {xp != null ? numberFormatter.format(Math.round(xp)) : '—'}
+              </span>
+            </div>
+            <div>
+              <span className="block text-xs uppercase tracking-wide text-neutral-500">
+                Vision Score
+              </span>
+              <span className="text-neutral-100">
+                {visionScore != null
+                  ? numberFormatter.format(Math.round(visionScore))
+                  : '—'}
+              </span>
+            </div>
+            <div>
+              <span className="block text-xs uppercase tracking-wide text-neutral-500">
+                Total Damage to Champs
+              </span>
+              <span className="text-neutral-100">
+                {participant?.totalDamageDealtToChampions != null
+                  ? numberFormatter.format(
+                      Math.round(participant.totalDamageDealtToChampions),
+                    )
+                  : '—'}
+              </span>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }
