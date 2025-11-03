@@ -32,7 +32,7 @@ async function getChampionNames(
     version: patch,
   });
   const names = Object.values(data.data)
-    .map((c) => c.name)
+    .map((c) => c.id)
     .filter((n): n is string => typeof n === 'string' && n.length > 0)
     .sort();
 
