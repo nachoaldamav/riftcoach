@@ -115,8 +115,8 @@ export const BADGES_PROMPT = `
 *   **Description:** Too many deaths are stalling your impact and resets. Improve risk assessment, vision usage, and disengage timing.
 *   **AI instructions:** For the most-weighted role: \`avg_deaths\` ≥ opponent by 0.7+.
 
-### **28. Positioning Cleanup**
-*   **Description:** Deaths are happening without soaking meaningful pressure. Work on spacing and fight selection to die less for more value.
+### **28. Low-Value Deaths**
+*   **Description:** You die more than your opponent without absorbing much pressure. Improve spacing, vision, and fight selection to reduce unnecessary deaths.
 *   **AI instructions:** \`avg_deaths\` ≥ opponent by 0.5+ AND \`avg_dmg_taken_per_min\` ≤ opponent by +20 (i.e., not significantly higher damage taken).
 
 ### **29. Mid Game Dip**

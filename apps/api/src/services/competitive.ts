@@ -39,7 +39,7 @@ export const teams: Team[] = [
       {
         name: 'Quid',
         position: 'MIDDLE',
-        summonerName: 'tree%20frog',
+        summonerName: 'tree frog',
         summonerTag: '100',
         region: PlatformId.NA1,
         image: 'quid.png',

@@ -1,4 +1,4 @@
-import { collections } from '@riftcoach/clients.mongodb';
+import { client, collections } from '@riftcoach/clients.mongodb';
 import consola from 'consola';
 import ms from 'ms';
 import {
@@ -18,6 +18,13 @@ export type CohortPercentilesDoc = {
     p90: Record<string, number>;
     p95: Record<string, number>;
   };
+};
+
+// Persisted record written by the cohorts worker
+type CohortPercentilesRecord = CohortPercentilesDoc & {
+  year: number;
+  patch?: string;
+  updatedAt: number;
 };
 
 function contribPositive(
@@ -196,6 +203,9 @@ export async function fetchBulkCohortPercentiles(
   requests: Array<{ championName: string; role: string }>,
   options?: { completedItemIds?: number[] },
 ): Promise<Array<CohortPercentilesDoc | null>> {
+  // Hoist completedItemIds so it's available to catch fallback
+  const completedItemIds =
+    options?.completedItemIds ?? (await getCompletedItemIds());
   try {
     // Group unique champion-role combinations to avoid duplicate queries
     const uniqueRequests = Array.from(
@@ -203,9 +213,6 @@ export async function fetchBulkCohortPercentiles(
         requests.map((req) => [`${req.championName}:${req.role}`, req]),
       ).values(),
     );
-
-    const completedItemIds =
-      options?.completedItemIds ?? (await getCompletedItemIds());
 
     // Try to get as many as possible from cache first
     const cacheKeys = uniqueRequests.map(
@@ -352,7 +359,8 @@ export async function fetchCohortPercentiles(
 ): Promise<CohortPercentilesDoc | null> {
   try {
     // Simple cache keyed by champion-role and fixed cohort parameters
-    const cacheKey = `cache:cohort:percentiles:v5:${championName}:${role}:2025:limit10000`;
+    const YEAR = 2025;
+    const cacheKey = `cache:cohort:percentiles:v5:${championName}:${role}:${YEAR}:limit10000`;
     const cached = await redis.get(cacheKey);
     if (cached) {
       try {
@@ -361,12 +369,49 @@ export async function fetchCohortPercentiles(
         // ignore cache parse error and recompute
       }
     }
+
+    // Try reading precomputed cohort percentiles stored by the cohorts worker
+    try {
+      const cohortsColl = client
+        .db('riftcoach')
+        .collection<CohortPercentilesRecord>('cohort_percentiles');
+      const dbDoc = await cohortsColl.findOne({
+        championName,
+        role: String(role),
+        year: YEAR,
+      });
+      if (dbDoc?.percentiles) {
+        // Sanitize potential nulls from persisted record into numbers-only maps
+        const sanitize = (m: Record<string, number | null> | Record<string, number>) => {
+          const out: Record<string, number> = {};
+          for (const k of Object.keys(m ?? {})) {
+            const v = (m as Record<string, number | null>)[k];
+            if (typeof v === 'number') out[k] = v;
+          }
+          return out;
+        };
+        const doc: CohortPercentilesDoc = {
+          championName: dbDoc.championName,
+          role: dbDoc.role,
+          percentiles: {
+            p50: sanitize(dbDoc.percentiles.p50 as Record<string, number | null>),
+            p75: sanitize(dbDoc.percentiles.p75 as Record<string, number | null>),
+            p90: sanitize(dbDoc.percentiles.p90 as Record<string, number | null>),
+            p95: sanitize(dbDoc.percentiles.p95 as Record<string, number | null>),
+          },
+        };
+        await redis.set(cacheKey, JSON.stringify(doc), 'EX', ms('7d'));
+        return doc;
+      }
+    } catch (e) {
+      consola.warn('[champion-role-algo] DB cohort lookup failed', e);
+    }
     // Optimization defaults:
     // - Restrict to year 2025 (inclusive of Jan 1, exclusive of Jan 1, 2026)
     // - Consider wins only to tighten distribution and reduce docs
     // - Sort by newest games and limit sample size to 500
-    const startTs = Date.UTC(2025, 0, 1);
-    const endTs = Date.UTC(2026, 0, 1);
+    const startTs = Date.UTC(YEAR, 0, 1);
+    const endTs = Date.UTC(YEAR + 1, 0, 1);
 
     const completedItemIds =
       options?.completedItemIds ?? (await getCompletedItemIds());

@@ -141,14 +141,12 @@ const cohortChampionRolePercentilesAggregation = (params: {
     { $match: firstMatch },
     { $sort: { 'info.gameCreation': sortDirection } },
 
-    // Project early but keep what we need
     {
       $project: {
         matchId: '$metadata.matchId',
         gameCreation: '$info.gameCreation',
         gameDuration: '$info.gameDuration',
         participants: '$info.participants',
-        // Extract participant IDs map ONCE, before unwinding
         participantIdMap: {
           $arrayToObject: {
             $map: {
@@ -176,7 +174,6 @@ const cohortChampionRolePercentilesAggregation = (params: {
 
     { $limit: sampleLimit },
 
-    // Simplified timeline lookup with minimal processing
     {
       $lookup: {
         from: 'timelines',
@@ -189,7 +186,6 @@ const cohortChampionRolePercentilesAggregation = (params: {
           {
             $project: {
               _id: 0,
-              // Get frames 10 and 15 directly
               pf10: {
                 $getField: {
                   field: { $toString: '$$pId' },
@@ -212,7 +208,6 @@ const cohortChampionRolePercentilesAggregation = (params: {
                   },
                 },
               },
-              // Get all events up to 15 minutes in one go
               allEvents: {
                 $reduce: {
                   input: { $slice: ['$info.frames', 15] },
@@ -243,7 +238,6 @@ const cohortChampionRolePercentilesAggregation = (params: {
                   { $ifNull: ['$pf15.jungleMinionsKilled', 0] },
                 ],
               },
-              // Separate events by type for easier processing
               kills: {
                 $filter: {
                   input: '$allEvents',
@@ -324,7 +318,6 @@ const cohortChampionRolePercentilesAggregation = (params: {
       },
     },
 
-    // Calculate all metrics
     {
       $set: {
         role: {
@@ -388,7 +381,9 @@ const cohortChampionRolePercentilesAggregation = (params: {
         },
         kpm: { $divide: ['$participants.kills', '$gameDurationMin'] },
         apm: { $divide: ['$participants.assists', '$gameDurationMin'] },
-        deathsPerMin: { $divide: ['$participants.deaths', '$gameDurationMin'] },
+        deathsPerMin: {
+          $divide: ['$participants.deaths', '$gameDurationMin'],
+        },
         cspm: {
           $divide: [
             {
@@ -407,7 +402,11 @@ const cohortChampionRolePercentilesAggregation = (params: {
               $divide: [
                 {
                   $min: {
-                    $map: { input: '$tl.items', as: 'i', in: '$$i.timestamp' },
+                    $map: {
+                      input: '$tl.items',
+                      as: 'i',
+                      in: '$$i.timestamp',
+                    },
                   },
                 },
                 1000,
@@ -502,10 +501,10 @@ const cohortChampionRolePercentilesAggregation = (params: {
       },
     },
 
-    // Project only what's needed for grouping
     {
       $project: {
         role: 1,
+        puuid: '$participants.puuid', // Added puuid
         kills: 1,
         deaths: 1,
         assists: 1,
@@ -527,7 +526,43 @@ const cohortChampionRolePercentilesAggregation = (params: {
       },
     },
 
-    // Single percentile calculation per metric
+    // NEW: Group by player to get per-player averages
+    {
+      $group: {
+        _id: {
+          role: '$role',
+          puuid: '$puuid',
+        },
+        kills: { $avg: '$kills' },
+        deaths: { $avg: '$deaths' },
+        assists: { $avg: '$assists' },
+        cs: { $avg: '$cs' },
+        cspm: { $avg: '$cspm' },
+        goldEarned: { $avg: '$goldEarned' },
+        goldAt10: { $avg: '$goldAt10' },
+        csAt10: { $avg: '$csAt10' },
+        goldAt15: { $avg: '$goldAt15' },
+        csAt15: { $avg: '$csAt15' },
+        dpm: { $avg: '$dpm' },
+        dtpm: { $avg: '$dtpm' },
+        kpm: { $avg: '$kpm' },
+        apm: { $avg: '$apm' },
+        deathsPerMin: { $avg: '$deathsPerMin' },
+        firstItemCompletionTime: { $avg: '$firstItemCompletionTime' },
+        objectiveParticipationPct: { $avg: '$objectiveParticipationPct' },
+        earlyGankDeathRate: { $avg: '$earlyGankDeathRate' },
+        matchCount: { $sum: 1 },
+      },
+    },
+
+    // Simplify role for final grouping
+    {
+      $set: {
+        role: '$_id.role',
+      },
+    },
+
+    // Calculate percentiles on player averages
     {
       $group: {
         _id: '$role',
@@ -660,7 +695,6 @@ const cohortChampionRolePercentilesAggregation = (params: {
       },
     },
 
-    // Format output (unchanged)
     {
       $project: {
         _id: 0,

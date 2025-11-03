@@ -25,7 +25,7 @@ const negativeTitles = new Set([
   'Farm Efficiency Gap',
   'Tower Pressure Gap',
   'Death Discipline',
-  'Positioning Cleanup',
+  'Low-Value Deaths',
   'Mid Game Dip',
   'Scaling Issues',
   'Team Contribution Gap',
@@ -439,7 +439,8 @@ const BADGE_THRESHOLD_SUMMARY: BadgeThresholdEntry[] = [
         description: 'Diff ≥ +0.015 deaths per minute (~+0.45 deaths/game).',
       },
     ],
-    notes: 'Represents aggressive playstyle with high risk/reward - more kills and damage but also more deaths.',
+    notes:
+      'Represents aggressive playstyle with high risk/reward - more kills and damage but also more deaths.',
   },
   {
     name: 'Void Hunter',
@@ -743,7 +744,7 @@ const BADGE_THRESHOLD_SUMMARY: BadgeThresholdEntry[] = [
     ],
   },
   {
-    name: 'Positioning Cleanup',
+    name: 'Low-Value Deaths',
     polarity: 'bad',
     roleFocus: 'primary_role_diff',
     description: 'High deaths without soaking proportional damage.',
