@@ -172,7 +172,9 @@ export function Navbar({ status, wsConnected = false }: NavbarProps) {
   // Fetch profile icons for visible results
   useEffect(() => {
     if (!isSearchOpen) return;
-    const missing = results.filter((r) => !iconMap[r.id]);
+    // Only fetch icons for results that haven't been processed yet.
+    // Using existence check instead of truthiness prevents re-fetching entries set to null.
+    const missing = results.filter((r) => !(r.id in iconMap));
     if (missing.length === 0) return;
 
     const fetchIcons = async () => {
