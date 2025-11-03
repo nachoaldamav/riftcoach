@@ -10,6 +10,13 @@
     "moduleDetection": "force",
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "@riftcoach/shared.constants": [
+        "../shared/constants/dist/index.d.ts",
+        "../shared/constants/dist/index.js"
+      ]
+    },
 
     /* Strictness */
     "strict": true,

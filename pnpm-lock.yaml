@@ -469,6 +469,9 @@ importers:
       '@riftcoach/clients.riot':
         specifier: workspace:*
         version: link:../clients/riot
+      '@riftcoach/shared.constants':
+        specifier: workspace:*
+        version: link:../shared/constants
       bullmq:
         specifier: ^5.58.7
         version: 5.58.7
