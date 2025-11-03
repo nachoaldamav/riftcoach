@@ -888,7 +888,7 @@ function MatchAnalysisComponent() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
             <CardBody className="p-8">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-neutral-50 flex items-center gap-3">
@@ -1083,7 +1083,7 @@ function MatchAnalysisComponent() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
         >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
             <CardBody className="p-6">
               <div className="flex items-center gap-1 mb-4 flex-row">
                 <svg
@@ -1252,7 +1252,7 @@ function MatchAnalysisComponent() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
             <CardBody className="p-8">
               <div className="flex items-center gap-3 mb-6">
                 <Zap className="w-6 h-6 text-accent-yellow-400" />

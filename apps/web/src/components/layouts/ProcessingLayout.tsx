@@ -1,5 +1,4 @@
 import { Navbar } from '@/components/navbar';
-import { ScanStatusBox } from '@/components/scan-status-box';
 import { Loader2 } from 'lucide-react';
 import type { RewindStatusResponse } from '@/routes/$region/$name/$tag';
 
@@ -12,7 +11,7 @@ interface ProcessingLayoutProps {
 export function ProcessingLayout({ region, status, wsConnected }: ProcessingLayoutProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 dark relative">
-      <Navbar />
+      <Navbar status={status} wsConnected={wsConnected} />
       <div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
         <div className="text-center space-y-4">
           <Loader2 className="w-12 h-12 text-cyan-400 animate-spin mx-auto" />
@@ -22,8 +21,7 @@ export function ProcessingLayout({ region, status, wsConnected }: ProcessingLayo
           </p>
         </div>
       </div>
-
-      <ScanStatusBox status={status} wsConnected={wsConnected} />
+      {/* Status box accessible via Navbar popover */}
     </div>
   );
 }

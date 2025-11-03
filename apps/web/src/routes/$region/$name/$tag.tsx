@@ -3,7 +3,6 @@ import { ProcessingLayout } from '@/components/layouts/ProcessingLayout';
 import { Navbar } from '@/components/navbar';
 import { ProfileHeader } from '@/components/profile-header';
 import { ProfileTabs } from '@/components/profile-tabs';
-import { ScanStatusBox } from '@/components/scan-status-box';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Outlet, createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
@@ -154,7 +153,6 @@ function RouteComponent() {
 
   // Track previous status to detect completion
   const [previousStatus, setPreviousStatus] = useState<string | null>(null);
-  const [showScanBox, setShowScanBox] = useState(false);
 
   // Handle status changes and query revalidation
   useEffect(() => {
@@ -187,18 +185,9 @@ function RouteComponent() {
         });
       }
 
-      if (
-        summoner &&
-        (status.status === 'processing' || status.status === 'listing')
-      ) {
-        setShowScanBox(true);
-      } else {
-        setShowScanBox(false);
-      }
-
       setPreviousStatus(status.status);
     }
-  }, [status, previousStatus, queryClient, region, name, tag, summoner]);
+  }, [status, previousStatus, queryClient, region, name, tag]);
 
   // Fetch v1 badges when not actively listing/processing (i.e., completed/idle)
   interface AIBadgeItem {
@@ -351,7 +340,7 @@ function RouteComponent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-800 relative">
-      <Navbar />
+      <Navbar status={status} wsConnected={wsConnected} />
       <div className="container mx-auto px-6 py-12 max-w-7xl">
         <div className="space-y-8">
           <ProfileHeader
@@ -369,13 +358,7 @@ function RouteComponent() {
         </div>
       </div>
 
-      {showScanBox && status ? (
-        <ScanStatusBox
-          status={status}
-          wsConnected={wsConnected ?? false}
-          onClose={() => setShowScanBox(false)}
-        />
-      ) : null}
+      {/* Status box now shown via Navbar popover; remove floating box */}
     </div>
   );
 }

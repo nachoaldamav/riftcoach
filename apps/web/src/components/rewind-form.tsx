@@ -12,8 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useNavigate } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { Sparkles } from 'lucide-react';
 import { useState } from 'react';
 
@@ -48,7 +48,7 @@ export function RewindForm() {
       if (!region || !summonerName || !tagline) {
         throw new Error('Region, summoner name and tagline are required');
       }
-      
+
       // First check if player already has a completed rewind
       try {
         const statusRes = await http.get<{
@@ -60,7 +60,7 @@ export function RewindForm() {
         }>(
           `/v1/${encodeURIComponent(region)}/${encodeURIComponent(summonerName)}/${encodeURIComponent(tagline)}/rewind`,
         );
-        
+
         // If player has a completed rewind, redirect to the overview page
         if (statusRes.data.status === 'completed' && statusRes.data.rewindId) {
           navigate({
@@ -77,7 +77,7 @@ export function RewindForm() {
         // If no existing rewind found, continue with new rewind
         console.log('No existing rewind found, creating new one');
       }
-      
+
       const res = await http.post<StartRewindResponse>(
         `/v1/${encodeURIComponent(region)}/${encodeURIComponent(summonerName)}/${encodeURIComponent(tagline)}/rewind`,
       );
@@ -117,7 +117,7 @@ export function RewindForm() {
     <form onSubmit={handleSubmit} className="w-full">
       <div className="flex flex-col gap-4 rounded-xl border border-divider bg-content1/50 p-6 backdrop-blur-sm md:flex-row md:items-center md:p-8">
         {/* Region Select */}
-        <div className="flex-shrink-0 space-y-2 md:w-48">
+        <div className="flex-shrink-0 md:w-48 inline-flex items-center justify-center">
           <Select
             value={region}
             onValueChange={(value) => {
@@ -174,13 +174,13 @@ export function RewindForm() {
             }
           >
             <span className="flex items-center gap-2">
-              <Sparkles className={`h-5 w-5 ${startRewindMutation.isPending ? 'animate-pulse' : ''}`} />
+              <Sparkles
+                className={`h-5 w-5 ${startRewindMutation.isPending ? 'animate-pulse' : ''}`}
+              />
               {startRewindMutation.isPending ? 'Starting…' : 'Start Rewind'}
             </span>
           </Button>
-          {error && (
-            <div className="text-sm text-red-400">{error}</div>
-          )}
+          {error && <div className="text-sm text-red-400">{error}</div>}
         </div>
       </div>
     </form>

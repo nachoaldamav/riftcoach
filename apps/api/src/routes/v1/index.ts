@@ -47,6 +47,7 @@ import {
 } from '../../services/player-badges.js';
 import { renderShareCard } from '../../services/share-card.js';
 import compareRoleStats from '../../utils/compare-role-stats.js';
+import { getCompletedItemIds } from '../../utils/completed-items.js';
 import {
   getItemMap,
   inferPatchFromGameVersion,
@@ -54,7 +55,6 @@ import {
   resolveItemNames,
 } from '../../utils/ddragon-items.js';
 import { deriveSynergy } from '../../utils/synergy.js';
-import { getCompletedItemIds } from '../../utils/completed-items.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
@@ -487,6 +487,48 @@ app.get('/esports/teams', async (c) => {
   return c.json(teams);
 });
 
+function findProPlayer(
+  name: string,
+  tag: string,
+):
+  | {
+      isPro: boolean;
+      team?: string;
+      position?: string;
+      slug?: string;
+      name?: string;
+      image?: string;
+    }
+  | undefined {
+  const normalize = (v: string) => {
+    try {
+      return decodeURIComponent(v).trim().toLowerCase();
+    } catch {
+      return v.trim().toLowerCase();
+    }
+  };
+
+  const nName = normalize(name);
+  const nTag = normalize(tag);
+
+  for (const team of teams) {
+    for (const player of team.players) {
+      const pName = normalize(player.summonerName);
+      const pTag = normalize(player.summonerTag);
+      if (pName === nName && pTag === nTag) {
+        return {
+          isPro: true,
+          team: team.team,
+          position: player.position,
+          slug: team.slug,
+          name: player.name,
+          image: player.image,
+        };
+      }
+    }
+  }
+}
+
 // Check if a summoner is a pro-player (no region required)
 // Usage: GET /v1/esports/pro-check?name=<summonerName>&tag=<summonerTag>
 // Returns: { isPro: boolean, team?: string, position?: string, slug?: string, name?: string, image?: string }
@@ -527,6 +569,126 @@ app.get('/esports/pro-check', async (c) => {
   }
 
   return c.json({ isPro: false });
+});
+
+// Regionless player quick-search
+app.get('/players/search', async (c) => {
+  const q = c.req.query('q') ?? c.req.query('query') ?? '';
+  const limit = Math.min(50, Math.max(1, Number(c.req.query('limit') ?? 10)));
+  const skip = Math.max(0, Number(c.req.query('skip') ?? 0));
+  const force = c.req.query('force') === 'true';
+
+  const query = String(q).trim();
+  if (!query) {
+    return c.json({ message: 'Query parameter "q" is required' }, 400);
+  }
+
+  const cacheKey = `cache:players-search:v2:${query}:${limit}:${skip}`;
+  if (!force) {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        consola.debug(
+          `Search query "${query}" served from cache (${Array.isArray(parsed?.results) ? parsed.results.length : 0})`,
+        );
+        return c.json(parsed);
+      } catch {
+        // ignore cache parse errors
+      }
+    }
+  }
+
+  const queryIncludesTagLine = query.includes('#');
+
+  const matches = collections.matches;
+  const pipeline: Document[] = [
+    { $match: { $text: { $search: query } } },
+    { $project: { info: 1, metadata: 1, score: { $meta: 'textScore' } } },
+    { $unwind: '$info.participants' },
+    {
+      $match: {
+        $or: [
+          {
+            'info.participants.riotIdGameName': {
+              $regex: queryIncludesTagLine ? query.split('#')[0] : query,
+              $options: 'i',
+            },
+          },
+          {
+            'info.participants.riotIdTagline': {
+              $regex: queryIncludesTagLine ? query.split('#')[1] : query,
+              $options: 'i',
+            },
+          },
+          {
+            'info.participants.summonerName': {
+              $regex: queryIncludesTagLine ? query.split('#')[0] : query,
+              $options: 'i',
+            },
+          },
+        ],
+      },
+    },
+    { $sort: { score: -1 } },
+    {
+      $group: {
+        _id: '$info.participants.puuid',
+        gameName: { $first: '$info.participants.riotIdGameName' },
+        tagLine: { $first: '$info.participants.riotIdTagline' },
+        summonerName: { $first: '$info.participants.summonerName' },
+        matchId: { $first: '$metadata.matchId' },
+        score: { $max: '$score' },
+      },
+    },
+    { $sort: { score: -1 } },
+    { $limit: 10 },
+    {
+      $project: {
+        _id: 0,
+        puuid: '$_id',
+        gameName: 1,
+        tagLine: 1,
+        summonerName: 1,
+        matchId: 1,
+        score: 1,
+      },
+    },
+  ];
+
+  const rows = await matches
+    .aggregate<{
+      puuid: string;
+      gameName?: string;
+      tagLine?: string;
+      summonerName?: string;
+      matchId?: string;
+      score?: number;
+    }>(pipeline, { allowDiskUse: true })
+    .toArray();
+
+  const results = rows.map((r) => {
+    const shard = (r.matchId ?? '').split('_')[0]?.toLowerCase() ?? null;
+    return {
+      id: v5(r.puuid, UUID_NAMESPACE),
+      puuid: r.puuid,
+      gameName: r.gameName ?? null,
+      tagLine: r.tagLine ?? null,
+      summonerName: r.summonerName ?? null,
+      score: r.score ?? null,
+      matchId: r.matchId ?? null,
+      platform: shard,
+      pro: findProPlayer(r.gameName ?? '', r.tagLine ?? ''),
+    };
+  });
+
+  const payload = { query, skip, limit, results };
+  try {
+    await redis.set(cacheKey, JSON.stringify(payload), 'EX', ms('2m'));
+  } catch (err) {
+    consola.warn('[players-search] redis set failed', err);
+  }
+  return c.json(payload);
 });
 
 app.use(
@@ -672,7 +834,9 @@ app.get(
     // Defer to AI scoring service for single champion-role
     const [cohort, aiScores, playerPercentilesDocs] = await Promise.all([
       fetchCohortPercentiles(championName, role, { completedItemIds }),
-      generateChampionRoleAIScores(account.puuid, [target], { completedItemIds }),
+      generateChampionRoleAIScores(account.puuid, [target], {
+        completedItemIds,
+      }),
       collections.matches
         .aggregate<PlayerPercentilesDoc>(
           playerChampRolePercentilesAggregation(
@@ -768,7 +932,10 @@ app.get(
     const itemMeta = new Map<number, { name: string; icon?: string }>(
       items.map((i) => [
         Number(i.id),
-        { name: i.name, icon: (i.image as { full?: string } | undefined)?.full },
+        {
+          name: i.name,
+          icon: (i.image as { full?: string } | undefined)?.full,
+        },
       ]),
     );
 
@@ -838,7 +1005,13 @@ app.get(
                 'events.itemId': { $in: completedItemIds },
               },
             },
-            { $project: { _id: 0, ts: '$events.timestamp', itemId: '$events.itemId' } },
+            {
+              $project: {
+                _id: 0,
+                ts: '$events.timestamp',
+                itemId: '$events.itemId',
+              },
+            },
             { $sort: { ts: 1 } },
             { $limit: maxOrder },
           ],
@@ -885,7 +1058,9 @@ app.get(
         $group: {
           _id: { order: '$_id.order' },
           totalGames: { $sum: '$games' },
-          items: { $push: { itemId: '$_id.itemId', games: '$games', wins: '$wins' } },
+          items: {
+            $push: { itemId: '$_id.itemId', games: '$games', wins: '$wins' },
+          },
         },
       },
       {
@@ -918,14 +1093,23 @@ app.get(
           },
         },
       },
-      { $set: { items: { $sortArray: { input: '$items', sortBy: { pickrate: -1 } } } } },
+      {
+        $set: {
+          items: { $sortArray: { input: '$items', sortBy: { pickrate: -1 } } },
+        },
+      },
       { $sort: { order: 1 } },
     ];
 
     const rows = await matches
       .aggregate<{
         order: { $numberLong: string } | number;
-        items: Array<{ itemId: number; games: number; winrate: number; pickrate: number }>;
+        items: Array<{
+          itemId: number;
+          games: number;
+          winrate: number;
+          pickrate: number;
+        }>;
       }>(pipeline, { allowDiskUse: true })
       .toArray();
 

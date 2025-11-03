@@ -9,12 +9,14 @@ interface ScanStatusBoxProps {
   status: RewindStatusResponse;
   wsConnected: boolean;
   onClose?: () => void;
+  inline?: boolean; // when true, render without fixed positioning for popovers
 }
 
 export function ScanStatusBox({
   status,
   wsConnected,
   onClose,
+  inline = false,
 }: ScanStatusBoxProps) {
   const [isVisible, setIsVisible] = useState(true);
 
@@ -24,19 +26,27 @@ export function ScanStatusBox({
       : 0;
 
   const handleClose = () => {
-    setIsVisible(false);
+    if (!inline) {
+      setIsVisible(false);
+    }
     onClose?.();
   };
 
-  if (!isVisible) return null;
+  if (!inline && !isVisible) return null;
+
+  const Wrapper = inline ? 'div' : motion.div;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -100 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -100 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="fixed top-18 right-4 z-50 w-80"
+    <Wrapper
+      {...(inline
+        ? {}
+        : {
+            initial: { opacity: 0, y: -100 },
+            animate: { opacity: 1, y: 0 },
+            exit: { opacity: 0, y: -100 },
+            transition: { duration: 0.3, ease: 'easeOut' },
+          })}
+      className={inline ? 'w-80' : 'fixed top-18 right-4 z-50 w-80'}
     >
       <Card className="bg-neutral-800/95 backdrop-blur-sm border-neutral-700 shadow-xl py-0">
         <CardBody className="p-4">
@@ -113,6 +123,6 @@ export function ScanStatusBox({
           </div>
         </CardBody>
       </Card>
-    </motion.div>
+    </Wrapper>
   );
 }
