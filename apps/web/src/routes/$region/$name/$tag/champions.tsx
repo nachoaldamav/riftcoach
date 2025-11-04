@@ -233,6 +233,17 @@ type PercentileSet = {
   p90?: number;
 };
 
+// Unified type for metric rows used in the cohort comparison table
+type MetricRow = {
+  label: string;
+  value: number | undefined;
+  key: string;
+  digits?: number;
+  invert?: boolean;
+  format?: (val?: number | null) => string;
+  percent?: boolean; // when true, display values as percentage (0..1 -> 0..100%)
+};
+
 const chipBaseClasses =
   'px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide';
 
@@ -698,7 +709,7 @@ function ChampionRow({
     },
   ];
 
-  const metricRows = [
+  const metricRows: MetricRow[] = [
     {
       label: 'Average Kills',
       value: statsSource.avgKills,
@@ -890,9 +901,46 @@ function ChampionRow({
                       </h4>
                     </div>
                     {detailLoading ? (
-                      <div className="mt-3 space-y-3">
-                        <div className="h-20 animate-pulse rounded-lg bg-neutral-900/60" />
-                        <div className="h-28 animate-pulse rounded-lg bg-neutral-900/60" />
+                      <div className="mt-3 space-y-4" aria-busy="true">
+                        <div className="rounded-lg border border-neutral-800/60 bg-neutral-900/60 p-4">
+                          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Generating AI insights
+                          </div>
+                          <p className="mt-2 text-xs text-neutral-400">
+                            Analyzing your match history to summarize strengths and weaknesses.
+                          </p>
+                          <div className="mt-3 space-y-2">
+                            <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-800/60" />
+                            <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-800/60" />
+                            <div className="h-3 w-1/2 animate-pulse rounded bg-neutral-800/60" />
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-3">
+                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-300">
+                              <CheckCircle2 className="h-4 w-4" />
+                              Strengths (loading)
+                            </div>
+                            <ul className="mt-2 space-y-2">
+                              <li className="h-3 w-5/6 animate-pulse rounded bg-emerald-900/30" />
+                              <li className="h-3 w-4/6 animate-pulse rounded bg-emerald-900/30" />
+                              <li className="h-3 w-3/6 animate-pulse rounded bg-emerald-900/30" />
+                            </ul>
+                          </div>
+                          <div className="rounded-lg border border-amber-800/40 bg-amber-950/10 p-3">
+                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                              <AlertTriangle className="h-4 w-4" />
+                              Weaknesses (loading)
+                            </div>
+                            <ul className="mt-2 space-y-2">
+                              <li className="h-3 w-5/6 animate-pulse rounded bg-amber-900/30" />
+                              <li className="h-3 w-4/6 animate-pulse rounded bg-amber-900/30" />
+                              <li className="h-3 w-3/6 animate-pulse rounded bg-amber-900/30" />
+                            </ul>
+                          </div>
+                        </div>
                       </div>
                     ) : detail ? (
                       <div className="mt-3 space-y-4">
@@ -982,7 +1030,35 @@ function ChampionRow({
                       </h4>
                     </div>
                     {detailLoading ? (
-                      <div className="mt-3 h-36 animate-pulse rounded-lg bg-neutral-900/60" />
+                      <div className="mt-3 rounded-lg border border-neutral-800/60 bg-neutral-900/60 p-4" aria-busy="true">
+                        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Building cohort benchmarks
+                        </div>
+                        <p className="mt-2 text-xs text-neutral-400">
+                          Comparing your metrics against similar players. This may take a few seconds.
+                        </p>
+                        <div className="mt-3 overflow-x-auto rounded-lg">
+                          <div className="min-w-full">
+                            <div className="grid grid-cols-5 gap-2">
+                              <div className="h-4 rounded bg-neutral-800/60" />
+                              <div className="h-4 rounded bg-neutral-800/60" />
+                              <div className="h-4 rounded bg-neutral-800/60" />
+                              <div className="h-4 rounded bg-neutral-800/60" />
+                              <div className="h-4 rounded bg-neutral-800/60" />
+                            </div>
+                            {[0,1,2,3].map((i) => (
+                              <div key={`cohort-skel-${i}`} className="mt-2 grid grid-cols-5 gap-2">
+                                <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
+                                <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
+                                <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
+                                <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
+                                <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     ) : detail?.cohort ? (
                       <div className="mt-3 overflow-x-auto rounded-lg border border-neutral-800/60">
                         <table className="min-w-full text-left text-xs text-neutral-300">

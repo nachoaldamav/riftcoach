@@ -4,8 +4,8 @@ import { cohortChampionRolePercentilesAggregation } from '../aggregations/cohort
 import { getCompletedItemIds } from '../completed-items.js';
 
 const params = {
-  championName: 'Aatrox',
-  role: 'TOP',
+  championName: 'Yunara',
+  role: 'BOTTOM',
   startTs: new Date('2025-01-01').getTime(),
   endTs: new Date('2025-12-31').getTime(),
 };

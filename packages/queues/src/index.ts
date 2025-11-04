@@ -18,6 +18,7 @@ import type { Document } from 'mongodb';
 import ms from 'ms';
 import { cohortChampionRolePercentilesAggregation } from './aggregations/cohort-role-champ.js';
 import { connection } from './clients/redis.js';
+import { getCompletedItemIds } from './completed-items.js';
 
 const ddragon = new DDragon();
 
@@ -40,37 +41,8 @@ async function getChampionNames(
   return names;
 }
 
-// Completed item ids for first completion time metric (cached in-memory)
-let cachedCompletedItemIds: number[] | null = null;
-let cachedCompletedItemIdsTs = 0;
-const COMPLETED_ITEMS_TTL_MS = 60 * 60 * 1000; // 1h
-async function getCompletedItemIds(): Promise<number[]> {
-  if (
-    Array.isArray(cachedCompletedItemIds) &&
-    cachedCompletedItemIds.length > 0 &&
-    Date.now() - cachedCompletedItemIdsTs < COMPLETED_ITEMS_TTL_MS
-  ) {
-    return cachedCompletedItemIds;
-  }
-  const data = await ddragon.items();
-  function isCompleted(
-    it: RiotAPITypes.DDragon.DDragonItemWrapperDTO['data'],
-  ): boolean {
-    if (!Array.isArray(it?.from) || it.from.length === 0) return false;
-    if (it?.consumed) return false;
-    const depth = Number(it?.depth ?? 0) || 0;
-    if (Array.isArray(it?.tags) && it.tags.includes('Boots')) {
-      return depth >= 2;
-    }
-    return depth >= 3 || !Array.isArray(it?.into) || it.into.length === 0;
-  }
-  cachedCompletedItemIds = Object.entries(data)
-    .filter(([, it]) => isCompleted(it))
-    .map(([id]) => Number(id))
-    .filter((n) => Number.isFinite(n));
-  cachedCompletedItemIdsTs = Date.now();
-  return cachedCompletedItemIds;
-}
+// Completed item ids for first completion time metric
+// Use the shared helper to ensure consistent, correct item parsing
 
 // Cohort percentiles pipeline (mirrors apps/api aggregation)
 export type CohortPercentilesDoc = {
