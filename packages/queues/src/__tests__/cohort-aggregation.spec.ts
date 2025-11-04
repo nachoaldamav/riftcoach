@@ -94,8 +94,8 @@ describe('cohortChampionRolePercentilesAggregation', () => {
 
     for (const rate of earlyGankRates) {
       expect(rate).not.toBeNull();
-      expect(rate).toBeGreaterThan(0);
-      expect(rate).toBeLessThan(10);
+      expect(rate).toBeGreaterThanOrEqual(0);
+      expect(rate).toBeLessThanOrEqual(1);
     }
   });
 

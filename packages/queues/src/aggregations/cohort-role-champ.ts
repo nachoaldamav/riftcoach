@@ -372,7 +372,7 @@ export const cohortChampionRolePercentilesAggregation = (params: {
                     },
                   },
                 },
-                1000,
+                1000, // seconds since game start
               ],
             },
             null,
@@ -520,7 +520,18 @@ export const cohortChampionRolePercentilesAggregation = (params: {
                     },
                   },
                 },
-                in: { $size: '$$gankDeaths' },
+                in: {
+                  $cond: [
+                    { $gt: [{ $size: '$tl.earlyDeaths' }, 0] },
+                    {
+                      $divide: [
+                        { $size: '$$gankDeaths' },
+                        { $size: '$tl.earlyDeaths' },
+                      ],
+                    },
+                    null,
+                  ],
+                },
               },
             },
           ],
@@ -590,16 +601,11 @@ export const cohortChampionRolePercentilesAggregation = (params: {
     {
       $group: {
         _id: '$role',
+
+        // higher is better (no inversion)
         kills_pct: {
           $percentile: {
             input: '$kills',
-            p: [0.5, 0.75, 0.9, 0.95],
-            method: 'approximate',
-          },
-        },
-        deaths_pct: {
-          $percentile: {
-            input: '$deaths',
             p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
@@ -667,13 +673,6 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
-        dtpm_pct: {
-          $percentile: {
-            input: '$dtpm',
-            p: [0.5, 0.75, 0.9, 0.95],
-            method: 'approximate',
-          },
-        },
         kpm_pct: {
           $percentile: {
             input: '$kpm',
@@ -688,20 +687,6 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
-        deathsPerMin_pct: {
-          $percentile: {
-            input: '$deathsPerMin',
-            p: [0.5, 0.75, 0.9, 0.95],
-            method: 'approximate',
-          },
-        },
-        firstItemCompletionTime_pct: {
-          $percentile: {
-            input: '$firstItemCompletionTime',
-            p: [0.5, 0.75, 0.9, 0.95],
-            method: 'approximate',
-          },
-        },
         objectiveParticipationPct_pct: {
           $percentile: {
             input: '$objectiveParticipationPct',
@@ -709,9 +694,39 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             method: 'approximate',
           },
         },
+
+        // lower is better → invert
+        deaths_pct: {
+          $percentile: {
+            input: { $multiply: [-1, '$deaths'] },
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
+        },
+        dtpm_pct: {
+          $percentile: {
+            input: { $multiply: [-1, '$dtpm'] },
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
+        },
+        deathsPerMin_pct: {
+          $percentile: {
+            input: { $multiply: [-1, '$deathsPerMin'] },
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
+        },
+        firstItemCompletionTime_pct: {
+          $percentile: {
+            input: { $multiply: [-1, '$firstItemCompletionTime'] },
+            p: [0.5, 0.75, 0.9, 0.95],
+            method: 'approximate',
+          },
+        },
         earlyGankDeathRate_pct: {
           $percentile: {
-            input: '$earlyGankDeathRate',
+            input: { $multiply: [-1, '$earlyGankDeathRate'] },
             p: [0.5, 0.75, 0.9, 0.95],
             method: 'approximate',
           },
@@ -727,7 +742,9 @@ export const cohortChampionRolePercentilesAggregation = (params: {
         percentiles: {
           p50: {
             kills: { $arrayElemAt: ['$kills_pct', 0] },
-            deaths: { $arrayElemAt: ['$deaths_pct', 0] },
+            deaths: {
+              $multiply: [-1, { $arrayElemAt: ['$deaths_pct', 0] }],
+            },
             assists: { $arrayElemAt: ['$assists_pct', 0] },
             cs: { $arrayElemAt: ['$cs_pct', 0] },
             cspm: { $arrayElemAt: ['$cspm_pct', 0] },
@@ -737,23 +754,32 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             goldAt15: { $arrayElemAt: ['$goldAt15_pct', 0] },
             csAt15: { $arrayElemAt: ['$csAt15_pct', 0] },
             dpm: { $arrayElemAt: ['$dpm_pct', 0] },
-            dtpm: { $arrayElemAt: ['$dtpm_pct', 0] },
+            dtpm: {
+              $multiply: [-1, { $arrayElemAt: ['$dtpm_pct', 0] }],
+            },
             kpm: { $arrayElemAt: ['$kpm_pct', 0] },
             apm: { $arrayElemAt: ['$apm_pct', 0] },
-            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 0] },
+            deathsPerMin: {
+              $multiply: [-1, { $arrayElemAt: ['$deathsPerMin_pct', 0] }],
+            },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$firstItemCompletionTime_pct', 0],
+              $multiply: [
+                -1,
+                { $arrayElemAt: ['$firstItemCompletionTime_pct', 0] },
+              ],
             },
             objectiveParticipationPct: {
               $arrayElemAt: ['$objectiveParticipationPct_pct', 0],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$earlyGankDeathRate_pct', 0],
+              $multiply: [-1, { $arrayElemAt: ['$earlyGankDeathRate_pct', 0] }],
             },
           },
           p75: {
             kills: { $arrayElemAt: ['$kills_pct', 1] },
-            deaths: { $arrayElemAt: ['$deaths_pct', 1] },
+            deaths: {
+              $multiply: [-1, { $arrayElemAt: ['$deaths_pct', 1] }],
+            },
             assists: { $arrayElemAt: ['$assists_pct', 1] },
             cs: { $arrayElemAt: ['$cs_pct', 1] },
             cspm: { $arrayElemAt: ['$cspm_pct', 1] },
@@ -763,23 +789,32 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             goldAt15: { $arrayElemAt: ['$goldAt15_pct', 1] },
             csAt15: { $arrayElemAt: ['$csAt15_pct', 1] },
             dpm: { $arrayElemAt: ['$dpm_pct', 1] },
-            dtpm: { $arrayElemAt: ['$dtpm_pct', 1] },
+            dtpm: {
+              $multiply: [-1, { $arrayElemAt: ['$dtpm_pct', 1] }],
+            },
             kpm: { $arrayElemAt: ['$kpm_pct', 1] },
             apm: { $arrayElemAt: ['$apm_pct', 1] },
-            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 1] },
+            deathsPerMin: {
+              $multiply: [-1, { $arrayElemAt: ['$deathsPerMin_pct', 1] }],
+            },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$firstItemCompletionTime_pct', 1],
+              $multiply: [
+                -1,
+                { $arrayElemAt: ['$firstItemCompletionTime_pct', 1] },
+              ],
             },
             objectiveParticipationPct: {
               $arrayElemAt: ['$objectiveParticipationPct_pct', 1],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$earlyGankDeathRate_pct', 1],
+              $multiply: [-1, { $arrayElemAt: ['$earlyGankDeathRate_pct', 1] }],
             },
           },
           p90: {
             kills: { $arrayElemAt: ['$kills_pct', 2] },
-            deaths: { $arrayElemAt: ['$deaths_pct', 2] },
+            deaths: {
+              $multiply: [-1, { $arrayElemAt: ['$deaths_pct', 2] }],
+            },
             assists: { $arrayElemAt: ['$assists_pct', 2] },
             cs: { $arrayElemAt: ['$cs_pct', 2] },
             cspm: { $arrayElemAt: ['$cspm_pct', 2] },
@@ -789,23 +824,32 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             goldAt15: { $arrayElemAt: ['$goldAt15_pct', 2] },
             csAt15: { $arrayElemAt: ['$csAt15_pct', 2] },
             dpm: { $arrayElemAt: ['$dpm_pct', 2] },
-            dtpm: { $arrayElemAt: ['$dtpm_pct', 2] },
+            dtpm: {
+              $multiply: [-1, { $arrayElemAt: ['$dtpm_pct', 2] }],
+            },
             kpm: { $arrayElemAt: ['$kpm_pct', 2] },
             apm: { $arrayElemAt: ['$apm_pct', 2] },
-            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 2] },
+            deathsPerMin: {
+              $multiply: [-1, { $arrayElemAt: ['$deathsPerMin_pct', 2] }],
+            },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$firstItemCompletionTime_pct', 2],
+              $multiply: [
+                -1,
+                { $arrayElemAt: ['$firstItemCompletionTime_pct', 2] },
+              ],
             },
             objectiveParticipationPct: {
               $arrayElemAt: ['$objectiveParticipationPct_pct', 2],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$earlyGankDeathRate_pct', 2],
+              $multiply: [-1, { $arrayElemAt: ['$earlyGankDeathRate_pct', 2] }],
             },
           },
           p95: {
             kills: { $arrayElemAt: ['$kills_pct', 3] },
-            deaths: { $arrayElemAt: ['$deaths_pct', 3] },
+            deaths: {
+              $multiply: [-1, { $arrayElemAt: ['$deaths_pct', 3] }],
+            },
             assists: { $arrayElemAt: ['$assists_pct', 3] },
             cs: { $arrayElemAt: ['$cs_pct', 3] },
             cspm: { $arrayElemAt: ['$cspm_pct', 3] },
@@ -815,18 +859,25 @@ export const cohortChampionRolePercentilesAggregation = (params: {
             goldAt15: { $arrayElemAt: ['$goldAt15_pct', 3] },
             csAt15: { $arrayElemAt: ['$csAt15_pct', 3] },
             dpm: { $arrayElemAt: ['$dpm_pct', 3] },
-            dtpm: { $arrayElemAt: ['$dtpm_pct', 3] },
+            dtpm: {
+              $multiply: [-1, { $arrayElemAt: ['$dtpm_pct', 3] }],
+            },
             kpm: { $arrayElemAt: ['$kpm_pct', 3] },
             apm: { $arrayElemAt: ['$apm_pct', 3] },
-            deathsPerMin: { $arrayElemAt: ['$deathsPerMin_pct', 3] },
+            deathsPerMin: {
+              $multiply: [-1, { $arrayElemAt: ['$deathsPerMin_pct', 3] }],
+            },
             firstItemCompletionTime: {
-              $arrayElemAt: ['$firstItemCompletionTime_pct', 3],
+              $multiply: [
+                -1,
+                { $arrayElemAt: ['$firstItemCompletionTime_pct', 3] },
+              ],
             },
             objectiveParticipationPct: {
               $arrayElemAt: ['$objectiveParticipationPct_pct', 3],
             },
             earlyGankDeathRate: {
-              $arrayElemAt: ['$earlyGankDeathRate_pct', 3],
+              $multiply: [-1, { $arrayElemAt: ['$earlyGankDeathRate_pct', 3] }],
             },
           },
         },
