@@ -1,4 +1,4 @@
-import { ConverseCommand, type Message } from '@aws-sdk/client-bedrock-runtime';
+import { ConverseCommand, type Message, type ContentBlock } from '@aws-sdk/client-bedrock-runtime';
 import chalk from 'chalk';
 import consola from 'consola';
 import { bedrockClient } from '../clients/bedrock.js';
@@ -232,7 +232,6 @@ function buildPrompts(
         return 4;
       case 'above_p95':
         return 5;
-      case 'unknown':
       default:
         return null;
     }
@@ -424,6 +423,10 @@ function buildPrompts(
     'Speak directly to the player using "you".',
     'Treat "average" as the typical midpoint level (internally use p50). Do not mention percentiles or cohort terms.',
     'For negative metrics (deathsPerMin, dtpm, firstItemCompletionTime): higher = worse; lower = better.',
+    'For positive metrics (including objectiveParticipationPct): higher = better; lower = worse.',
+    'Classification rules using provided comparisons: if isHigherBetter=true and directionRelativeToP50="higher" → strength; if isHigherBetter=true and directionRelativeToP50="lower" → weakness; if isHigherBetter=false and directionRelativeToP50="higher" → weakness; if isHigherBetter=false and directionRelativeToP50="lower" → strength.',
+    'Specifically for objectiveParticipationPct: it is a positive metric. Never suggest to "engage more" (or equivalents) when it is above average; only suggest increasing participation when it is below average.',
+    'Avoid contradictory bullets; do not call an above-average metric a weakness or advise increasing it.',
     'For timing metrics: shorter is better; never infer build quality solely from timing; avoid "suboptimal builds".',
     'Use lexicon.metricLabels for names; apm = "Assists per minute" (never "key presses per minute").',
     'Cite at most one key metric per bullet; keep bullets to 1–2 short sentences.',
@@ -452,7 +455,10 @@ export async function generateChampionRoleInsights(
   }
 
   if (inflightRequests.has(cacheKey)) {
-    return await inflightRequests.get(cacheKey)!;
+    const inflight = inflightRequests.get(cacheKey);
+    if (inflight) {
+      return await inflight;
+    }
   }
 
   const work = (async (): Promise<ChampionRoleInsightResult> => {
@@ -477,11 +483,15 @@ export async function generateChampionRoleInsights(
         });
 
         // Simple retry for Bedrock rate limits (single retry)
-        let response: any;
         const maxAttempts = 2;
+        let assistantMessage: Message | undefined;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            response = await bedrockClient.send(command);
+            const response = await bedrockClient.send(command);
+            assistantMessage =
+              response.output && 'message' in response.output
+                ? (response.output.message as Message)
+                : undefined;
             break;
           } catch (err) {
             const msg = (err as Error)?.message || '';
@@ -494,16 +504,11 @@ export async function generateChampionRoleInsights(
             throw err;
           }
         }
-
-        const assistantMessage =
-          response.output && 'message' in response.output
-            ? (response.output.message as Message)
-            : undefined;
         if (!assistantMessage) throw new Error('No assistant message received');
-        const contentBlocks = assistantMessage.content ?? [];
-        const hasText = contentBlocks.some(
-          (block) => 'text' in block && typeof (block as any).text === 'string' && (block as any).text.trim().length > 0,
-        );
+        const contentBlocks: ContentBlock[] = assistantMessage.content ?? [];
+        const hasText = contentBlocks.some((block) => {
+          return 'text' in block && typeof block.text === 'string' && block.text.trim().length > 0;
+        });
         const endsWithThinking =
           contentBlocks.length > 0 && ('reasoningContent' in contentBlocks[contentBlocks.length - 1]);
 
@@ -529,7 +534,6 @@ export async function generateChampionRoleInsights(
           role: 'user',
           content: [{ text: 'Please provide the JSON output now.' }],
         });
-        continue;
       }
 
       if (!finalMessage) finalMessage = messages[messages.length - 1];
