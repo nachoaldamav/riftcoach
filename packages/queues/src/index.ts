@@ -210,7 +210,7 @@ const cohortChampionRolePercentilesAggregation = (params: {
               },
               allEvents: {
                 $reduce: {
-                  input: { $slice: ['$info.frames', 15] },
+                  input: { $ifNull: ['$info.frames', []] },
                   initialValue: [],
                   in: {
                     $concatArrays: [
@@ -564,12 +564,8 @@ const cohortChampionRolePercentilesAggregation = (params: {
       },
     },
 
-    // Filter out players with null firstItemCompletionTime before calculating percentiles
-    {
-      $match: {
-        firstItemCompletionTime: { $ne: null }
-      }
-    },
+    // Note: allow null firstItemCompletionTime; percentiles for this field
+    // will only be meaningful when enough values are present
 
     // Calculate percentiles on player averages
     {
