@@ -503,13 +503,16 @@ export async function generateChampionRoleInsights(
       let finalMessage: Message | undefined;
 
       // Mirror match-insights: multi-turn loop until we get a text block
-      const MAX_ITERATIONS = 3;
+      // Increase iterations to better handle extended reasoning-only replies
+      const MAX_ITERATIONS = 6;
       for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        // Track stop reason from Bedrock Converse response for diagnostics
+        let lastStopReason: unknown = undefined;
         const command = new ConverseCommand({
           modelId: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
           system: [{ text: systemPrompt }],
           messages,
-          inferenceConfig: { maxTokens: 3000 },
+          inferenceConfig: { maxTokens: 2048 },
           additionalModelRequestFields: {
             reasoning_config: { type: 'enabled', budget_tokens: 1024 },
           },
@@ -525,6 +528,27 @@ export async function generateChampionRoleInsights(
               response.output && 'message' in response.output
                 ? (response.output.message as Message)
                 : undefined;
+
+            // Capture stop reason for debug visibility
+            try {
+              lastStopReason =
+                (response as unknown as { stopReason?: unknown }).stopReason ??
+                (response as unknown as { output?: { stopReason?: unknown } })
+                  .output?.stopReason;
+            } catch {}
+
+            consola.debug(
+              'Assistant message:',
+              JSON.stringify(
+                assistantMessage?.content?.map((block) => ({
+                  text: 'text' in block ? block.text : undefined,
+                  reasoningContent:
+                    'reasoningContent' in block
+                      ? block.reasoningContent
+                      : undefined,
+                })),
+              ),
+            );
             break;
           } catch (err) {
             const msg = (err as Error)?.message || '';
@@ -552,9 +576,20 @@ export async function generateChampionRoleInsights(
             block.text.trim().length > 0
           );
         });
-        const endsWithThinking =
-          contentBlocks.length > 0 &&
-          'reasoningContent' in contentBlocks[contentBlocks.length - 1];
+        const hasReasoning = contentBlocks.some(
+          (block) => 'reasoningContent' in block,
+        );
+
+        // Iteration-level debug to diagnose reasoning-only loops
+        try {
+          consola.debug('[champion-role-insights] iteration', {
+            iteration,
+            blockTypes: describeContentBlocks(contentBlocks),
+            hasText,
+            hasReasoning,
+            stopReason: lastStopReason,
+          });
+        } catch {}
 
         // If the assistant produced text, capture and exit
         if (hasText) {
@@ -565,7 +600,7 @@ export async function generateChampionRoleInsights(
 
         // If the assistant responded only with reasoning, DO NOT add it to messages.
         // Nudge with a brief user reminder to return strict JSON.
-        if (!hasText && endsWithThinking) {
+        if (!hasText && hasReasoning) {
           messages.push({
             role: 'user',
             content: [
@@ -574,6 +609,10 @@ export async function generateChampionRoleInsights(
               },
             ],
           });
+          consola.debug(
+            '[champion-role-insights] reminder after reasoning-only reply',
+            { iteration },
+          );
           continue;
         }
 
@@ -581,6 +620,9 @@ export async function generateChampionRoleInsights(
         messages.push({
           role: 'user',
           content: [{ text: 'Please provide the JSON output now.' }],
+        });
+        consola.debug('[champion-role-insights] generic JSON reminder', {
+          iteration,
         });
       }
 
