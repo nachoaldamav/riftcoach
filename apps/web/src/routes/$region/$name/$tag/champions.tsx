@@ -15,7 +15,7 @@ import {
   ChevronRight,
   Loader2,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export const Route = createFileRoute('/$region/$name/$tag/champions')({
   component: ChampionsComponent,
@@ -287,24 +287,26 @@ const evaluatePerformance = (
     };
   }
 
-  if (typeof p50 === 'number' && value <= p50)
+  // For lower-is-better metrics, a higher cohort percentile (p90) corresponds to a lower value
+  // which is better. So we reverse the threshold direction: p90 best, then p75, then p50.
+  if (typeof p90 === 'number' && value <= p90)
     return {
-      label: 'Disciplined',
+      label: 'Elite',
       className: `${chipBaseClasses} bg-emerald-900/30 border-emerald-700/40 text-emerald-300`,
     };
   if (typeof p75 === 'number' && value <= p75)
     return {
-      label: 'Stable',
+      label: 'Great',
       className: `${chipBaseClasses} bg-sky-900/30 border-sky-700/40 text-sky-200`,
     };
-  if (typeof p90 === 'number' && value >= p90)
+  if (typeof p50 === 'number' && value <= p50)
     return {
-      label: 'Needs Work',
-      className: `${chipBaseClasses} bg-red-900/30 border-red-700/40 text-red-300`,
+      label: 'Above Avg',
+      className: `${chipBaseClasses} bg-neutral-800/70 border-neutral-700/40 text-neutral-200`,
     };
   return {
-    label: 'High',
-    className: `${chipBaseClasses} bg-amber-900/30 border-amber-700/40 text-amber-300`,
+    label: 'Needs Work',
+    className: `${chipBaseClasses} bg-red-900/30 border-red-700/40 text-red-300`,
   };
 };
 
@@ -472,6 +474,9 @@ function ChampionRow({
 }: ChampionRowProps) {
   const { getChampionImageUrl, getItemImageUrl, champions } = useDataDragon();
 
+  // Ref to enable scrolling the card into view when expanded
+  const rowRef = useRef<HTMLDivElement>(null);
+
   const championData = useMemo(() => {
     if (!champions) return null;
     const normalizedRowName = normalizeChampionName(row.championName);
@@ -506,6 +511,8 @@ function ChampionRow({
   }, [championData, row.championName]);
 
   const [heatmapMode, setHeatmapMode] = useState<'kills' | 'deaths'>('kills');
+  // Delay for expand/collapse animation to finish to avoid layout shift
+  const animationDurationMs = 200;
 
   const detailQuery = useQuery<ChampionRoleDetailResponse>({
     queryKey: [
@@ -521,7 +528,7 @@ function ChampionRow({
         `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/champions/${encodeURIComponent(row.championName)}/${encodeURIComponent(row.role)}`,
         {
           timeout: 1000 * 60 * 5,
-        }
+        },
       );
       return res.data;
     },
@@ -787,14 +794,32 @@ function ChampionRow({
 
   return (
     <motion.div
+      ref={rowRef}
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.2, delay: index * 0.02 }}
-      className="rounded-lg border border-neutral-700/40 bg-neutral-900/50 transition-all duration-150 hover:bg-neutral-900/70"
+      className="rounded-lg border border-neutral-700/40 bg-neutral-900/50 transition-all duration-150 hover:bg-neutral-900/70 scroll-mt-16"
     >
       <button
         type="button"
-        onClick={onToggle}
+        onClick={() => {
+          const willExpand = !isExpanded;
+          onToggle();
+          if (willExpand) {
+            // Wait for any other row to finish collapsing before scrolling
+            setTimeout(() => {
+              try {
+                rowRef.current?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                  inline: 'nearest',
+                });
+              } catch {
+                rowRef.current?.scrollIntoView();
+              }
+            }, animationDurationMs + 40);
+          }
+        }}
         className="w-full space-y-3 rounded-lg p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue-500/60"
       >
         <div className="flex items-center gap-4">
@@ -908,7 +933,8 @@ function ChampionRow({
                             Generating AI insights
                           </div>
                           <p className="mt-2 text-xs text-neutral-400">
-                            Analyzing your match history to summarize strengths and weaknesses.
+                            Analyzing your match history to summarize strengths
+                            and weaknesses.
                           </p>
                           <div className="mt-3 space-y-2">
                             <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-800/60" />
@@ -1030,13 +1056,17 @@ function ChampionRow({
                       </h4>
                     </div>
                     {detailLoading ? (
-                      <div className="mt-3 rounded-lg border border-neutral-800/60 bg-neutral-900/60 p-4" aria-busy="true">
+                      <div
+                        className="mt-3 rounded-lg border border-neutral-800/60 bg-neutral-900/60 p-4"
+                        aria-busy="true"
+                      >
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           Building cohort benchmarks
                         </div>
                         <p className="mt-2 text-xs text-neutral-400">
-                          Comparing your metrics against similar players. This may take a few seconds.
+                          Comparing your metrics against similar players. This
+                          may take a few seconds.
                         </p>
                         <div className="mt-3 overflow-x-auto rounded-lg">
                           <div className="min-w-full">
@@ -1047,8 +1077,11 @@ function ChampionRow({
                               <div className="h-4 rounded bg-neutral-800/60" />
                               <div className="h-4 rounded bg-neutral-800/60" />
                             </div>
-                            {[0,1,2,3].map((i) => (
-                              <div key={`cohort-skel-${i}`} className="mt-2 grid grid-cols-5 gap-2">
+                            {[0, 1, 2, 3].map((i) => (
+                              <div
+                                key={`cohort-skel-${i}`}
+                                className="mt-2 grid grid-cols-5 gap-2"
+                              >
                                 <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
                                 <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
                                 <div className="h-3 rounded bg-neutral-800/60 animate-pulse" />
