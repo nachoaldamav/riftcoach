@@ -201,6 +201,8 @@ export const cohortChampionRolePercentilesAggregation = (params: {
                         cond: {
                           $and: [
                             { $eq: ['$$e.type', 'ITEM_PURCHASED'] },
+                            // Ensure we only consider items purchased by the current participant
+                            { $eq: ['$$e.participantId', '$$pId'] },
                             { $in: ['$$e.itemId', completedItemIds] },
                             { $gte: ['$$e.timestamp', 0] },
                           ],

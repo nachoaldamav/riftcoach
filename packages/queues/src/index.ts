@@ -564,6 +564,13 @@ const cohortChampionRolePercentilesAggregation = (params: {
       },
     },
 
+    // Filter out players with null firstItemCompletionTime before calculating percentiles
+    {
+      $match: {
+        firstItemCompletionTime: { $ne: null }
+      }
+    },
+
     // Calculate percentiles on player averages
     {
       $group: {
