@@ -1,8 +1,4 @@
-import {
-  type ContentBlock,
-  ConverseCommand,
-  type Message,
-} from '@aws-sdk/client-bedrock-runtime';
+import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import chalk from 'chalk';
 import consola from 'consola';
 import { bedrockClient } from '../clients/bedrock.js';
@@ -42,40 +38,57 @@ function buildCacheKey(
   return JSON.stringify({ stats, cohort, player });
 }
 
-// Extract plain text from Bedrock converse message
-function extractTextFromMessage(message: Message | undefined): string {
-  consola.debug('Extracting text from message:', message);
-  if (!message?.content) return '';
-  const textBlocks = message.content
-    .map((block) => ('text' in block && block.text ? block.text : null))
-    .filter((v): v is string => typeof v === 'string');
-  const raw = textBlocks
-    .join('\n')
-    .replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
-  return raw.replace('```json', '').replace('```', '').trim();
-}
+// Simple helper to extract a JSON object from a text blob
+function extractJsonFromText(text: string): string | null {
+  // Normalize and strip common wrappers
+  const cleaned = text
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, '')
+    .replace(/^\uFEFF/, '') // strip BOM if present
+    .trim();
 
-// Find the last assistant message that actually contains text we can parse
-function getLastAssistantWithText(messages: Message[]): Message | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== 'assistant') continue;
-    const txt = extractTextFromMessage(m);
-    if (txt && txt.trim().length > 0) return m;
+  if (!cleaned) return null;
+
+  // Find first balanced JSON object, ignoring braces inside quoted strings
+  const start = cleaned.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let isEscaped = false;
+  let end = -1;
+
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (isEscaped) {
+      isEscaped = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      isEscaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
   }
-  return undefined;
-}
 
-function describeContentBlocks(
-  blocks: ContentBlock[],
-): Array<{ type: string; length?: number }> {
-  return blocks.map((b) => {
-    if ('text' in b) return { type: 'text', length: (b.text ?? '').length };
-    if ('toolUse' in b) return { type: 'toolUse' };
-    if ('toolResult' in b) return { type: 'toolResult' };
-    if ('reasoningContent' in b) return { type: 'reasoning' };
-    return { type: 'unknown' };
-  });
+  if (end === -1 || end <= start) return null;
+  const candidate = cleaned.slice(start, end + 1).trim();
+  return candidate.length ? candidate : null;
 }
 
 function buildPrompts(
@@ -463,7 +476,11 @@ function buildPrompts(
     'Avoid contradictory bullets; do not call an above-average metric a weakness or advise increasing it.',
     'For timing metrics: shorter is better; never infer build quality solely from timing; avoid "suboptimal builds".',
     'Use lexicon.metricLabels for names; apm = "Assists per minute" (never "key presses per minute").',
-    'Cite at most one key metric per bullet; keep bullets to 1–2 short sentences.',
+    'Use comparisons[metric].tier to pick a single adjective from lexicon.adjectives (e.g., elite, strong, solid).',
+    'Begin each bullet with: "<Metric label> is <adjective>" (e.g., "CS per minute is elite").',
+    'Add one short follow-up sentence explaining why, using comparisons (e.g., "above the typical player for this role"), without mentioning percentiles or cohorts.',
+    'For weaknesses, end with a concise improvement hint (one clause) that fits the metric (e.g., "position safer in early trades").',
+    'Cite at most one key metric per bullet; keep bullets to 1–2 short sentences total.',
     'Limit strengths/weaknesses to max 3 each.',
     'Return STRICT JSON only. No markdown, no explanations.',
     schemaHint,
@@ -497,158 +514,64 @@ export async function generateChampionRoleInsights(
   const work = (async (): Promise<ChampionRoleInsightResult> => {
     try {
       const { systemPrompt, userPrompt } = buildPrompts(stats, cohort, player);
-      const messages: Message[] = [
-        { role: 'user', content: [{ text: userPrompt }] },
-      ];
-      let finalMessage: Message | undefined;
 
-      // Mirror match-insights: multi-turn loop until we get a text block
-      // Increase iterations to better handle extended reasoning-only replies
-      const MAX_ITERATIONS = 6;
-      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-        // Track stop reason from Bedrock Converse response for diagnostics
-        let lastStopReason: unknown = undefined;
-        const command = new ConverseCommand({
-          modelId: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
-          system: [{ text: systemPrompt }],
-          messages,
-          inferenceConfig: { maxTokens: 2048 },
-          additionalModelRequestFields: {
-            reasoning_config: { type: 'enabled', budget_tokens: 1024 },
-          },
-        });
+      const payload = {
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_completion_tokens: 3000,
+        temperature: 0.3,
+        top_p: 0.9,
+        stream: false,
+      };
 
-        // Simple retry for Bedrock rate limits (single retry)
-        const maxAttempts = 2;
-        let assistantMessage: Message | undefined;
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          try {
-            const response = await bedrockClient.send(command);
-            assistantMessage =
-              response.output && 'message' in response.output
-                ? (response.output.message as Message)
-                : undefined;
-
-            // Capture stop reason for debug visibility
-            try {
-              lastStopReason =
-                (response as unknown as { stopReason?: unknown }).stopReason ??
-                (response as unknown as { output?: { stopReason?: unknown } })
-                  .output?.stopReason;
-            } catch {}
-
-            consola.debug(
-              'Assistant message:',
-              JSON.stringify(
-                assistantMessage?.content?.map((block) => ({
-                  text: 'text' in block ? block.text : undefined,
-                  reasoningContent:
-                    'reasoningContent' in block
-                      ? block.reasoningContent
-                      : undefined,
-                })),
-              ),
-            );
-            break;
-          } catch (err) {
-            const msg = (err as Error)?.message || '';
-            if (
-              msg.toLowerCase().includes('too many requests') &&
-              attempt < maxAttempts - 1
-            ) {
-              const delayMs = 500;
-              consola.warn('[champion-role-insights] rate limited, retrying', {
-                attempt: attempt + 1,
-                delayMs,
-              });
-              await new Promise((res) => setTimeout(res, delayMs));
-              continue;
-            }
-            throw err;
-          }
-        }
-        if (!assistantMessage) throw new Error('No assistant message received');
-        const contentBlocks: ContentBlock[] = assistantMessage.content ?? [];
-        const hasText = contentBlocks.some((block) => {
-          return (
-            'text' in block &&
-            typeof block.text === 'string' &&
-            block.text.trim().length > 0
-          );
-        });
-        const hasReasoning = contentBlocks.some(
-          (block) => 'reasoningContent' in block,
-        );
-
-        // Iteration-level debug to diagnose reasoning-only loops
+      const modelId = process.env.INSIGHTS_MODEL || 'openai.gpt-oss-20b-1:0';
+      const maxAttempts = 3;
+      let contentText = '';
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          consola.debug('[champion-role-insights] iteration', {
-            iteration,
-            blockTypes: describeContentBlocks(contentBlocks),
-            hasText,
-            hasReasoning,
-            stopReason: lastStopReason,
+          const command = new InvokeModelCommand({
+            modelId,
+            contentType: 'application/json',
+            accept: 'application/json',
+            body: JSON.stringify(payload),
           });
-        } catch {}
-
-        // If the assistant produced text, capture and exit
-        if (hasText) {
-          messages.push(assistantMessage);
-          finalMessage = assistantMessage;
-          break;
-        }
-
-        // If the assistant responded only with reasoning, DO NOT add it to messages.
-        // Nudge with a brief user reminder to return strict JSON.
-        if (!hasText && hasReasoning) {
-          messages.push({
-            role: 'user',
-            content: [
-              {
-                text: 'Return STRICT JSON matching the requested schema. No markdown, no explanations.',
-              },
-            ],
-          });
-          consola.debug(
-            '[champion-role-insights] reminder after reasoning-only reply',
-            { iteration },
+          const response = await bedrockClient.send(command);
+          const bodyText = new TextDecoder().decode(
+            response.body ?? new Uint8Array(),
           );
-          continue;
+          const parsed = JSON.parse(bodyText);
+          contentText = String(
+            parsed?.choices?.[0]?.message?.content ?? '',
+          ).trim();
+          break;
+        } catch (err) {
+          const msg = (err as Error)?.message || '';
+          if (
+            msg.toLowerCase().includes('too many requests') &&
+            attempt < maxAttempts - 1
+          ) {
+            const base = 600;
+            const delayMs = base * (attempt + 1);
+            consola.warn('[champion-role-insights] rate limited, retrying', {
+              attempt: attempt + 1,
+              delayMs,
+            });
+            await new Promise((res) => setTimeout(res, delayMs));
+            continue;
+          }
+          throw err;
         }
-
-        // Fallback: if no usable text and not thinking-only, gently remind again
-        messages.push({
-          role: 'user',
-          content: [{ text: 'Please provide the JSON output now.' }],
-        });
-        consola.debug('[champion-role-insights] generic JSON reminder', {
-          iteration,
-        });
       }
 
-      // Only parse assistant text; avoid accidentally parsing a user reminder
-      if (!finalMessage) finalMessage = getLastAssistantWithText(messages);
+      consola.debug('[champion-role-insights] AI response', contentText);
 
-      const aiText =
-        finalMessage && finalMessage.role === 'assistant'
-          ? extractTextFromMessage(finalMessage)
-          : '';
-      consola.debug(
-        '[champion-role-insights] AI response (truncated)',
-        aiText.slice(0, 400),
-      );
-
-      // If no JSON-looking content, return a graceful fallback without throwing
-      const start = aiText.indexOf('{');
-      const end = aiText.lastIndexOf('}');
-      if (aiText.length === 0 || start === -1 || end === -1 || end <= start) {
-        const blocks = finalMessage?.content ?? [];
+      const jsonText = extractJsonFromText(contentText);
+      if (!jsonText) {
         consola.warn(
           '[champion-role-insights] No valid assistant JSON found. Returning fallback insights.',
-          {
-            blockTypes: describeContentBlocks(blocks),
-            extractedPreview: aiText.slice(0, 400),
-          },
+          { extractedPreview: contentText.slice(0, 400) },
         );
         return {
           summary: `Performance review for ${stats.championName} (${stats.role}).`,
@@ -657,18 +580,14 @@ export async function generateChampionRoleInsights(
         };
       }
 
-      const json = aiText.slice(start, end + 1);
       let parsed: Partial<ChampionRoleInsightResult> = {};
       try {
-        parsed = JSON.parse(json) as Partial<ChampionRoleInsightResult>;
+        parsed = JSON.parse(jsonText) as Partial<ChampionRoleInsightResult>;
       } catch (parseErr) {
-        // Parsing failed even though braces exist; fall back quietly
-        const blocks = finalMessage?.content ?? [];
         consola.warn(
           '[champion-role-insights] Failed to parse assistant JSON. Returning fallback insights.',
           {
-            blockTypes: describeContentBlocks(blocks),
-            extractedPreview: aiText.slice(0, 400),
+            extractedPreview: contentText.slice(0, 400),
             errorMessage:
               parseErr instanceof Error ? parseErr.message : String(parseErr),
           },
@@ -684,11 +603,9 @@ export async function generateChampionRoleInsights(
         typeof parsed.summary === 'string'
           ? parsed.summary
           : `Performance review for ${stats.championName} (${stats.role}).`;
-
       const strengths = Array.isArray(parsed.strengths)
         ? parsed.strengths.slice(0, 3).map((s) => String(s))
         : [];
-
       const weaknesses = Array.isArray(parsed.weaknesses)
         ? parsed.weaknesses.slice(0, 3).map((s) => String(s))
         : [];
@@ -700,7 +617,6 @@ export async function generateChampionRoleInsights(
         chalk.red('[champion-role-insights] Failed to generate AI insights'),
         err.message,
       );
-
       return {
         summary: `With ${stats.totalMatches} games and ${(stats.winRate * 100).toFixed(1)}% win rate on ${stats.championName} (${stats.role}), additional insights are unavailable.`,
         strengths: [],
