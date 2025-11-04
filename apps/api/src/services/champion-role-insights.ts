@@ -47,6 +47,17 @@ function extractTextFromMessage(message: Message | undefined): string {
   return raw.replace('```json', '').replace('```', '').trim();
 }
 
+// Find the last assistant message that actually contains text we can parse
+function getLastAssistantWithText(messages: Message[]): Message | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'assistant') continue;
+    const txt = extractTextFromMessage(m);
+    if (txt && txt.trim().length > 0) return m;
+  }
+  return undefined;
+}
+
 function buildPrompts(
   stats: ChampionRoleStats,
   cohort: CohortPercentilesDoc | null,
@@ -536,15 +547,39 @@ export async function generateChampionRoleInsights(
         });
       }
 
-      if (!finalMessage) finalMessage = messages[messages.length - 1];
-
-      const aiText = extractTextFromMessage(finalMessage) || '{}';
+      // Only parse assistant text; avoid accidentally parsing a user reminder
+      if (!finalMessage) finalMessage = getLastAssistantWithText(messages);
+      const aiText =
+        finalMessage && finalMessage.role === 'assistant'
+          ? extractTextFromMessage(finalMessage)
+          : '';
       consola.debug('[champion-role-insights] AI response (truncated)', aiText.slice(0, 400));
 
+      // If no JSON-looking content, return a graceful fallback without throwing
       const start = aiText.indexOf('{');
       const end = aiText.lastIndexOf('}');
-      const json = start !== -1 && end !== -1 ? aiText.slice(start, end + 1) : aiText;
-      const parsed = JSON.parse(json) as Partial<ChampionRoleInsightResult>;
+      if (aiText.length === 0 || start === -1 || end === -1 || end <= start) {
+        consola.warn('[champion-role-insights] No valid assistant JSON found. Returning fallback insights.');
+        return {
+          summary: `Performance review for ${stats.championName} (${stats.role}).`,
+          strengths: [],
+          weaknesses: [],
+        };
+      }
+
+      const json = aiText.slice(start, end + 1);
+      let parsed: Partial<ChampionRoleInsightResult> = {};
+      try {
+        parsed = JSON.parse(json) as Partial<ChampionRoleInsightResult>;
+      } catch (parseErr) {
+        // Parsing failed even though braces exist; fall back quietly
+        consola.warn('[champion-role-insights] Failed to parse assistant JSON. Returning fallback insights.');
+        return {
+          summary: `Performance review for ${stats.championName} (${stats.role}).`,
+          strengths: [],
+          weaknesses: [],
+        };
+      }
 
       const summary =
         typeof parsed.summary === 'string'
