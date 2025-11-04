@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   PlatformId,
   type RiotAPITypes,
@@ -6,7 +7,7 @@ import {
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { client } from '@riftcoach/clients.mongodb';
-import { setupWorkers } from '@riftcoach/queues';
+import { cohortsQ, setupWorkers } from '@riftcoach/queues';
 import chalk from 'chalk';
 import { consola } from 'consola';
 import { Hono } from 'hono';
@@ -133,6 +134,29 @@ app.get('/health', (c) => {
   });
 });
 
+// Trigger cohorts generation endpoint
+app.post('/cohorts/generate', async (c) => {
+  const year = c.req.query('year')
+    ? Number.parseInt(c.req.query('year') as string)
+    : new Date().getUTCFullYear();
+  const jobName = `cohort-orchestrate-${year}-${randomUUID()}`;
+
+  // Purge all jobs from cohorts queue, including completed ones
+  await cohortsQ.obliterate({ force: true, count: 1000 });
+
+  await cohortsQ.add(
+    jobName,
+    { type: 'cohort-orchestrate', year },
+    {
+      jobId: jobName,
+      removeOnComplete: true,
+      removeOnFail: 100,
+    },
+  );
+
+  return c.json({ message: `Cohorts generation triggered for year ${year}` });
+});
+
 app.route('/v1', v1Route);
 
 const server = serve(
@@ -141,7 +165,6 @@ const server = serve(
     port: Number(process.env.PORT) || 4000,
   },
   async (info) => {
-    setupWorkers();
     setupWorkers();
     await client.connect();
     console.log(`Server is running on http://localhost:${info.port}`);

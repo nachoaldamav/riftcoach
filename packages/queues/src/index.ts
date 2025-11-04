@@ -1278,9 +1278,10 @@ function cohortWorkerFn(job: Job<CohortJob>) {
         // Create process jobs in batches
         const roles = Array.from(ROLES);
         const addBulkPayload: Parameters<typeof cohortsQ.addBulk>[0] = [];
+        const runId = `${year}-${Date.now()}`;
         for (const name of champions) {
           for (const role of roles) {
-            const jobId = `cohort-process-${year}-${safeIdPart(name)}-${safeIdPart(String(role))}`;
+            const jobId = `cohort-process-${runId}-${safeIdPart(name)}-${safeIdPart(String(role))}`;
             addBulkPayload.push({
               name: jobId,
               data: {
@@ -1290,7 +1291,13 @@ function cohortWorkerFn(job: Job<CohortJob>) {
                 year,
                 patch,
               },
-              opts: { jobId, priority: 100, delay: ms('500ms') },
+              opts: {
+                jobId,
+                priority: 100,
+                delay: ms('500ms'),
+                removeOnComplete: 1000,
+                removeOnFail: 1000,
+              },
             });
           }
         }
@@ -1512,4 +1519,20 @@ export async function monitorQueues(): Promise<{
   }
 
   return { totalWaiting, totalActive };
+}
+
+export async function purgeCohortsQueue() {
+  consola.info(chalk.red('[cohorts] Purging all jobs from cohorts queue...'));
+  await cohortsQ.obliterate({
+    force: true,
+    count: 1000,
+  });
+  consola.info(chalk.red('[cohorts] Purged all jobs from cohorts queue'));
+}
+
+export async function purgeAllQueues() {
+  consola.info(chalk.red('Purging all queues...'));
+  await Promise.all(Object.values(queues).map((q) => q.obliterate({ force: true, count: 1000 })));
+  await cohortsQ.obliterate({ force: true, count: 1000 });
+  consola.info(chalk.red('Purged all queues complete'));
 }
