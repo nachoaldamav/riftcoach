@@ -21,6 +21,7 @@ COPY packages/shared/lol-types/package.json ./packages/shared/lol-types/
 COPY packages/queues/package.json ./packages/queues/
 COPY packages/clients/mongodb/package.json ./packages/clients/mongodb/
 COPY packages/clients/riot/package.json ./packages/clients/riot/
+COPY packages/shared/aggregations/package.json ./packages/shared/aggregations/
 COPY apps/api/package.json ./apps/api/
 
 # Install dependencies (this layer will be cached if package.json files don't change)
