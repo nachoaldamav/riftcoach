@@ -1,4 +1,8 @@
-import { ConverseCommand, type Message, type ContentBlock } from '@aws-sdk/client-bedrock-runtime';
+import {
+  type ContentBlock,
+  ConverseCommand,
+  type Message,
+} from '@aws-sdk/client-bedrock-runtime';
 import chalk from 'chalk';
 import consola from 'consola';
 import { bedrockClient } from '../clients/bedrock.js';
@@ -24,7 +28,10 @@ export type ChampionRoleInsightResult = {
 
 // In-memory cache and inflight de-duplication to avoid redundant Bedrock calls
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
-const insightCache = new Map<string, { ts: number; result: ChampionRoleInsightResult }>();
+const insightCache = new Map<
+  string,
+  { ts: number; result: ChampionRoleInsightResult }
+>();
 const inflightRequests = new Map<string, Promise<ChampionRoleInsightResult>>();
 
 function buildCacheKey(
@@ -37,6 +44,7 @@ function buildCacheKey(
 
 // Extract plain text from Bedrock converse message
 function extractTextFromMessage(message: Message | undefined): string {
+  consola.debug('Extracting text from message:', message);
   if (!message?.content) return '';
   const textBlocks = message.content
     .map((block) => ('text' in block && block.text ? block.text : null))
@@ -56,6 +64,18 @@ function getLastAssistantWithText(messages: Message[]): Message | undefined {
     if (txt && txt.trim().length > 0) return m;
   }
   return undefined;
+}
+
+function describeContentBlocks(
+  blocks: ContentBlock[],
+): Array<{ type: string; length?: number }> {
+  return blocks.map((b) => {
+    if ('text' in b) return { type: 'text', length: (b.text ?? '').length };
+    if ('toolUse' in b) return { type: 'toolUse' };
+    if ('toolResult' in b) return { type: 'toolResult' };
+    if ('reasoningContent' in b) return { type: 'reasoning' };
+    return { type: 'unknown' };
+  });
 }
 
 function buildPrompts(
@@ -113,7 +133,10 @@ function buildPrompts(
     typeof v === 'number' && Number.isFinite(v) ? v : null;
 
   // Prefer player's p50 (midpoint) where available to mitigate outliers
-  const pickPlayerMid = (key: string, fallback: number | null): number | null => {
+  const pickPlayerMid = (
+    key: string,
+    fallback: number | null,
+  ): number | null => {
     const val = getNumber(playerPercentiles?.p50?.[key]);
     return val ?? fallback;
   };
@@ -127,7 +150,10 @@ function buildPrompts(
     dtpm: pickPlayerMid('dtpm', getNumber(stats.avgDtpm)),
     kpm: pickPlayerMid('kpm', getNumber(stats.avgKpm)),
     apm: pickPlayerMid('apm', getNumber(stats.avgApm)),
-    deathsPerMin: pickPlayerMid('deathsPerMin', getNumber(stats.avgDeathsPerMin)),
+    deathsPerMin: pickPlayerMid(
+      'deathsPerMin',
+      getNumber(stats.avgDeathsPerMin),
+    ),
     goldAt10: pickPlayerMid('goldAt10', getNumber(stats.avgGoldAt10)),
     csAt10: pickPlayerMid('csAt10', getNumber(stats.avgCsAt10)),
     goldAt15: pickPlayerMid('goldAt15', getNumber(stats.avgGoldAt15)),
@@ -248,7 +274,9 @@ function buildPrompts(
     }
   };
 
-  const scoreToTier = (score: number | null):
+  const scoreToTier = (
+    score: number | null,
+  ):
     | 'bestInClass'
     | 'elite'
     | 'strong'
@@ -265,10 +293,7 @@ function buildPrompts(
     return 'needsImprovement';
   };
 
-  const describeBand = (
-    band: Band,
-    isHigherBetter: boolean,
-  ): string => {
+  const describeBand = (band: Band, isHigherBetter: boolean): string => {
     if (band === 'unknown')
       return 'Not enough reliable data to judge this metric yet.';
 
@@ -333,11 +358,7 @@ function buildPrompts(
       m as 'dtpm' | 'deathsPerMin' | 'firstItemCompletionTime',
     );
     const performanceScore =
-      baseScore == null
-        ? null
-        : isHigherBetter
-          ? baseScore
-          : 5 - baseScore;
+      baseScore == null ? null : isHigherBetter ? baseScore : 5 - baseScore;
     comparisons[m as string] = {
       value: averages[m],
       cohort: { p50, p75, p90, p95 },
@@ -380,7 +401,9 @@ function buildPrompts(
     : 'unknown';
 
   const killHunting =
-    takesHeavyDamage && killsVeryHigh && deathsProblematic ? 'killSeeker' : null;
+    takesHeavyDamage && killsVeryHigh && deathsProblematic
+      ? 'killSeeker'
+      : null;
 
   const payload = {
     championName: stats.championName,
@@ -446,10 +469,9 @@ function buildPrompts(
     schemaHint,
   ].join('\n');
 
-  const userPrompt = [
-    'Player data (JSON):',
-    JSON.stringify(payload),
-  ].join('\n');
+  const userPrompt = ['Player data (JSON):', JSON.stringify(payload)].join(
+    '\n',
+  );
 
   return { systemPrompt, userPrompt };
 }
@@ -506,9 +528,15 @@ export async function generateChampionRoleInsights(
             break;
           } catch (err) {
             const msg = (err as Error)?.message || '';
-            if (msg.toLowerCase().includes('too many requests') && attempt < maxAttempts - 1) {
+            if (
+              msg.toLowerCase().includes('too many requests') &&
+              attempt < maxAttempts - 1
+            ) {
               const delayMs = 500;
-              consola.warn('[champion-role-insights] rate limited, retrying', { attempt: attempt + 1, delayMs });
+              consola.warn('[champion-role-insights] rate limited, retrying', {
+                attempt: attempt + 1,
+                delayMs,
+              });
               await new Promise((res) => setTimeout(res, delayMs));
               continue;
             }
@@ -518,10 +546,15 @@ export async function generateChampionRoleInsights(
         if (!assistantMessage) throw new Error('No assistant message received');
         const contentBlocks: ContentBlock[] = assistantMessage.content ?? [];
         const hasText = contentBlocks.some((block) => {
-          return 'text' in block && typeof block.text === 'string' && block.text.trim().length > 0;
+          return (
+            'text' in block &&
+            typeof block.text === 'string' &&
+            block.text.trim().length > 0
+          );
         });
         const endsWithThinking =
-          contentBlocks.length > 0 && ('reasoningContent' in contentBlocks[contentBlocks.length - 1]);
+          contentBlocks.length > 0 &&
+          'reasoningContent' in contentBlocks[contentBlocks.length - 1];
 
         // If the assistant produced text, capture and exit
         if (hasText) {
@@ -535,7 +568,11 @@ export async function generateChampionRoleInsights(
         if (!hasText && endsWithThinking) {
           messages.push({
             role: 'user',
-            content: [{ text: 'Return STRICT JSON matching the requested schema. No markdown, no explanations.' }],
+            content: [
+              {
+                text: 'Return STRICT JSON matching the requested schema. No markdown, no explanations.',
+              },
+            ],
           });
           continue;
         }
@@ -549,17 +586,28 @@ export async function generateChampionRoleInsights(
 
       // Only parse assistant text; avoid accidentally parsing a user reminder
       if (!finalMessage) finalMessage = getLastAssistantWithText(messages);
+
       const aiText =
         finalMessage && finalMessage.role === 'assistant'
           ? extractTextFromMessage(finalMessage)
           : '';
-      consola.debug('[champion-role-insights] AI response (truncated)', aiText.slice(0, 400));
+      consola.debug(
+        '[champion-role-insights] AI response (truncated)',
+        aiText.slice(0, 400),
+      );
 
       // If no JSON-looking content, return a graceful fallback without throwing
       const start = aiText.indexOf('{');
       const end = aiText.lastIndexOf('}');
       if (aiText.length === 0 || start === -1 || end === -1 || end <= start) {
-        consola.warn('[champion-role-insights] No valid assistant JSON found. Returning fallback insights.');
+        const blocks = finalMessage?.content ?? [];
+        consola.warn(
+          '[champion-role-insights] No valid assistant JSON found. Returning fallback insights.',
+          {
+            blockTypes: describeContentBlocks(blocks),
+            extractedPreview: aiText.slice(0, 400),
+          },
+        );
         return {
           summary: `Performance review for ${stats.championName} (${stats.role}).`,
           strengths: [],
@@ -573,7 +621,16 @@ export async function generateChampionRoleInsights(
         parsed = JSON.parse(json) as Partial<ChampionRoleInsightResult>;
       } catch (parseErr) {
         // Parsing failed even though braces exist; fall back quietly
-        consola.warn('[champion-role-insights] Failed to parse assistant JSON. Returning fallback insights.');
+        const blocks = finalMessage?.content ?? [];
+        consola.warn(
+          '[champion-role-insights] Failed to parse assistant JSON. Returning fallback insights.',
+          {
+            blockTypes: describeContentBlocks(blocks),
+            extractedPreview: aiText.slice(0, 400),
+            errorMessage:
+              parseErr instanceof Error ? parseErr.message : String(parseErr),
+          },
+        );
         return {
           summary: `Performance review for ${stats.championName} (${stats.role}).`,
           strengths: [],
