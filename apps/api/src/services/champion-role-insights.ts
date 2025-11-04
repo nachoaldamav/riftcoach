@@ -42,6 +42,7 @@ function buildCacheKey(
 function extractJsonFromText(text: string): string | null {
   // Normalize and strip common wrappers
   const cleaned = text
+    .split('</reasoning>')[1]
     .replace(/```json/g, '')
     .replace(/```/g, '')
     .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
@@ -477,14 +478,24 @@ function buildPrompts(
     'For timing metrics: shorter is better; never infer build quality solely from timing; avoid "suboptimal builds".',
     'Use lexicon.metricLabels for names; apm = "Assists per minute" (never "key presses per minute").',
     'Use comparisons[metric].tier to pick a single adjective from lexicon.adjectives (e.g., elite, strong, solid).',
-    'Begin each bullet with: "<Metric label> is <adjective>" (e.g., "CS per minute is elite").',
-    'Add one short follow-up sentence explaining why, using comparisons (e.g., "above the typical player for this role"), without mentioning percentiles or cohorts.',
-    'For weaknesses, end with a concise improvement hint (one clause) that fits the metric (e.g., "position safer in early trades").',
-    'Cite at most one key metric per bullet; keep bullets to 1–2 short sentences total.',
+
+    // <<< NEW PART: structure + anti-generic rules >>>
+    'Each strength or weakness bullet MUST have exactly two sentences:',
+    '  • First sentence: "<Metric label> is <adjective>."',
+    '  • Second sentence: explain the concrete in-game impact and (for weaknesses) one actionable adjustment.',
+    'The second sentence MUST be specific to the metric and situation (laning, skirmishes, objectives, side-laning, vision, etc.).',
+    'DO NOT use generic explanations like "above the typical player for this role" or "lower than most players" as the whole second sentence.',
+    'Instead, describe what this means in practice, e.g., "this lets you hit item spikes earlier and pressure your lane" or "this often leaves you low before fights start."',
+
+    'For strengths, second sentence: briefly describe how this helps you win games or play your role (pressure, tempo, objective control, side-lane threat, etc.).',
+    'For weaknesses, second sentence: describe a realistic consequence AND one clear adjustment (e.g., safer positioning, earlier recalls, better wave control, ward timing).',
+
+    'Vary your wording across bullets. Avoid repeating the same sentence structure or phrases like "above the typical player for this role" or "needs improvement" more than once.',
+    'Cite at most one key metric per bullet; keep bullets to 2 short sentences total.',
     'Limit strengths/weaknesses to max 3 each.',
     'Return STRICT JSON only. No markdown, no explanations.',
     schemaHint,
-  ].join('\n');
+  ].join('\\n');
 
   const userPrompt = ['Player data (JSON):', JSON.stringify(payload)].join(
     '\n',
