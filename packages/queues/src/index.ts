@@ -5,18 +5,13 @@ import {
 } from '@fightmegg/riot-api';
 import { client, collections } from '@riftcoach/clients.mongodb';
 import { type Region, riot } from '@riftcoach/clients.riot';
-import {
-  ALLOWED_QUEUE_IDS,
-  DDRAGON_DEFAULT_PATCH,
-  ROLES,
-} from '@riftcoach/shared.constants';
+import { cohortChampionRolePercentilesAggregation } from '@riftcoach/packages.shared.aggregations';
+import { DDRAGON_DEFAULT_PATCH, ROLES } from '@riftcoach/shared.constants';
 import { type Job, Queue, Worker, type WorkerOptions } from 'bullmq';
 import chalk from 'chalk';
 import { consola } from 'consola';
-import type { Document } from 'mongodb';
 // @ts-ignore
 import ms from 'ms';
-import { cohortChampionRolePercentilesAggregation } from './aggregations/cohort-role-champ.js';
 import { connection } from './clients/redis.js';
 import { getCompletedItemIds } from './completed-items.js';
 

@@ -15,6 +15,10 @@
       "@riftcoach/shared.constants": [
         "../shared/constants/dist/index.d.ts",
         "../shared/constants/dist/index.js"
+      ],
+      "@riftcoach/packages.shared.aggregations": [
+        "../shared/aggregations/dist/index.d.ts",
+        "../shared/aggregations/dist/index.js"
       ]
     },
 

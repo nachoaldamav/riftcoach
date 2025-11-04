@@ -5,6 +5,13 @@
     "strict": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@riftcoach/packages.shared.aggregations": [
+        "../../packages/shared/aggregations/dist/index.d.ts",
+        "../../packages/shared/aggregations/dist/index.js"
+      ]
+    },
     "types": [
       "node",
       "react"

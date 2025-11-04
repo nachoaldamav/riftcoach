@@ -54,6 +54,9 @@ importers:
       '@riftcoach/clients.riot':
         specifier: workspace:*
         version: link:../../packages/clients/riot
+      '@riftcoach/packages.shared.aggregations':
+        specifier: workspace:*
+        version: link:../../packages/shared/aggregations
       '@riftcoach/queues':
         specifier: workspace:*
         version: link:../../packages/queues
@@ -469,6 +472,9 @@ importers:
       '@riftcoach/clients.riot':
         specifier: workspace:*
         version: link:../clients/riot
+      '@riftcoach/packages.shared.aggregations':
+        specifier: workspace:*
+        version: link:../shared/aggregations
       '@riftcoach/shared.constants':
         specifier: workspace:*
         version: link:../shared/constants
@@ -506,6 +512,34 @@ importers:
       vite:
         specifier: ^7.1.12
         version: 7.1.12(@types/node@24.7.2)(jiti@2.6.1)(lightningcss@1.30.1)(terser@5.44.0)(tsx@4.20.5)
+
+  packages/shared/aggregations:
+    dependencies:
+      '@fightmegg/riot-api':
+        specifier: 0.0.21
+        version: 0.0.21
+      '@riftcoach/clients.mongodb':
+        specifier: workspace:*
+        version: link:../../clients/mongodb
+      '@riftcoach/shared.constants':
+        specifier: workspace:*
+        version: link:../constants
+      mongodb:
+        specifier: 6.20.0
+        version: 6.20.0
+    devDependencies:
+      '@types/node':
+        specifier: ^24.7.2
+        version: 24.7.2
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vite:
+        specifier: ^7.1.12
+        version: 7.1.12(@types/node@24.7.2)(jiti@2.6.1)(lightningcss@1.30.1)(terser@5.44.0)(tsx@4.20.5)
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@24.7.2)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.44.0)(tsx@4.20.5)
 
   packages/shared/constants:
     devDependencies:

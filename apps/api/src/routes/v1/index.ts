@@ -6,6 +6,7 @@ import {
 } from '@fightmegg/riot-api';
 import { collections } from '@riftcoach/clients.mongodb';
 import { type Platform, type Region, riot } from '@riftcoach/clients.riot';
+import { playerChampRolePercentilesAggregation } from '@riftcoach/packages.shared.aggregations';
 import { queues } from '@riftcoach/queues';
 import { ALLOWED_QUEUE_IDS, ROLES } from '@riftcoach/shared.constants';
 import chalk from 'chalk';
@@ -22,7 +23,6 @@ import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
 import { getMatchBuilds } from '../../aggregations/matchBuilds.js';
 import { playerChampRoleStatsAggregation } from '../../aggregations/playerChampRoleStats.js';
-import { playerChampRolePercentilesAggregation } from '../../aggregations/playerChampionRolePercentiles.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
@@ -811,51 +811,115 @@ app.get(
 
     const completedItemIds = await getCompletedItemIds();
 
-    // Fetch player's champion-role stats and select the requested entry
-    const statsAgg = playerChampRoleStatsAggregation(account.puuid, {
-      completedItemIds,
-    });
-    const aggCursor = collections.matches.aggregate<ChampionRoleStats>(
-      statsAgg,
-      { allowDiskUse: true },
-    );
-    const allStats = await aggCursor.toArray();
-    const target = allStats.find(
-      (d) => d.championName === championName && d.role === role,
-    );
+    // Fetch player percentiles (shared agg) for this champion-role and derive stats using p50 where appropriate
+    type PlayerPercentilesWithBase = PlayerPercentilesDoc & {
+      totalMatches: number;
+      wins: number;
+      losses: number;
+      winRate: number;
+      kda: number;
+      avgKills: number;
+      avgDeaths: number;
+      avgAssists: number;
+      avgGoldEarned: number;
+      avgCS: number;
+      avgCspm: number;
+      avgGoldAt10: number;
+      avgCsAt10: number;
+      avgGoldAt15: number;
+      avgCsAt15: number;
+      avgDpm: number;
+      avgDtpm: number;
+      avgKpm: number;
+      avgDeathsPerMin: number;
+      avgApm: number;
+      avgObjectiveParticipationPct?: number;
+      avgEarlyGankDeathRate?: number;
+      avgFirstItemCompletionTime?: number | null;
+    };
 
-    if (!target) {
+    const playerPercentilesDocs = await collections.matches
+      .aggregate<PlayerPercentilesWithBase>(
+        playerChampRolePercentilesAggregation(
+          account.puuid,
+          championName,
+          role,
+          { completedItemIds },
+        ),
+        { allowDiskUse: true },
+      )
+      .toArray();
+
+    const playerDoc = playerPercentilesDocs?.[0] ?? null;
+    if (!playerDoc) {
       return c.json(
-        { message: 'Champion-role stats not found for player' },
+        { message: 'Champion-role percentiles not found for player' },
         404,
       );
     }
 
-    // Defer to AI scoring service for single champion-role
-    const [cohort, aiScores, playerPercentilesDocs] = await Promise.all([
-      fetchCohortPercentiles(championName, role, { completedItemIds }),
+    // Map shared percentiles doc into ChampionRoleStats, preferring p50 for typical (robust) values
+    const p50 = playerDoc.percentiles?.p50 ?? {};
+    const target: ChampionRoleStats = {
+      championName: playerDoc.championName,
+      role: playerDoc.role,
+      totalMatches: playerDoc.totalMatches,
+      wins: playerDoc.wins,
+      losses: playerDoc.losses,
+      winRate: playerDoc.winRate,
+      kda: playerDoc.kda,
+      // Keep averages for raw totals
+      avgKills: playerDoc.avgKills,
+      avgDeaths: playerDoc.avgDeaths,
+      avgAssists: playerDoc.avgAssists,
+      avgGoldEarned: playerDoc.avgGoldEarned,
+      avgCS: playerDoc.avgCS,
+      // Prefer medians (p50) for rate/tempo metrics and laning snapshots
+      avgCspm: typeof p50.cspm === 'number' ? p50.cspm : playerDoc.avgCspm,
+      avgGoldAt10:
+        typeof p50.goldAt10 === 'number' ? p50.goldAt10 : playerDoc.avgGoldAt10,
+      avgCsAt10:
+        typeof p50.csAt10 === 'number' ? p50.csAt10 : playerDoc.avgCsAt10,
+      avgGoldAt15:
+        typeof p50.goldAt15 === 'number' ? p50.goldAt15 : playerDoc.avgGoldAt15,
+      avgCsAt15:
+        typeof p50.csAt15 === 'number' ? p50.csAt15 : playerDoc.avgCsAt15,
+      avgDpm: typeof p50.dpm === 'number' ? p50.dpm : playerDoc.avgDpm,
+      avgDtpm: typeof p50.dtpm === 'number' ? p50.dtpm : playerDoc.avgDtpm,
+      avgKpm: typeof p50.kpm === 'number' ? p50.kpm : playerDoc.avgKpm,
+      avgApm: typeof p50.apm === 'number' ? p50.apm : playerDoc.avgApm,
+      avgDeathsPerMin:
+        typeof p50.deathsPerMin === 'number'
+          ? p50.deathsPerMin
+          : playerDoc.avgDeathsPerMin,
+      avgObjectiveParticipationPct:
+        typeof p50.objectiveParticipationPct === 'number'
+          ? p50.objectiveParticipationPct
+          : playerDoc.avgObjectiveParticipationPct,
+      earlyGankDeathRateSmart:
+        typeof p50.earlyGankDeathRate === 'number'
+          ? p50.earlyGankDeathRate
+          : playerDoc.avgEarlyGankDeathRate,
+      avgFirstItemCompletionTime:
+        typeof p50.firstItemCompletionTime === 'number'
+          ? p50.firstItemCompletionTime
+          : playerDoc.avgFirstItemCompletionTime ?? null,
+    };
+
+    // Fetch cohort percentiles and compute AI score using the precomputed player percentiles
+    const cohort = await fetchCohortPercentiles(championName, role, {
+      completedItemIds,
+    });
+
+    const [aiScores, insights] = await Promise.all([
       generateChampionRoleAIScores(account.puuid, [target], {
         completedItemIds,
+        percentilesDocs: [playerDoc],
       }),
-      collections.matches
-        .aggregate<PlayerPercentilesDoc>(
-          playerChampRolePercentilesAggregation(
-            account.puuid,
-            championName,
-            role,
-            { completedItemIds },
-          ),
-          { allowDiskUse: true },
-        )
-        .toArray(),
+      generateChampionRoleInsights(target, cohort, playerDoc),
     ]);
     const ai = aiScores[0] ?? null;
     const playerPercentiles = playerPercentilesDocs?.[0] ?? null;
-    const insights = await generateChampionRoleInsights(
-      target,
-      cohort,
-      playerPercentiles,
-    );
 
     const response = {
       championName,

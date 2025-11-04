@@ -1,7 +1,7 @@
 import { collections } from '@riftcoach/clients.mongodb';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { cohortChampionRolePercentilesAggregation } from '../aggregations/cohort-role-champ.js';
-import { getCompletedItemIds } from '../completed-items.js';
+import { getCompletedItemIds } from '../utils/completed-items.js';
 
 const params = {
   championName: 'Yunara',
@@ -136,5 +136,44 @@ describe('cohortChampionRolePercentilesAggregation', () => {
         expect(objectiveParticipation).toBeLessThanOrEqual(1);
       }
     }
+  });
+
+  it('percentile ordering is consistent for select metrics', async () => {
+    const p50 = result.percentiles.p50;
+    const p95 = result.percentiles.p95;
+
+    // Higher-is-better metrics should have p95 >= p50
+    expect(p95.kills).toBeGreaterThanOrEqual(p50.kills);
+    expect(p95.assists).toBeGreaterThanOrEqual(p50.assists);
+    expect(p95.cs).toBeGreaterThanOrEqual(p50.cs);
+    expect(p95.cspm).toBeGreaterThanOrEqual(p50.cspm);
+    expect(p95.goldEarned).toBeGreaterThanOrEqual(p50.goldEarned);
+    expect(p95.goldAt10).toBeGreaterThanOrEqual(p50.goldAt10);
+    expect(p95.csAt10).toBeGreaterThanOrEqual(p50.csAt10);
+    expect(p95.goldAt15).toBeGreaterThanOrEqual(p50.goldAt15);
+    expect(p95.csAt15).toBeGreaterThanOrEqual(p50.csAt15);
+    expect(p95.dpm).toBeGreaterThanOrEqual(p50.dpm);
+    expect(p95.kpm).toBeGreaterThanOrEqual(p50.kpm);
+    expect(p95.apm).toBeGreaterThanOrEqual(p50.apm);
+
+    // Lower-is-better metrics should have p95 <= p50
+    expect(p95.deaths).toBeLessThanOrEqual(p50.deaths);
+    expect(p95.dtpm).toBeLessThanOrEqual(p50.dtpm);
+    expect(p95.deathsPerMin).toBeLessThanOrEqual(p50.deathsPerMin);
+
+    // First item completion time is lower-is-better
+    expect(p95.firstItemCompletionTime).toBeLessThanOrEqual(
+      p50.firstItemCompletionTime,
+    );
+
+    // Objective participation is higher-is-better
+    expect(p95.objectiveParticipationPct).toBeGreaterThanOrEqual(
+      p50.objectiveParticipationPct,
+    );
+
+    // Early gank death rate is lower-is-better
+    expect(p95.earlyGankDeathRate).toBeLessThanOrEqual(
+      p50.earlyGankDeathRate,
+    );
   });
 });

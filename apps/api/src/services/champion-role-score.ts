@@ -1,7 +1,7 @@
 import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { collections } from '@riftcoach/clients.mongodb';
 import consola from 'consola';
-import { playerChampRolePercentilesAggregation } from '../aggregations/playerChampionRolePercentiles.js';
+import { playerChampRolePercentilesAggregation } from '@riftcoach/packages.shared.aggregations';
 import { bedrockClient } from '../clients/bedrock.js';
 
 export type ChampionRoleStats = {
@@ -34,7 +34,9 @@ export type ChampionRoleStats = {
   avgFirstItemCompletionTime?: number | null;
 };
 
-type PercentilesDoc = ChampionRoleStats & {
+export type DistDoc = {
+  championName: string;
+  role: string;
   percentiles: {
     p50: Record<string, number>;
     p75: Record<string, number>;
@@ -52,7 +54,7 @@ export type ChampionRoleAIScore = {
 
 function buildPrompt(
   puuid: string,
-  items: Array<{ stats: ChampionRoleStats; dist: PercentilesDoc | null }>,
+  items: Array<{ stats: ChampionRoleStats; dist: DistDoc | null }>,
 ): string {
   const header =
     'You are a supportive, fair analyst assigning a positive, encouraging mastery score (0-100) per champion-role for a League of Legends player. Consider performance vs distribution percentiles (p50/p75/p90/p95), volume (games), and stability. Keep language kind and constructive. Output STRICT JSON only.';
@@ -165,28 +167,33 @@ async function invokeAIScoring(prompt: string): Promise<ChampionRoleAIScore[]> {
 export async function generateChampionRoleAIScores(
   puuid: string,
   rows: ChampionRoleStats[],
-  options?: { completedItemIds?: number[] },
+  options?: { completedItemIds?: number[]; percentilesDocs?: Array<DistDoc | null> },
 ): Promise<ChampionRoleAIScore[]> {
   try {
     // Fetch percentiles per champion-role (for current page only)
-    const docs: Array<PercentilesDoc | null> = [];
-    for (const r of rows) {
-      try {
-        const aggs = await collections.matches
-          .aggregate<PercentilesDoc>(
-            playerChampRolePercentilesAggregation(
-              puuid,
-              r.championName,
-              r.role,
-              { completedItemIds: options?.completedItemIds },
-            ),
-            { allowDiskUse: true },
-          )
-          .toArray();
-        docs.push(aggs[0] ?? null);
-      } catch (e) {
-        consola.warn('[champion-role-score] percentiles aggregation failed', e);
-        docs.push(null);
+    const docs: Array<DistDoc | null> = Array.isArray(options?.percentilesDocs)
+      ? options?.percentilesDocs ?? []
+      : [];
+
+    if (docs.length === 0) {
+      for (const r of rows) {
+        try {
+          const aggs = await collections.matches
+            .aggregate<DistDoc>(
+              playerChampRolePercentilesAggregation(
+                puuid,
+                r.championName,
+                r.role,
+                { completedItemIds: options?.completedItemIds },
+              ),
+              { allowDiskUse: true },
+            )
+            .toArray();
+          docs.push(aggs[0] ?? null);
+        } catch (e) {
+          consola.warn('[champion-role-score] percentiles aggregation failed', e);
+          docs.push(null);
+        }
       }
     }
 

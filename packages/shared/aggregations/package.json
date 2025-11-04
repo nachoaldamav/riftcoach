@@ -1,0 +1,27 @@
+{
+  "name": "@riftcoach/packages.shared.aggregations",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Shared MongoDB aggregation pipelines for Riftcoach",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "compile": "tsc",
+    "test": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.12",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@fightmegg/riot-api": "0.0.21",
+    "@riftcoach/clients.mongodb": "workspace:*",
+    "@riftcoach/shared.constants": "workspace:*",
+    "mongodb": "6.20.0"
+  }
+}
