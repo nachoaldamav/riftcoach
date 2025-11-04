@@ -83,4 +83,58 @@ describe('cohortChampionRolePercentilesAggregation', () => {
     expect(result.percentiles.p90.firstItemCompletionTime > 0).toBe(true);
     expect(result.percentiles.p95.firstItemCompletionTime > 0).toBe(true);
   });
+
+  it('should return valid earlyGankDeathRate for each percentile', async () => {
+    const earlyGankRates = [
+      result.percentiles.p50.earlyGankDeathRate,
+      result.percentiles.p75.earlyGankDeathRate,
+      result.percentiles.p90.earlyGankDeathRate,
+      result.percentiles.p95.earlyGankDeathRate,
+    ];
+
+    for (const rate of earlyGankRates) {
+      expect(rate).not.toBeNull();
+      expect(rate).toBeGreaterThan(0);
+      expect(rate).toBeLessThan(10);
+    }
+  });
+
+  it('should provide non-negative metrics for each percentile', async () => {
+    const percentileValues = Object.values(result.percentiles);
+
+    const nonNegativeNumericFields: Array<keyof Percentile> = [
+      'kills',
+      'deaths',
+      'assists',
+      'cs',
+      'cspm',
+      'goldEarned',
+      'goldAt10',
+      'csAt10',
+      'goldAt15',
+      'csAt15',
+      'dpm',
+      'dtpm',
+      'kpm',
+      'apm',
+      'deathsPerMin',
+    ];
+
+    for (const percentile of percentileValues) {
+      for (const field of nonNegativeNumericFields) {
+        const value = percentile[field];
+        expect(typeof value).toBe('number');
+        expect(Number.isFinite(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(0);
+      }
+
+      const objectiveParticipation = percentile.objectiveParticipationPct;
+      if (objectiveParticipation !== null) {
+        expect(typeof objectiveParticipation).toBe('number');
+        expect(Number.isFinite(objectiveParticipation)).toBe(true);
+        expect(objectiveParticipation).toBeGreaterThanOrEqual(0);
+        expect(objectiveParticipation).toBeLessThanOrEqual(1);
+      }
+    }
+  });
 });
