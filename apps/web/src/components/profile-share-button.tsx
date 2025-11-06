@@ -527,13 +527,13 @@ const ProfileShareModal = memo(function ProfileShareModal({
                 <div
                   className={`relative w-full rounded-3xl border border-accent-blue-400/20 bg-gradient-to-br from-accent-blue-500/10 via-accent-purple-500/10 to-transparent p-4 ${isGenerating ? '' : 'shadow-[0_35px_65px_-30px_rgba(59,130,246,0.45)]'}`}
                 >
-                  <div className="relative overflow-hidden rounded-2xl bg-black/60">
+                  <div className="relative overflow-hidden rounded-2xl bg-black/60 min-h-[250px]">
                     {isGenerating ? (
-                      <div className="flex h-[360px] items-center justify-center">
-                        <Loader2 className="h-10 w-10 motion-safe:animate-spin text-accent-blue-400" />
+                      <div className="flex h-full min-h-[250px] items-center justify-center">
+                        <Loader2 className="h-10 w-10 motion-safe:animate-spin text-white" />
                       </div>
                     ) : generationError ? (
-                      <div className="flex h-[360px] flex-col items-center justify-center gap-3 px-6 text-center">
+                      <div className="flex h-full min-h-[250px] flex-col items-center justify-center gap-3 px-6 text-center">
                         <span className="text-sm text-red-400">
                           {generationError}
                         </span>
@@ -558,7 +558,7 @@ const ProfileShareModal = memo(function ProfileShareModal({
                         decoding="async"
                       />
                     ) : (
-                      <div className="flex h-[360px] items-center justify-center text-sm text-neutral-400">
+                      <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-neutral-400">
                         Preparing preview...
                       </div>
                     )}
@@ -580,180 +580,174 @@ const ProfileShareModal = memo(function ProfileShareModal({
                 </p>
               </div>
 
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
-                <p className="font-semibold text-neutral-200">Includes</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-neutral-400">
-                  <li>Player icon, Riot tag, and champion splash art</li>
-                  <li>Key performance metrics versus your cohort</li>
-                  <li>Top AI-identified playstyle badges</li>
-                </ul>
-              </div>
-
               {/* Overrides - deferred rendering */}
-              {showOverrides && (
-                <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4">
-                  <p className="text-sm font-semibold text-neutral-200">
-                    Overrides
-                  </p>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    {/* Champion Combobox (Shadcn) */}
-                    <div className="relative">
-                      {/* biome-ignore lint/a11y/noLabelWithoutControl: <explanation> */}
-                      <label className="block text-sm font-medium text-neutral-200 mb-1">
-                        Champion
-                      </label>
-                      <Popover
-                        open={isChampionPickerOpen}
-                        onOpenChange={setIsChampionPickerOpen}
-                      >
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="flat"
-                            className="flex w-full items-center justify-between px-3 py-2 text-sm bg-neutral-800/50 border border-neutral-700 text-neutral-200 hover:bg-neutral-700"
-                            aria-label="Champion combobox"
-                          >
-                            <div className="flex items-center gap-2">
-                              {selectedChampionData ? (
-                                <>
-                                  <Avatar className="h-5 w-5 rounded border border-neutral-700">
-                                    <AvatarImage
-                                      src={getChampionImageUrl(
-                                        selectedChampionData.id,
-                                        'square',
-                                      )}
-                                      alt={selectedChampionData.name}
-                                    />
-                                  </Avatar>
-                                  <span>{selectedChampionData.name}</span>
-                                </>
-                              ) : (
-                                <span className="text-neutral-400">
-                                  Select a champion
-                                </span>
-                              )}
-                            </div>
-                            <ChevronDown className="h-4 w-4 opacity-70" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
-                          <Command className="bg-neutral-900 text-neutral-100 z-[100]">
-                            <CommandInput placeholder="Search champion..." />
-                            <CommandList>
-                              <CommandEmpty>No champions found.</CommandEmpty>
-                              <CommandGroup>
+              <div
+                className={`rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 transition-all duration-300 ${
+                  showOverrides
+                    ? 'opacity-100 translate-y-0'
+                    : 'opacity-0 translate-y-2 pointer-events-none h-0 overflow-hidden p-0 border-0'
+                }`}
+              >
+                <p className="text-sm font-semibold text-neutral-200">
+                  Overrides
+                </p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {/* Champion Combobox (Shadcn) */}
+                  <div className="relative">
+                    {/* biome-ignore lint/a11y/noLabelWithoutControl: <explanation> */}
+                    <label className="block text-sm font-medium text-neutral-200 mb-1">
+                      Champion
+                    </label>
+                    <Popover
+                      open={isChampionPickerOpen}
+                      onOpenChange={setIsChampionPickerOpen}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="flat"
+                          className="flex w-full items-center justify-between px-3 py-2 text-sm bg-neutral-800/50 border border-neutral-700 text-neutral-200 hover:bg-neutral-700"
+                          aria-label="Champion combobox"
+                        >
+                          <div className="flex items-center gap-2">
+                            {selectedChampionData ? (
+                              <>
+                                <Avatar className="h-5 w-5 rounded border border-neutral-700">
+                                  <AvatarImage
+                                    src={getChampionImageUrl(
+                                      selectedChampionData.id,
+                                      'square',
+                                    )}
+                                    alt={selectedChampionData.name}
+                                  />
+                                </Avatar>
+                                <span>{selectedChampionData.name}</span>
+                              </>
+                            ) : (
+                              <span className="text-neutral-400">
+                                Select a champion
+                              </span>
+                            )}
+                          </div>
+                          <ChevronDown className="h-4 w-4 opacity-70" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
+                        <Command className="bg-neutral-900 text-neutral-100 z-[100]">
+                          <CommandInput placeholder="Search champion..." />
+                          <CommandList>
+                            <CommandEmpty>No champions found.</CommandEmpty>
+                            <CommandGroup>
+                              <CommandItem
+                                onSelect={() => {
+                                  handleChampionChange(null);
+                                  setIsChampionPickerOpen(false);
+                                }}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span>Default</span>
+                                </div>
+                              </CommandItem>
+                              {championList.map((champ) => (
                                 <CommandItem
+                                  key={champ.id}
+                                  value={champ.name}
                                   onSelect={() => {
-                                    handleChampionChange(null);
+                                    handleChampionChange(champ.id);
                                     setIsChampionPickerOpen(false);
                                   }}
                                 >
                                   <div className="flex items-center gap-2">
-                                    <span>Default</span>
+                                    <Avatar className="h-6 w-6 rounded-lg border border-neutral-700">
+                                      <AvatarImage
+                                        src={getChampionImageUrl(
+                                          champ.id,
+                                          'square',
+                                        )}
+                                        alt={champ.name}
+                                      />
+                                    </Avatar>
+                                    <span>{champ.name}</span>
                                   </div>
                                 </CommandItem>
-                                {championList.map((champ) => (
-                                  <CommandItem
-                                    key={champ.id}
-                                    value={champ.name}
-                                    onSelect={() => {
-                                      handleChampionChange(champ.id);
-                                      setIsChampionPickerOpen(false);
-                                    }}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <Avatar className="h-6 w-6 rounded-lg border border-neutral-700">
-                                        <AvatarImage
-                                          src={getChampionImageUrl(
-                                            champ.id,
-                                            'square',
-                                          )}
-                                          alt={champ.name}
-                                        />
-                                      </Avatar>
-                                      <span>{champ.name}</span>
-                                    </div>
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-
-                    {/* Skin Combobox (Shadcn) */}
-                    <div className="relative">
-                      {/* biome-ignore lint/a11y/noLabelWithoutControl: <explanation> */}
-                      <label className="block text-sm font-medium text-neutral-200 mb-1">
-                        Skin
-                      </label>
-                      <Popover
-                        open={Boolean(selectedChampionData) && isSkinPickerOpen}
-                        onOpenChange={setIsSkinPickerOpen}
-                      >
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="flat"
-                            disabled={!selectedChampionData}
-                            className="flex w-full items-center justify-between px-3 py-2 text-sm bg-neutral-800/50 border border-neutral-700 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            aria-label="Skin combobox"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span>
-                                {(() => {
-                                  const currentNum =
-                                    selectedSkinOverrideNum ?? 0;
-                                  const currentSkin = (
-                                    skinOptions ?? [{ num: 0, name: 'Default' }]
-                                  ).find((s) => s.num === currentNum);
-                                  return currentSkin?.name ?? 'Select a skin';
-                                })()}
-                              </span>
-                            </div>
-                            <ChevronDown className="h-4 w-4 opacity-70" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
-                          <Command className="bg-neutral-900 text-neutral-100">
-                            <CommandInput placeholder="Search skin..." />
-                            <CommandList>
-                              <CommandEmpty>No skins found.</CommandEmpty>
-                              <CommandGroup>
-                                {(
-                                  skinOptions ?? [{ num: 0, name: 'Default' }]
-                                ).map((skin) => (
-                                  <CommandItem
-                                    key={skin.num}
-                                    value={skin.name}
-                                    onSelect={() => {
-                                      handleSkinChange(String(skin.num));
-                                      setIsSkinPickerOpen(false);
-                                    }}
-                                  >
-                                    <span>{skin.name}</span>
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    </div>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </div>
-                  <div className="mt-3">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      className="bg-neutral-800/50 text-neutral-200 hover:bg-neutral-700"
-                      onClick={handleResetOverrides}
+
+                  {/* Skin Combobox (Shadcn) */}
+                  <div className="relative">
+                    {/* biome-ignore lint/a11y/noLabelWithoutControl: <explanation> */}
+                    <label className="block text-sm font-medium text-neutral-200 mb-1">
+                      Skin
+                    </label>
+                    <Popover
+                      open={Boolean(selectedChampionData) && isSkinPickerOpen}
+                      onOpenChange={setIsSkinPickerOpen}
                     >
-                      Reset overrides
-                    </Button>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="flat"
+                          disabled={!selectedChampionData}
+                          className="flex w-full items-center justify-between px-3 py-2 text-sm bg-neutral-800/50 border border-neutral-700 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          aria-label="Skin combobox"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>
+                              {(() => {
+                                const currentNum = selectedSkinOverrideNum ?? 0;
+                                const currentSkin = (
+                                  skinOptions ?? [{ num: 0, name: 'Default' }]
+                                ).find((s) => s.num === currentNum);
+                                return currentSkin?.name ?? 'Select a skin';
+                              })()}
+                            </span>
+                          </div>
+                          <ChevronDown className="h-4 w-4 opacity-70" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
+                        <Command className="bg-neutral-900 text-neutral-100">
+                          <CommandInput placeholder="Search skin..." />
+                          <CommandList>
+                            <CommandEmpty>No skins found.</CommandEmpty>
+                            <CommandGroup>
+                              {(
+                                skinOptions ?? [{ num: 0, name: 'Default' }]
+                              ).map((skin) => (
+                                <CommandItem
+                                  key={skin.num}
+                                  value={skin.name}
+                                  onSelect={() => {
+                                    handleSkinChange(String(skin.num));
+                                    setIsSkinPickerOpen(false);
+                                  }}
+                                >
+                                  <span>{skin.name}</span>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
-              )}
+                <div className="mt-3">
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    className="bg-neutral-800/50 text-neutral-200 hover:bg-neutral-700"
+                    onClick={handleResetOverrides}
+                  >
+                    Reset overrides
+                  </Button>
+                </div>
+              </div>
 
               <div className="mt-auto flex flex-wrap items-center gap-3">
                 <Button
@@ -771,9 +765,9 @@ const ProfileShareModal = memo(function ProfileShareModal({
                 >
                   Close
                 </Button>
-                <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">
+                <span className="text-xs uppercase tracking-[0.2em] text-neutral-500 whitespace-nowrap">
                   {isGenerating
-                    ? 'Rendering preview…'
+                    ? 'Generating…'
                     : previewUrl
                       ? 'Ready to share'
                       : 'Loading data'}
