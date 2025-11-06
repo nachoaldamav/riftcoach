@@ -85,13 +85,13 @@ export function ProfileHeader({
     >
       <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg relative py-0">
         <CardBody className="p-0">
-          <div className="flex items-center gap-6 h-36">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 h-auto sm:h-36">
             {/* Profile Icon */}
-            <div className="relative mx-6">
+            <div className="relative mx-4 sm:mx-6">
               <img
                 src={getProfileIconUrl(summoner.profileIconId)}
                 alt="Profile Icon"
-                className="w-20 h-20 rounded-xl border-2 border-accent-blue-400/50"
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl border-2 border-accent-blue-400/50"
               />
               <div className="absolute -bottom-2 -right-2 bg-accent-blue-500 text-white text-sm font-bold px-2 py-1 rounded-full">
                 {summoner.summonerLevel}
@@ -100,7 +100,7 @@ export function ProfileHeader({
 
             {/* Profile Info */}
             <div className="flex-1">
-              <div className="flex items-baseline gap-2 mb-2">
+              <div className="flex flex-wrap items-baseline gap-2 mb-2">
                 <h1 className="text-3xl font-display font-bold text-neutral-50">
                   {name}
                 </h1>
@@ -126,7 +126,7 @@ export function ProfileHeader({
                 </div>
               ) : badges && badges.length > 0 ? (
                 <TooltipProvider>
-                  <div className="flex flex-wrap gap-3">
+                  <div className="flex flex-wrap gap-2 sm:gap-3">
                     {badges.map((b, idx) => (
                       <Tooltip key={`${b.title}-hdr-${idx}`}>
                         <TooltipTrigger asChild>
@@ -170,13 +170,13 @@ export function ProfileHeader({
                 // biome-ignore lint/a11y/useSemanticElements: needs to be a div
                 role="figure"
                 aria-label={`Pro info for ${proInfo.name ?? name}`}
-                className="relative overflow-hidden h-28 sm:h-36 min-w-[280px] w-[320px]"
+                className="relative overflow-hidden w-full sm:w-[320px] h-28 sm:h-36 min-w-0 sm:min-w-[280px] sm:shrink-0 rounded-lg"
               >
                 {/* Background team logo for subtle branding */}
                 <img
                   src={`https://d1wwggj2y1tr8j.cloudfront.net/${proInfo.slug}/logo.png`}
                   alt="team logo background"
-                  className="pointer-events-none absolute left-10 top-0 h-full w-1/2 object-contain opacity-20 grayscale"
+                  className="pointer-events-none absolute left-4 sm:left-10 top-0 h-full w-1/3 sm:w-1/2 object-contain opacity-20 grayscale"
                 />
 
                 {/* Player portrait on the right with gradient fade */}
@@ -185,27 +185,27 @@ export function ProfileHeader({
                     src={`https://d1wwggj2y1tr8j.cloudfront.net/${proInfo.slug}/${proInfo.image}`}
                     alt={`${proInfo.name ?? name}`}
                     loading="lazy"
-                    className="pointer-events-none absolute right-0 top-0 h-full w-[42%] object-cover object-center z-20"
+                    className="pointer-events-none absolute right-0 top-0 h-full w-[38%] sm:w-[42%] object-cover object-center z-20"
                   />
                 ) : null}
-                <div className="absolute inset-y-0 right-0 w-[42%] bg-gradient-to-l from-neutral-900/80 to-transparent" />
+                <div className="absolute inset-y-0 right-0 w-[38%] sm:w-[42%] bg-gradient-to-l from-neutral-900/80 to-transparent" />
 
                 {/* Role icon */}
 
                 {/* Content */}
-                <div className="relative z-10 flex h-full items-end pl-12 pr-4 pb-4">
+                <div className="relative z-10 flex h-full items-end pl-10 sm:pl-12 pr-3 sm:pr-4 pb-3 sm:pb-4">
                   <div className="flex-1">
                     <div className="text-xl sm:text-2xl font-bold text-neutral-50 tracking-tight inline-flex gap-2 items-center">
                       {proInfo.position ? (
                         <img
                           src={getRoleIconUrl(proInfo.position)}
                           alt={`${proInfo.position} role icon`}
-                          className="size-6"
+                          className="size-5 sm:size-6"
                         />
                       ) : null}{' '}
                       {proInfo.name ?? name}
                     </div>
-                    <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-300">
+                    <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-300 truncate">
                       {proInfo.team}
                     </div>
                   </div>

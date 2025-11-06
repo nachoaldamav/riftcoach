@@ -1140,8 +1140,6 @@ ID maps for validation:
 - idToName: ${JSON.stringify(idToNameMap)}
 - nameToId: ${JSON.stringify(nameToIdMap)}
 - metaById: ${JSON.stringify(metaById)}
-
-
 `;
 }
 
