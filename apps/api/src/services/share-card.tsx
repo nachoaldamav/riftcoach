@@ -40,10 +40,10 @@ const imageCache = new Map<string, string>();
 
 function fontPath(rel: string): string {
   // Resolve fonts from web public assets so production/dev both work
-  // apps/api -> apps/web/public/fonts/inter
+  // apps/api -> apps/web/public/fonts
   return path.resolve(
     process.cwd(),
-    '../web/public/fonts/inter',
+    '../web/public/fonts',
     rel,
   );
 }
@@ -80,10 +80,15 @@ async function fetchImageAsDataUrl(url: string): Promise<string> {
 
 export async function renderShareCard(options: ProfileShareCardOptions): Promise<Uint8Array> {
   const [interRegular, interBold, interItalic, interBoldItalic] = await Promise.all([
-    loadFontFromFS('Inter-Regular.ttf', 'inter-regular'),
-    loadFontFromFS('Inter-Bold.ttf', 'inter-bold'),
-    loadFontFromFS('Inter-Italic.ttf', 'inter-italic'),
-    loadFontFromFS('Inter-BoldItalic.ttf', 'inter-bold-italic'),
+    loadFontFromFS('inter/Inter-Regular.ttf', 'inter-regular'),
+    loadFontFromFS('inter/Inter-Bold.ttf', 'inter-bold'),
+    loadFontFromFS('inter/Inter-Italic.ttf', 'inter-italic'),
+    loadFontFromFS('inter/Inter-BoldItalic.ttf', 'inter-bold-italic'),
+  ]);
+
+  const [notoKrRegular, notoKrBold] = await Promise.all([
+    loadFontFromFS('noto-sans-kr/NotoSansKR-Regular.ttf', 'noto-kr-400'),
+    loadFontFromFS('noto-sans-kr/NotoSansKR-Bold.ttf', 'noto-kr-700'),
   ]);
 
   const profileIcon = await fetchImageAsDataUrl(options.profileIconUrl);
@@ -103,6 +108,14 @@ export async function renderShareCard(options: ProfileShareCardOptions): Promise
     fontsConfig.push({ name: 'Inter', data: interBoldItalic, weight: 700 as Weight, style: 'italic' });
   }
 
+  // Korean/Hangul fallback (no italic variant)
+  if (notoKrRegular) {
+    fontsConfig.push({ name: 'Noto Sans KR', data: notoKrRegular, weight: 400 as Weight, style: 'normal' });
+  }
+  if (notoKrBold) {
+    fontsConfig.push({ name: 'Noto Sans KR', data: notoKrBold, weight: 700 as Weight, style: 'normal' });
+  }
+
   const svg = await satori(
     <div
       style={{
@@ -112,6 +125,7 @@ export async function renderShareCard(options: ProfileShareCardOptions): Promise
         flexDirection: 'column',
         backgroundColor: '#0B1220',
         position: 'relative',
+        fontFamily: 'Inter, "Noto Sans KR", ui-sans-serif',
       }}
     >
       <img
