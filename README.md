@@ -1,35 +1,124 @@
-# RiftCoach Hackathon Readme
+# RiftCoach - League of Legends Performance Analytics Platform
 
 ## Overview
-RiftCoach is a League of Legends coaching agent that pairs a data-rich ingestion pipeline with tailored AI explainability layers. Players trigger a scan from the web app, and the backend orchestrates Riot API crawls, aggregates MongoDB match histories, and streams insights back over WebSockets. The coaching surface focuses on actionable feedback—clear progress tracking, playstyle badges, and match-by-match breakdowns—so competitors get tournament-ready advice in minutes.
+RiftCoach is an advanced League of Legends coaching and analytics platform that transforms player match data into actionable insights. The system combines real-time data ingestion, AI-powered analysis, and comprehensive visualizations to help players understand their performance, identify strengths and weaknesses, and receive personalized coaching recommendations.
 
-## Application Architecture
-### Web experience (`apps/web`)
-- **Modern React stack.** The UI is built with TanStack Router, Tailwind, and shadcn/ui primitives to deliver rich animations and responsive dashboards. Profile headers highlight AI-generated badges while shimmer states keep scans feeling alive. [apps/web/src/components/profile-header.tsx](apps/web/src/components/profile-header.tsx)
-- **Client utilities.** Typed HTTP clients and local caching helpers simplify fetches to the API while Data Dragon providers resolve champion and item art on the fly. [apps/web/src/lib/data-dragon.ts](apps/web/src/lib/data-dragon.ts) [apps/web/src/lib/indexeddb-cache.ts](apps/web/src/lib/indexeddb-cache.ts)
+## Architecture Overview
 
-### API and agents (`apps/api`)
-- **Hono-based API with WebSockets.** The API starts a Hono server, wires up CORS, and maintains WebSocket subscriptions so the UI can watch scan progress, badge availability, and other streaming events. [apps/api/src/index.ts](apps/api/src/index.ts)
-- **Mongo-backed analytics.** We persist raw matches and timelines in MongoDB, which keeps ingestion cheap and responsive after abandoning Athena/S3 due to cost and latency issues. [packages/clients/mongodb/src/index.ts](packages/clients/mongodb/src/index.ts)
-- **Dynamic Riot client.** A custom Bottleneck-powered Riot client enforces dual rate limits, region-aware routing, and exponential backoff so we can crawl accounts safely without wasting API quota. [packages/clients/riot/src/index.ts](packages/clients/riot/src/index.ts)
-- **Region queues.** BullMQ queues fan jobs out per routing cluster (Americas, Europe, Asia, SEA, Esports) to keep scans fast even during global surges. Listing jobs feed match/timeline fetchers while Redis-backed counters expose progress for live dashboards. [packages/queues/src/index.ts](packages/queues/src/index.ts)
-- **Direct opponent comparisons.** Aggregations pair each player with their lane opponent so insights reflect practical matchup edges without requiring extra rank lookups for every summoner in the database. [apps/api/src/aggregations/playerOverviewWithOpponents.ts](apps/api/src/aggregations/playerOverviewWithOpponents.ts)
+### Frontend Web Application
+The React-based web interface provides players with an intuitive dashboard to:
+- Initiate match history scans and track progress in real-time
+- View AI-generated performance badges and playstyle insights
+- Explore detailed match breakdowns with champion-specific analytics
+- Access build recommendations and itemization strategies
+- Share profile cards with performance summaries
 
-## Coaching Agent Strategy
-- **Structured match insights.** Bedrock-hosted Claude agents receive trimmed timelines, validated tool outputs, and must emit JSON that captures summaries, key moments, macro focus, and drills—keeping recommendations actionable and schema compliant. [apps/api/src/services/match-insights.ts](apps/api/src/services/match-insights.ts)
-- **Playstyle and badge intelligence.** Additional agents interpret cohort statistics versus player role weights to surface strengths and leaks; cache layers ensure badges update instantly after scans without re-hitting the model unnecessarily. [apps/api/src/services/ai-service.ts](apps/api/src/services/ai-service.ts)
-- **Item literacy boosts.** To combat LLM confusion around item names, we inject DDragon metadata into prompts, mapping item IDs to readable tooltips and unique groups for context-aware guidance. [apps/api/src/utils/ddragon-items.ts](apps/api/src/utils/ddragon-items.ts)
+The frontend leverages modern web technologies including TanStack Router for navigation, Tailwind CSS for responsive styling, and shadcn/ui components for consistent UI patterns. Real-time WebSocket connections keep users informed about scan progress and data processing status.
 
-## Data Sources
-- **Riot APIs.** Match, timeline, summoner, and account data flows through the custom Riot client with per-region throttling. [packages/clients/riot/src/index.ts](packages/clients/riot/src/index.ts)
-- **MongoDB.** Raw and enriched match documents live in Mongo for fast aggregations and reduced operational overhead versus Athena. [packages/clients/mongodb/src/index.ts](packages/clients/mongodb/src/index.ts)
-- **Redis.** Cache utilities and queue telemetry run through Redis to share scan state between workers and the API. [packages/queues/src/index.ts](packages/queues/src/index.ts)
-- **Data Dragon.** Static champion and item catalogs feed both the web client and LLM prompts for clarity. [apps/api/src/utils/ddragon-items.ts](apps/api/src/utils/ddragon-items.ts) [apps/web/src/lib/data-dragon.ts](apps/web/src/lib/data-dragon.ts)
+### Backend API Services
+The Hono-based API server handles all data processing and business logic:
+- **Regional Queue Management**: BullMQ queues organized by geographic clusters (Americas, Europe, Asia, SEA, Esports) ensure efficient match data processing
+- **Riot API Integration**: Custom rate-limited client with exponential backoff handles all Riot API communications
+- **Real-time Processing**: WebSocket support for live scan progress updates and instant insight delivery
+- **Data Aggregation**: Sophisticated MongoDB aggregations for player statistics, champion performance, and matchup analysis
 
-## Development Learnings
-- **Swapped Athena for MongoDB.** Athena’s cost and latency ballooned during early trials; Mongo delivered the predictable query times we needed for match lookups. [packages/clients/mongodb/src/index.ts](packages/clients/mongodb/src/index.ts)
-- **Built a regional scan scheduler.** Crafting BullMQ queues per cluster let us throttle crawls intelligently instead of serializing everything through one global backlog. [packages/queues/src/index.ts](packages/queues/src/index.ts)
-- **Created a resilient Riot client.** Dynamic rate limiting and jittered backoff preserved tokens during spikes, something the stock SDK couldn’t handle. [packages/clients/riot/src/index.ts](packages/clients/riot/src/index.ts)
-- **Tuned our agent roster.** Different prompts and models run per use case; we ultimately dropped heavier Claude Sonnet configurations when token costs spiked, leaning on slimmer prompts plus cached tool context. [apps/api/src/services/match-insights.ts](apps/api/src/services/match-insights.ts) [apps/api/src/services/ai-service.ts](apps/api/src/services/ai-service.ts)
-- **Enhanced item understanding.** Injecting DDragon item metadata directly into prompts finally stabilized build advice across languages and patches. [apps/api/src/utils/ddragon-items.ts](apps/api/src/utils/ddragon-items.ts)
+### Data Processing Pipeline
+
+#### Match Ingestion System
+The platform processes match data through a multi-stage pipeline:
+1. **Match Listing**: Discovers all available matches for a player account
+2. **Match Fetching**: Retrieves detailed match information from Riot APIs
+3. **Timeline Processing**: Analyzes game timeline data for granular insights
+4. **Data Enrichment**: Augments raw data with champion, item, and role context
+
+#### AI-Powered Analysis
+AWS Bedrock integration provides intelligent coaching features:
+- **Match Insights**: AI-generated summaries of key moments and decision points
+- **Playstyle Analysis**: Identification of player strengths and improvement areas
+- **Build Recommendations**: Context-aware itemization suggestions based on meta and performance
+- **Badge Generation**: AI-curated performance badges that highlight unique playstyles
+
+### Data Storage & Management
+
+#### MongoDB Database
+- Stores raw match data and processed timelines
+- Enables complex aggregations for statistical analysis
+- Maintains player profiles and historical performance data
+- Supports real-time querying for instant insights
+
+#### Redis Caching
+- Manages rate limiting and API quota enforcement
+- Provides real-time scan progress tracking
+- Caches frequently accessed data for performance
+- Coordinates distributed queue processing
+
+#### Data Dragon Integration
+- Static game data for champions, items, and runes
+- Localized content support for multiple regions
+- Metadata enrichment for AI prompt context
+
+## Key Features
+
+### Year-in-Review Analytics
+Comprehensive annual performance summaries that include:
+- Champion mastery progression and role specialization
+- Win rate trends and performance metrics over time
+- Comparison against peer cohort statistics
+- Seasonal performance breakdowns
+
+### Real-time Match Analysis
+Instant insights for individual matches featuring:
+- Lane opponent comparison and matchup analysis
+- Key moment identification and decision evaluation
+- Build path optimization suggestions
+- Macro play recommendations
+
+### Professional Player Integration
+Special features for esports competitors:
+- Pro player identification and verification
+- Team-specific analytics and performance tracking
+- Tournament preparation tools and scouting insights
+
+### Advanced Statistical Modeling
+Sophisticated data processing capabilities:
+- Cohort percentiles and normalized performance metrics
+- Champion-role specific statistical benchmarks
+- Item build frequency and win rate analysis
+- Synergy and counter-pick analytics
+
+## Technical Implementation
+
+The platform employs a microservices architecture with clear separation of concerns:
+
+### Regional Processing Strategy
+Matches are processed through region-specific queues that:
+- Respect Riot API rate limits per geographic cluster
+- Provide fault isolation between different regions
+- Enable parallel processing for global scalability
+- Maintain optimal performance during peak usage
+
+### AI Integration Approach
+The AI coaching system uses:
+- Structured prompt engineering for consistent output
+- Context injection from game metadata for accuracy
+- Caching layers to optimize model usage costs
+- Multiple specialized agents for different analysis types
+
+### Data Aggregation Framework
+Advanced MongoDB aggregation pipelines that:
+- Process millions of match records efficiently
+- Generate real-time statistical insights
+- Support complex cohort comparisons
+- Enable personalized player analytics
+
+## Development Philosophy
+
+RiftCoach emphasizes:
+- **Performance**: Optimized data processing and minimal latency
+- **Accuracy**: Statistically sound analysis and reliable insights
+- **Usability**: Intuitive interfaces and actionable recommendations
+- **Scalability**: Architecture designed for global player base support
+- **Innovation**: Continuous improvement of AI and analytics capabilities
+
+The platform represents a significant advancement in esports analytics, combining raw data processing with intelligent interpretation to deliver meaningful coaching insights to League of Legends players at all skill levels.
 
