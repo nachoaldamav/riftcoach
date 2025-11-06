@@ -5,7 +5,7 @@ import { ProfileHeader } from '@/components/profile-header';
 import { ProfileTabs } from '@/components/profile-tabs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Outlet, createFileRoute } from '@tanstack/react-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export interface RewindStatusResponse {
   rewindId: string;
@@ -114,17 +114,6 @@ export const Route = createFileRoute('/$region/$name/$tag')({
   },
 });
 
-interface ProcessedMatch {
-  matchId: string;
-  playerChampionId: number;
-  opponentChampionId: number;
-  kills: number;
-  deaths: number;
-  assists: number;
-  won: boolean;
-  timestamp: number;
-}
-
 function RouteComponent() {
   const { region, name, tag, initialStatus, summoner, error } =
     Route.useLoaderData() as {
@@ -221,84 +210,6 @@ function RouteComponent() {
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 
-  // WebSocket connection for live progress
-  const [wsConnected, setWsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  const [processedMatches, setProcessedMatches] = useState<ProcessedMatch[]>(
-    [],
-  );
-
-  useEffect(() => {
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
-    if (!apiBaseUrl || !status?.rewindId) return;
-
-    const wsUrl = apiBaseUrl
-      .replace(/^http:/, 'ws:')
-      .replace(/^https:/, 'wss:')
-      .replace(/\/$/, '');
-    const ws = new WebSocket(`${wsUrl}/ws`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setWsConnected(true);
-      ws.send(
-        JSON.stringify({
-          type: 'subscribe',
-          channel: `rewind:progress:${status.rewindId}`,
-        }),
-      );
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data) as
-          | {
-              type: 'match_processed';
-              jobId: string;
-              matchId: string;
-              player: {
-                championId: number;
-                kills: number;
-                deaths: number;
-                assists: number;
-                win: boolean;
-              };
-              opponent: { championId: number };
-            }
-          | { type: 'subscription_confirmed'; channel: string };
-
-        if (message.type === 'match_processed') {
-          setProcessedMatches((prev) => {
-            const exists = prev.find((m) => m.matchId === message.matchId);
-            if (exists) return prev;
-            return [
-              {
-                matchId: message.matchId,
-                playerChampionId: message.player.championId,
-                opponentChampionId: message.opponent.championId,
-                kills: message.player.kills,
-                deaths: message.player.deaths,
-                assists: message.player.assists,
-                won: message.player.win,
-                timestamp: Date.now(),
-              },
-              ...prev.slice(0, 9),
-            ];
-          });
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    ws.onclose = () => setWsConnected(false);
-    ws.onerror = () => setWsConnected(false);
-
-    return () => {
-      if (ws.readyState === WebSocket.OPEN) ws.close();
-    };
-  }, [status?.rewindId]);
-
   // Early returns for error/loading/no status
   if (error) {
     return (
@@ -330,17 +241,13 @@ function RouteComponent() {
 
   if (isProcessing && !summoner) {
     return (
-      <ProcessingLayout
-        region={region}
-        status={status}
-        wsConnected={wsConnected}
-      />
+      <ProcessingLayout region={region} status={status} wsConnected={false} />
     );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-800 relative">
-      <Navbar status={status} wsConnected={wsConnected} />
+      <Navbar status={status} wsConnected={false} />
       <div className="container mx-auto px-6 py-12 max-w-7xl">
         <div className="space-y-8">
           <ProfileHeader

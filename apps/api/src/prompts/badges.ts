@@ -6,6 +6,7 @@ export const BADGES_PROMPT = `
 - Consider the player's role when evaluating badge criteria
 - If multiple badges could apply, choose the ones with the strongest statistical evidence
 - When explaining badge reasons, include explicit numeric values ONLY from the metrics that define the selected badge. Cite numbers strictly from that badge’s AI instructions; do NOT pull in unrelated stats (e.g., gold/XP/timepoint metrics) unless the badge explicitly references them. Example: for "Objective Neglect", use \`avg_grubs_participation\` and \`avg_herald_participation\` diffs (e.g., -0.12, -0.15). If you cannot cite qualifying numbers for a badge, do not award it.
+- NEVER include the threshold value in the badge description or reason. Only cite the actual player numeric value from the metrics that define the badge.
 
 ### **1. Objective Master**
 *   **Description:** You exhibit masterful control over the map's most important objectives, consistently out-pacing your opponents where it matters most. Epic monsters and key objectives belong to your team when you're on the rift.
