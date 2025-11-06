@@ -120,5 +120,3 @@ RiftCoach emphasizes:
 - **Scalability**: Architecture designed for global player base support
 - **Innovation**: Continuous improvement of AI and analytics capabilities
 
-The platform represents a significant advancement in esports analytics, combining raw data processing with intelligent interpretation to deliver meaningful coaching insights to League of Legends players at all skill levels.
-
