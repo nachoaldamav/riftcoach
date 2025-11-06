@@ -1,11 +1,14 @@
 import { http } from '@/clients/http';
 import { MatchHistoryIcon } from '@/components/icons/CustomIcons';
-import { useChampionImage, useDataDragon } from '@/providers/data-dragon-provider';
 import { Card, CardBody } from '@/components/ui/card';
+import {
+  useChampionImage,
+  useDataDragon,
+} from '@/providers/data-dragon-provider';
 import { useQuery } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
-import { Clock, Shield, Sword, Target } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
+import { motion } from 'framer-motion';
+import { Target } from 'lucide-react';
 
 interface RecentMatch {
   matchId: string;
@@ -124,7 +127,8 @@ function MatchItem({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-neutral-400">
-                {match.player.kills}/{match.player.deaths}/{match.player.assists}
+                {match.player.kills}/{match.player.deaths}/
+                {match.player.assists}
               </span>
               <span className="text-xs text-neutral-500">•</span>
               <span className="text-xs text-neutral-500">
@@ -210,7 +214,7 @@ export function RecentMatchesCard({
       transition={{ duration: 0.3, delay: 0.1 }}
       className="h-full"
     >
-      <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+      <Card className="py-0 h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
         <CardBody className="p-8 h-full flex flex-col">
           <div className="flex items-center gap-4 mb-6 shrink-0">
             <div className="p-3 bg-gradient-to-br from-accent-blue-900/30 to-accent-purple-900/30 rounded-xl">

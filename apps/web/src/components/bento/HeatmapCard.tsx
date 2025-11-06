@@ -2,7 +2,6 @@ import { http } from '@/clients/http';
 import { ChampionImage } from '@/components/champion-image';
 import { HeatmapOverlay } from '@/components/heatmap-overlay';
 import { HeatmapIcon } from '@/components/icons/CustomIcons';
-import { useDataDragon } from '@/providers/data-dragon-provider';
 import { Card, CardBody } from '@/components/ui/card';
 import {
   Select,
@@ -11,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useDataDragon } from '@/providers/data-dragon-provider';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
@@ -213,15 +213,19 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
       transition={{ duration: 0.3 }}
       className="h-full"
     >
-      <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+      <Card className="py-0 h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
         <CardBody className="p-8 space-y-6">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-gradient-to-br from-accent-purple-900/30 to-accent-blue-900/30 rounded-xl">
               <HeatmapIcon className="w-6 h-6 text-accent-purple-400" />
             </div>
             <div>
-              <h3 className="text-xl font-display font-bold text-neutral-50">Heatmap Analysis</h3>
-              <p className="text-sm text-neutral-400">Positional gameplay patterns</p>
+              <h3 className="text-xl font-display font-bold text-neutral-50">
+                Heatmap Analysis
+              </h3>
+              <p className="text-sm text-neutral-400">
+                Positional gameplay patterns
+              </p>
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -299,7 +303,9 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
                     </div>
                     <span className="text-xs text-slate-300">
                       {selectedChampion
-                        ? championGamesBySelectedRole[Number(selectedChampion)] || 0
+                        ? championGamesBySelectedRole[
+                            Number(selectedChampion)
+                          ] || 0
                         : 0}
                     </span>
                   </div>
@@ -311,7 +317,9 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
                 <SelectItem value="ALL">
                   <div className="flex w-full items-center justify-between">
                     <span>All champions</span>
-                    <span className="text-xs text-slate-300">{visibleChampions.length}</span>
+                    <span className="text-xs text-slate-300">
+                      {visibleChampions.length}
+                    </span>
                   </div>
                 </SelectItem>
                 {visibleChampions.map((champion) => (
@@ -342,10 +350,12 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
               <SelectTrigger className="h-11 border-neutral-700 bg-neutral-800/70 text-neutral-100">
                 <div className="flex items-center gap-3">
                   <span className="text-lg">
-                    {modes.find((mode) => mode.key === selectedMode)?.icon ?? '⚔️'}
+                    {modes.find((mode) => mode.key === selectedMode)?.icon ??
+                      '⚔️'}
                   </span>
                   <span className="font-medium">
-                    {modes.find((mode) => mode.key === selectedMode)?.label ?? ''}
+                    {modes.find((mode) => mode.key === selectedMode)?.label ??
+                      ''}
                   </span>
                 </div>
               </SelectTrigger>

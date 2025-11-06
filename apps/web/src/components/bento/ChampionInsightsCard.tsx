@@ -185,7 +185,7 @@ export function ChampionInsightsCard({
       transition={{ duration: 0.3, delay: 0.3 }}
       className="h-full"
     >
-      <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+      <Card className="py-0 h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
         <CardBody className="p-8 h-full flex flex-col">
           <div className="flex items-center gap-4 mb-6 shrink-0">
             <div className="p-3 bg-gradient-to-br from-accent-purple-900/30 to-accent-blue-900/30 rounded-xl">

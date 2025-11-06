@@ -1,7 +1,7 @@
 import { http } from '@/clients/http';
 import { MasteryIcon } from '@/components/icons/CustomIcons';
-import { useChampionImage } from '@/providers/data-dragon-provider';
 import { Card, CardBody } from '@/components/ui/card';
+import { useChampionImage } from '@/providers/data-dragon-provider';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Crown, Star } from 'lucide-react';
@@ -47,53 +47,57 @@ interface MasteryItemProps {
 
 function MasteryItem({ champion, index }: MasteryItemProps) {
   const championImageUrl = useChampionImage(champion.championId, 'square');
-  
+
   // Podium positioning: 2nd place (index 1), 1st place (index 0), 3rd place (index 2)
   const podiumOrder = [1, 0, 2];
   const podiumPosition = podiumOrder.indexOf(index) + 1;
-  
+
   // Different sizes and heights based on position
   const getSizeClasses = (position: number) => {
     switch (position) {
       case 1: // 1st place (center, tallest)
         return {
-          container: "flex flex-col items-center text-center p-4 mt-0",
-          avatar: "size-20 border-3 border-yellow-400",
-          crown: "w-4 h-4",
-          crownBg: "bg-gradient-to-br from-yellow-400 to-yellow-600",
-          nameSize: "text-base font-bold",
-          statsSize: "text-sm",
-          podiumHeight: "h-16 bg-gradient-to-t from-yellow-600/20 to-yellow-400/10 border-t-2 border-yellow-400"
+          container: 'flex flex-col items-center text-center p-4 mt-0',
+          avatar: 'size-20 border-3 border-yellow-400',
+          crown: 'w-4 h-4',
+          crownBg: 'bg-gradient-to-br from-yellow-400 to-yellow-600',
+          nameSize: 'text-base font-bold',
+          statsSize: 'text-sm',
+          podiumHeight:
+            'h-16 bg-gradient-to-t from-yellow-600/20 to-yellow-400/10 border-t-2 border-yellow-400',
         };
       case 2: // 2nd place (left, medium)
         return {
-          container: "flex flex-col items-center text-center p-3 mt-4",
-          avatar: "size-16 border-2 border-gray-400",
-          crown: "w-3 h-3",
-          crownBg: "bg-gradient-to-br from-gray-400 to-gray-600",
-          nameSize: "text-sm font-semibold",
-          statsSize: "text-xs",
-          podiumHeight: "h-12 bg-gradient-to-t from-gray-600/20 to-gray-400/10 border-t-2 border-gray-400"
+          container: 'flex flex-col items-center text-center p-3 mt-4',
+          avatar: 'size-16 border-2 border-gray-400',
+          crown: 'w-3 h-3',
+          crownBg: 'bg-gradient-to-br from-gray-400 to-gray-600',
+          nameSize: 'text-sm font-semibold',
+          statsSize: 'text-xs',
+          podiumHeight:
+            'h-12 bg-gradient-to-t from-gray-600/20 to-gray-400/10 border-t-2 border-gray-400',
         };
       case 3: // 3rd place (right, smallest)
         return {
-          container: "flex flex-col items-center text-center p-3 mt-8",
-          avatar: "size-14 border-2 border-amber-600",
-          crown: "w-3 h-3",
-          crownBg: "bg-gradient-to-br from-amber-600 to-amber-800",
-          nameSize: "text-sm font-medium",
-          statsSize: "text-xs",
-          podiumHeight: "h-8 bg-gradient-to-t from-amber-800/20 to-amber-600/10 border-t-2 border-amber-600"
+          container: 'flex flex-col items-center text-center p-3 mt-8',
+          avatar: 'size-14 border-2 border-amber-600',
+          crown: 'w-3 h-3',
+          crownBg: 'bg-gradient-to-br from-amber-600 to-amber-800',
+          nameSize: 'text-sm font-medium',
+          statsSize: 'text-xs',
+          podiumHeight:
+            'h-8 bg-gradient-to-t from-amber-800/20 to-amber-600/10 border-t-2 border-amber-600',
         };
       default:
         return {
-          container: "flex flex-col items-center text-center p-3",
-          avatar: "size-12 border-2 border-neutral-600",
-          crown: "w-3 h-3",
-          crownBg: "bg-gradient-to-br from-neutral-400 to-neutral-600",
-          nameSize: "text-xs",
-          statsSize: "text-xs",
-          podiumHeight: "h-6 bg-gradient-to-t from-neutral-600/20 to-neutral-400/10 border-t-2 border-neutral-400"
+          container: 'flex flex-col items-center text-center p-3',
+          avatar: 'size-12 border-2 border-neutral-600',
+          crown: 'w-3 h-3',
+          crownBg: 'bg-gradient-to-br from-neutral-400 to-neutral-600',
+          nameSize: 'text-xs',
+          statsSize: 'text-xs',
+          podiumHeight:
+            'h-6 bg-gradient-to-t from-neutral-600/20 to-neutral-400/10 border-t-2 border-neutral-400',
         };
     }
   };
@@ -119,13 +123,17 @@ function MasteryItem({ champion, index }: MasteryItemProps) {
               className="h-full w-full object-cover"
             />
           </div>
-          <div className={`absolute -top-1 -right-1 p-1 ${classes.crownBg} rounded-full border-2 border-neutral-900`}>
+          <div
+            className={`absolute -top-1 -right-1 p-1 ${classes.crownBg} rounded-full border-2 border-neutral-900`}
+          >
             <Crown className={`${classes.crown} text-white`} />
           </div>
         </div>
 
         <div className="space-y-1">
-          <h4 className={`${classes.nameSize} text-neutral-100 truncate max-w-[100px]`}>
+          <h4
+            className={`${classes.nameSize} text-neutral-100 truncate max-w-[100px]`}
+          >
             {champion.championName}
           </h4>
           <p className={`${classes.statsSize} text-neutral-300`}>
@@ -136,7 +144,7 @@ function MasteryItem({ champion, index }: MasteryItemProps) {
           </p>
         </div>
       </div>
-      
+
       {/* Podium base */}
       <div className={classes.podiumHeight} />
     </motion.div>
@@ -166,7 +174,7 @@ export function ChampionMasteryCard({
         transition={{ duration: 0.3, delay: 0.2 }}
         className="h-full"
       >
-        <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+        <Card className="py-0 h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
           <CardBody className="p-8">
             <div className="animate-pulse space-y-4">
               <div className="h-6 bg-neutral-700 rounded w-1/2" />
@@ -202,7 +210,7 @@ export function ChampionMasteryCard({
       transition={{ duration: 0.3, delay: 0.2 }}
       className="h-full"
     >
-      <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+      <Card className="py-0 h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
         <CardBody className="p-8 h-full flex flex-col">
           <div className="flex items-center gap-4 mb-6 shrink-0">
             <div className="p-3 bg-gradient-to-br from-accent-purple-900/30 to-accent-emerald-900/30 rounded-xl">
@@ -225,9 +233,15 @@ export function ChampionMasteryCard({
                   ...champions.map((c) => c.masteryScore),
                 );
                 // Reorder champions for podium: 2nd, 1st, 3rd
-                const podiumOrder = [champions[1], champions[0], champions[2]].filter(Boolean);
+                const podiumOrder = [
+                  champions[1],
+                  champions[0],
+                  champions[2],
+                ].filter(Boolean);
                 return podiumOrder.map((champion, displayIndex) => {
-                  const originalIndex = champions.findIndex(c => c.championId === champion.championId);
+                  const originalIndex = champions.findIndex(
+                    (c) => c.championId === champion.championId,
+                  );
                   return (
                     <MasteryItem
                       key={champion.championId}

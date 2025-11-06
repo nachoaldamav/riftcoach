@@ -101,7 +101,7 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
         transition={{ duration: 0.3 }}
         className="h-full"
       >
-        <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+        <Card className="py-0 h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
           <CardBody className="p-8">
             <div className="animate-pulse">
               {/* Header section */}
@@ -163,7 +163,9 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
     );
   }
 
-  const getWinRateTone = (winRate: number): 'success' | 'warning' | 'danger' => {
+  const getWinRateTone = (
+    winRate: number,
+  ): 'success' | 'warning' | 'danger' => {
     if (winRate >= 60) return 'success';
     if (winRate >= 50) return 'warning';
     return 'danger';
@@ -191,7 +193,7 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
       transition={{ duration: 0.3 }}
       className="h-full"
     >
-      <Card className="h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
+      <Card className="py-0 h-full bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 shadow-soft-lg hover:shadow-soft-xl transition-all duration-200">
         <CardBody className="p-8">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-4">
@@ -223,7 +225,11 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
                   return (
                     <div className="flex items-center gap-2">
                       {iconUrl ? (
-                        <img src={iconUrl} alt={role.label} className="h-4 w-4" />
+                        <img
+                          src={iconUrl}
+                          alt={role.label}
+                          className="h-4 w-4"
+                        />
                       ) : (
                         <span className="text-sm">{role.icon}</span>
                       )}
@@ -239,7 +245,11 @@ export function OverviewCard({ region, name, tag }: OverviewCardProps) {
                     <SelectItem key={role.key} value={role.key}>
                       <div className="flex items-center gap-2">
                         {iconUrl ? (
-                          <img src={iconUrl} alt={role.label} className="h-4 w-4" />
+                          <img
+                            src={iconUrl}
+                            alt={role.label}
+                            className="h-4 w-4"
+                          />
                         ) : (
                           <span className="text-sm">{role.icon}</span>
                         )}

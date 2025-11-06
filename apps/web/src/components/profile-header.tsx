@@ -206,7 +206,7 @@ export function ProfileHeader({
                       {proInfo.name ?? name}
                     </div>
                     <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-300">
-                      {name}
+                      {proInfo.team}
                     </div>
                   </div>
                 </div>
