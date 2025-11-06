@@ -903,7 +903,7 @@ app.get(
       avgFirstItemCompletionTime:
         typeof p50.firstItemCompletionTime === 'number'
           ? p50.firstItemCompletionTime
-          : playerDoc.avgFirstItemCompletionTime ?? null,
+          : (playerDoc.avgFirstItemCompletionTime ?? null),
     };
 
     // Fetch cohort percentiles and compute AI score using the precomputed player percentiles
@@ -1750,7 +1750,7 @@ app.get(
     } = c.req.query();
     const puuid = c.var.account.puuid;
 
-    const cacheKey = `cache:ai:insights:${c.var.internalId}:${matchId}:${modelId}:${locale}`;
+    const cacheKey = `cache:ai:insights:${c.var.internalId}:${matchId}:${modelId}:${locale}:v2`;
 
     if (force !== 'true') {
       const cached = await redis.get(cacheKey);

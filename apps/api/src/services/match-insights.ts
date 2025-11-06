@@ -92,7 +92,7 @@ function buildPrompt(
     'Context.events include `participantStates` with nearest-frame positions and `proximity.participants` listing nearby champions (team + inferredPosition). Use this to judge isolation or collapses.',
     '',
     'Naming:',
-    'Prefer summonerName; otherwise championName. Times inside reasons/insights can be formatted as mm:ss. The property `ts` needs to be the actual events timestamp',
+    'Prefer summonerName; otherwise championName. Times inside reasons/insights can be formatted as mm:ss. The property `ts` NEEDS to be the actual events timestamp in milliseconds.',
     '',
     'Quality:',
     'Be concise and actionable. Align zone/enemyHalf with coordinates when present.',
