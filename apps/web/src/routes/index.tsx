@@ -225,6 +225,10 @@ function App() {
                     aria-label={`Open ${p.name} profile`}
                     className="group relative overflow-hidden rounded-xl border border-neutral-700/60 bg-neutral-900/70 hover:bg-neutral-800/80 transition-all shadow-soft-lg h-28 sm:h-36"
                     preload="intent"
+                    onClick={() => {
+                      // Scroll to top again after navigation
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
                   >
                     {/* Background team logo for subtle branding */}
                     <img
@@ -280,81 +284,6 @@ function App() {
         className="border-t border-neutral-700/50 bg-neutral-900/80 backdrop-blur-md"
       >
         <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div className="col-span-1 md:col-span-2">
-              <div className="flex items-center space-x-2">
-                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-accent-blue-500 to-accent-blue-600" />
-                <span className="text-xl font-bold text-neutral-50">
-                  Riftcoach
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-neutral-300 max-w-md">
-                Your ultimate companion for League of Legends performance
-                analysis. Built for the hackathon with cutting-edge AWS AI
-                technology.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-50">
-                Features
-              </h3>
-              <ul className="mt-4 space-y-2">
-                <li>
-                  <a
-                    href="#features"
-                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
-                  >
-                    Year Review
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#features"
-                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
-                  >
-                    Match Analysis
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#features"
-                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
-                  >
-                    AI Insights
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-50">Support</h3>
-              <ul className="mt-4 space-y-2">
-                <li>
-                  <a
-                    href="#about"
-                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
-                  >
-                    Documentation
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#about"
-                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
-                  >
-                    Contact
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#about"
-                    className="text-sm text-neutral-300 hover:text-neutral-50 transition-colors"
-                  >
-                    Status
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
           <div className="mt-8 border-t border-neutral-700/50 pt-8">
             <p className="text-center text-sm text-neutral-300">
               © 2024 Riftcoach. Built for the hackathon with ❤️ and AWS AI.
