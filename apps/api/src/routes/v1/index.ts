@@ -18,6 +18,7 @@ import type { Document } from 'mongodb';
 import ms from 'ms';
 import { v5 } from 'uuid';
 import z from 'zod';
+import { aramMostPlayedChampions, aramNemesis, aramStats } from '../../aggregations/aram.js';
 import { championInsights } from '../../aggregations/championInsights.js';
 import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
@@ -57,6 +58,8 @@ import {
 import { deriveSynergy } from '../../utils/synergy.js';
 
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
+
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 const accountMiddleware = createMiddleware<{
   Variables: {
@@ -1585,6 +1588,87 @@ app.get(
       .toArray();
 
     return c.json(matches);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/aram/stats',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+    const since = Date.now() - ONE_YEAR_MS;
+
+    const [stats] = await collections.matches
+      .aggregate(aramStats(puuid, since))
+      .toArray();
+
+    const response =
+      stats ?? {
+        totalGames: 0,
+        wins: 0,
+        losses: 0,
+        winRate: 0,
+        totalKills: 0,
+        totalDeaths: 0,
+        totalAssists: 0,
+        averageKills: 0,
+        averageDeaths: 0,
+        averageAssists: 0,
+        kda: 0,
+        totalDamageDealt: 0,
+        averageDamageDealt: 0,
+        totalDamageTaken: 0,
+        averageDamageTaken: 0,
+        totalDamageMitigated: 0,
+        averageDamageMitigated: 0,
+        totalDamageTakenAndMitigated: 0,
+        averageDamageTakenAndMitigated: 0,
+        totalGoldEarned: 0,
+        averageGoldEarned: 0,
+        totalTimePlayed: 0,
+        averageGameDuration: 0,
+        averageDamagePerMinute: 0,
+        averageGoldPerMinute: 0,
+        firstGameTimestamp: null,
+        lastGameTimestamp: null,
+        timeframeStart: since,
+        timeframeEnd: Date.now(),
+      };
+
+    response.timeframeStart ??= since;
+    response.timeframeEnd ??= Date.now();
+
+    return c.json(response);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/aram/champions',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+    const since = Date.now() - ONE_YEAR_MS;
+
+    const champions = await collections.matches
+      .aggregate(aramMostPlayedChampions(puuid, since))
+      .toArray();
+
+    return c.json(champions);
+  },
+);
+
+app.get(
+  '/:region/:tagName/:tagLine/aram/nemesis',
+  accountMiddleware,
+  async (c) => {
+    const puuid = c.var.account.puuid;
+    const since = Date.now() - ONE_YEAR_MS;
+
+    const nemeses = await collections.matches
+      .aggregate(aramNemesis(puuid, since))
+      .toArray();
+
+    return c.json(nemeses);
   },
 );
 

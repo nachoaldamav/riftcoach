@@ -14,6 +14,7 @@ import { Route as RegionNameTagRouteImport } from './routes/$region/$name/$tag'
 import { Route as RegionNameTagIndexRouteImport } from './routes/$region/$name/$tag/index'
 import { Route as RegionNameTagMatchesRouteImport } from './routes/$region/$name/$tag/matches'
 import { Route as RegionNameTagChampionsRouteImport } from './routes/$region/$name/$tag/champions'
+import { Route as RegionNameTagAramRouteImport } from './routes/$region/$name/$tag/aram'
 import { Route as RegionNameTagMatchMatchIdRouteImport } from './routes/$region/$name/$tag/match/$matchId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -41,6 +42,11 @@ const RegionNameTagChampionsRoute = RegionNameTagChampionsRouteImport.update({
   path: '/champions',
   getParentRoute: () => RegionNameTagRoute,
 } as any)
+const RegionNameTagAramRoute = RegionNameTagAramRouteImport.update({
+  id: '/aram',
+  path: '/aram',
+  getParentRoute: () => RegionNameTagRoute,
+} as any)
 const RegionNameTagMatchMatchIdRoute =
   RegionNameTagMatchMatchIdRouteImport.update({
     id: '/match/$matchId',
@@ -51,6 +57,7 @@ const RegionNameTagMatchMatchIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$region/$name/$tag': typeof RegionNameTagRouteWithChildren
+  '/$region/$name/$tag/aram': typeof RegionNameTagAramRoute
   '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
   '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
   '/$region/$name/$tag/': typeof RegionNameTagIndexRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$region/$name/$tag/aram': typeof RegionNameTagAramRoute
   '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
   '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
   '/$region/$name/$tag': typeof RegionNameTagIndexRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$region/$name/$tag': typeof RegionNameTagRouteWithChildren
+  '/$region/$name/$tag/aram': typeof RegionNameTagAramRoute
   '/$region/$name/$tag/champions': typeof RegionNameTagChampionsRoute
   '/$region/$name/$tag/matches': typeof RegionNameTagMatchesRoute
   '/$region/$name/$tag/': typeof RegionNameTagIndexRoute
@@ -77,6 +86,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$region/$name/$tag'
+    | '/$region/$name/$tag/aram'
     | '/$region/$name/$tag/champions'
     | '/$region/$name/$tag/matches'
     | '/$region/$name/$tag/'
@@ -84,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$region/$name/$tag/aram'
     | '/$region/$name/$tag/champions'
     | '/$region/$name/$tag/matches'
     | '/$region/$name/$tag'
@@ -92,6 +103,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/$region/$name/$tag'
+    | '/$region/$name/$tag/aram'
     | '/$region/$name/$tag/champions'
     | '/$region/$name/$tag/matches'
     | '/$region/$name/$tag/'
@@ -140,6 +152,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RegionNameTagChampionsRouteImport
       parentRoute: typeof RegionNameTagRoute
     }
+    '/$region/$name/$tag/aram': {
+      id: '/$region/$name/$tag/aram'
+      path: '/aram'
+      fullPath: '/$region/$name/$tag/aram'
+      preLoaderRoute: typeof RegionNameTagAramRouteImport
+      parentRoute: typeof RegionNameTagRoute
+    }
     '/$region/$name/$tag/match/$matchId': {
       id: '/$region/$name/$tag/match/$matchId'
       path: '/match/$matchId'
@@ -151,6 +170,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface RegionNameTagRouteChildren {
+  RegionNameTagAramRoute: typeof RegionNameTagAramRoute
   RegionNameTagChampionsRoute: typeof RegionNameTagChampionsRoute
   RegionNameTagMatchesRoute: typeof RegionNameTagMatchesRoute
   RegionNameTagIndexRoute: typeof RegionNameTagIndexRoute
@@ -158,6 +178,7 @@ interface RegionNameTagRouteChildren {
 }
 
 const RegionNameTagRouteChildren: RegionNameTagRouteChildren = {
+  RegionNameTagAramRoute: RegionNameTagAramRoute,
   RegionNameTagChampionsRoute: RegionNameTagChampionsRoute,
   RegionNameTagMatchesRoute: RegionNameTagMatchesRoute,
   RegionNameTagIndexRoute: RegionNameTagIndexRoute,
