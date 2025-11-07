@@ -36,40 +36,9 @@ export const Route = createFileRoute('/$region/$name/$tag/match/$matchId')({
 // Interpolation + helper utilities
 // ────────────────────────────────────────────────────────────────────────────
 type Vec2 = { x: number; y: number };
-
-type TimelineEvent = {
-  type: string;
-  timestamp?: number;
-  position?: Vec2 | null;
-  participantId?: number;
-  killerId?: number;
-  victimId?: number;
-  assistingParticipantIds?: number[];
-  creatorId?: number;
-  itemId?: number | null;
-  beforeId?: number | null;
-  afterId?: number | null;
-};
-
-type ParticipantFrame = {
-  position?: Vec2;
-  level?: number;
-  totalGold?: number;
-  gold?: number;
-  currentGold?: number;
-  minionsKilled?: number;
-  jungleMinionsKilled?: number;
-  xp?: number;
-  championStats?: Record<string, number>;
-  damageStats?: Record<string, number>;
-  [key: string]: unknown;
-};
-
-type TimelineFrame = {
-  timestamp?: number;
-  events?: TimelineEvent[];
-  participantFrames?: Record<string, ParticipantFrame>;
-};
+type TimelineEvent = RiotAPITypes.MatchV5.EventDTO;
+type ParticipantFrame = RiotAPITypes.MatchV5.ParticipantFrameDTO;
+type TimelineFrame = RiotAPITypes.MatchV5.FrameDTO;
 
 type SnapshotEntry = {
   participantId: number;
@@ -288,31 +257,7 @@ function selectParticipantFrameForTimestamp(
   const nextFrame = next?.participantFrames?.[String(participantId)] ?? null;
   const prevTs = Number(previous?.timestamp ?? Number.NaN);
   const nextTs = Number(next?.timestamp ?? Number.NaN);
-
-  if (
-    prevFrame &&
-    nextFrame &&
-    Number.isFinite(prevTs) &&
-    Number.isFinite(nextTs)
-  ) {
-    const diffPrev = Math.abs(ts - prevTs);
-    const diffNext = Math.abs(nextTs - ts);
-    if (diffNext < diffPrev) {
-      return {
-        frame: nextFrame,
-        frameTimestamp: nextTs,
-        frameDeltaMs: diffNext,
-        snapshotSource: 'next' as const,
-      };
-    }
-    return {
-      frame: prevFrame,
-      frameTimestamp: prevTs,
-      frameDeltaMs: diffPrev,
-      snapshotSource: 'previous' as const,
-    };
-  }
-
+  // Use exact frame at or before timestamp (floor). Only use next when previous is missing.
   if (prevFrame && Number.isFinite(prevTs)) {
     return {
       frame: prevFrame,
@@ -453,8 +398,7 @@ function MatchAnalysisComponent() {
 
   const timelineEvents = useMemo(() => {
     if (!timelineData) return [] as TimelineEvent[];
-    const frames: TimelineFrame[] = (timelineData.info.frames ||
-      []) as TimelineFrame[];
+    const frames: TimelineFrame[] = timelineData.info?.frames ?? [];
     const evts: TimelineEvent[] = [];
     for (const frame of frames) {
       for (const evt of frame?.events ?? []) {
@@ -469,8 +413,7 @@ function MatchAnalysisComponent() {
   // Interpolated snapshot at the event timestamp
   const eventSnapshot = useMemo(() => {
     if (!timelineData || !matchData || !selectedMoment) return null;
-    const frames: TimelineFrame[] = (timelineData.info.frames ||
-      []) as TimelineFrame[];
+    const frames: TimelineFrame[] = timelineData.info?.frames ?? [];
     const ts = selectedMoment.ts;
 
     const { f0: frameBefore, f1: frameAfter } = boundingFrames(frames, ts);
@@ -553,15 +496,11 @@ function MatchAnalysisComponent() {
         const currentGold =
           typeof frameInfo.frame?.currentGold === 'number'
             ? frameInfo.frame.currentGold
-            : typeof frameInfo.frame?.gold === 'number'
-              ? frameInfo.frame.gold
-              : null;
+            : null;
         const totalGold =
           typeof frameInfo.frame?.totalGold === 'number'
             ? frameInfo.frame.totalGold
-            : typeof frameInfo.frame?.gold === 'number'
-              ? frameInfo.frame.gold
-              : null;
+            : null;
         const csValue =
           (frameInfo.frame?.minionsKilled ?? 0) +
           (frameInfo.frame?.jungleMinionsKilled ?? 0);
@@ -656,8 +595,7 @@ function MatchAnalysisComponent() {
     ts: number,
   ): { killer?: string; victim?: string } | null {
     if (!timelineData) return null;
-    const frames: TimelineFrame[] = (timelineData.info.frames ||
-      []) as TimelineFrame[];
+    const frames: TimelineFrame[] = timelineData.info?.frames ?? [];
     let best: { killer?: number; victim?: number } | null = null;
     let bestDiff = Number.POSITIVE_INFINITY;
     for (const frame of frames) {
@@ -1332,6 +1270,7 @@ function MatchAnalysisComponent() {
                                   formatClock={formatClock}
                                   getChampionSquare={getChampionSquare}
                                   getItemIcon={getItemIcon}
+                                  timelineEvents={timelineEvents}
                                 />
                               </PopoverContent>
                             </Popover>
@@ -1482,6 +1421,7 @@ type PlayerPopoverContentProps = {
   formatClock: (ms: number) => string;
   getItemIcon: (itemId?: number) => string;
   getChampionSquare: (championName: string) => string;
+  timelineEvents: TimelineEvent[];
 };
 
 function PlayerPopoverContent({
@@ -1490,6 +1430,7 @@ function PlayerPopoverContent({
   formatClock,
   getItemIcon,
   getChampionSquare,
+  timelineEvents,
 }: PlayerPopoverContentProps) {
   const itemsFromParticipant = participant
     ? [
@@ -1543,20 +1484,29 @@ function PlayerPopoverContent({
   const csPerMin =
     elapsedMinutes && elapsedMinutes > 0 ? cs / elapsedMinutes : null;
 
+  // Use frame-specific damage stats instead of match totals
+  const ds = entry.frame?.damageStats as Record<string, number> | undefined;
   const damageDealt = {
-    physical: participant?.physicalDamageDealtToChampions ?? 0,
-    magic: participant?.magicDamageDealtToChampions ?? 0,
-    true: participant?.trueDamageDealtToChampions ?? 0,
+    physical:
+      ds?.physicalDamageDoneToChampions ??
+      ds?.physicalDamageDealtToChampions ??
+      0,
+    magic:
+      ds?.magicDamageDoneToChampions ?? ds?.magicDamageDealtToChampions ?? 0,
+    true: ds?.trueDamageDoneToChampions ?? ds?.trueDamageDealtToChampions ?? 0,
   };
   const totalDamageDealt =
+    ds?.totalDamageDoneToChampions ??
+    ds?.totalDamageDealtToChampions ??
     damageDealt.physical + damageDealt.magic + damageDealt.true;
 
   const damageTaken = {
-    physical: participant?.physicalDamageTaken ?? 0,
-    magic: participant?.magicDamageTaken ?? 0,
-    true: participant?.trueDamageTaken ?? 0,
+    physical: ds?.physicalDamageTaken ?? 0,
+    magic: ds?.magicDamageTaken ?? 0,
+    true: ds?.trueDamageTaken ?? 0,
   };
   const totalDamageTaken =
+    ds?.totalDamageTaken ??
     damageTaken.physical + damageTaken.magic + damageTaken.true;
 
   const snapshotClock =
@@ -1572,211 +1522,309 @@ function PlayerPopoverContent({
         )}s`
       : null;
 
-  const kda = participant
+  // Compute K/D/A up to the snapshot timestamp from timeline events (frame-based)
+  const kdaMatch = participant
     ? `${participant.kills}/${participant.deaths}/${participant.assists}`
     : '—';
+  const snapshotTs =
+    typeof entry.frameTimestamp === 'number' ? entry.frameTimestamp : entry.ts;
+  let killsUpTo = 0;
+  let deathsUpTo = 0;
+  let assistsUpTo = 0;
+  if (Array.isArray(timelineEvents) && typeof snapshotTs === 'number') {
+    for (const ev of timelineEvents) {
+      if (ev?.type !== 'CHAMPION_KILL') continue;
+      const t = Number(ev.timestamp ?? 0);
+      if (Number.isFinite(t) && t > snapshotTs) break; // events sorted ascending
+      if (ev.killerId === entry.participantId) killsUpTo++;
+      if (ev.victimId === entry.participantId) deathsUpTo++;
+      const assts = (ev.assistingParticipantIds ?? []) as number[];
+      if (assts.includes(entry.participantId)) assistsUpTo++;
+    }
+  }
+  const kdaFrame = `${killsUpTo}/${deathsUpTo}/${assistsUpTo}`;
+  const kda =
+    (timelineEvents?.length ?? 0) > 0 && typeof snapshotTs === 'number'
+      ? kdaFrame
+      : kdaMatch;
   const visionScore =
     typeof participant?.visionScore === 'number'
       ? participant.visionScore
       : null;
 
-  const renderDamageRow = (label: string, value: number, total: number) => (
-    <div key={label} className="space-y-1">
-      <div className="flex items-center justify-between text-xs text-neutral-400">
-        <span>{label}</span>
-        <span className="text-neutral-200">
-          {numberFormatter.format(Math.round(value))}
-        </span>
-      </div>
-      <Progress value={total > 0 ? Math.min(100, (value / total) * 100) : 0} />
-    </div>
-  );
-
   return (
-    <div className="space-y-4 p-4 w-[350px]">
-      <div className="flex items-center gap-3 w-full">
+    <div className="w-[350px] p-3 space-y-3">
+      {/* Compact Header */}
+      <div className="flex items-center gap-3">
         <Avatar
           className={cn(
-            'h-10 w-10 rounded-lg ring-2',
-            entry.teamId === 100 ? 'ring-blue-400/70' : 'ring-red-400/70',
+            'h-12 w-12 rounded-lg ring-2 flex-shrink-0',
+            entry.teamId === 100 ? 'ring-accent-blue-400' : 'ring-red-400',
           )}
         >
           <AvatarImage
             src={getChampionSquare(entry.championName)}
             alt={entry.championName}
+            className="rounded-lg"
           />
         </Avatar>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <div className="truncate text-sm font-semibold text-neutral-100">
+            <h3 className="text-sm font-semibold text-neutral-100 truncate">
               {entry.summonerName}
-            </div>
-            <span
+            </h3>
+            <Badge
+              variant="outline"
               className={cn(
-                'text-xs font-medium',
-                entry.teamId === 100 ? 'text-accent-blue-200' : 'text-red-200',
+                'text-[10px] px-1.5 py-0',
+                entry.teamId === 100
+                  ? 'border-accent-blue-400/30 text-accent-blue-300 bg-accent-blue-400/10'
+                  : 'border-red-400/30 text-red-300 bg-red-400/10',
               )}
             >
-              {entry.teamId === 100 ? 'Blue Side' : 'Red Side'}
+              {entry.teamId === 100 ? 'Blue' : 'Red'}
+            </Badge>
+          </div>
+          <div className="text-xs text-neutral-400">{entry.championName}</div>
+          <div className="flex items-center gap-2 text-xs text-neutral-500">
+            <span className="flex items-center gap-1">
+              <Clock className="h-2.5 w-2.5" />
+              {formatClock(entry.ts)}
             </span>
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-neutral-400">
-            <span>{entry.championName}</span>
-            <span>•</span>
-            <span>Moment {formatClock(entry.ts)}</span>
-          </div>
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-500">
-            <span>Snapshot {snapshotClock}</span>
-            {deltaLabel ? <span>({deltaLabel})</span> : null}
+            {typeof entry.frameTimestamp === 'number' && (
+              <span className="flex items-center gap-1">
+                <Target className="h-2.5 w-2.5" />
+                {snapshotClock}
+                {deltaLabel && (
+                  <span className="text-neutral-600">({deltaLabel})</span>
+                )}
+              </span>
+            )}
           </div>
         </div>
       </div>
 
+      {/* Compact Stats Row - Frame-specific data */}
+      <div className="grid grid-cols-4 gap-1.5">
+        <div className="bg-neutral-800/40 rounded p-2 text-center">
+          <div className="text-xs text-neutral-500">LVL</div>
+          <div className="text-sm font-semibold text-neutral-100">
+            {level ?? '—'}
+          </div>
+        </div>
+        <div className="bg-neutral-800/40 rounded p-2 text-center">
+          <div className="text-xs text-neutral-500">KDA</div>
+          <div className="text-sm font-semibold text-neutral-100">{kda}</div>
+        </div>
+        <div className="bg-neutral-800/40 rounded p-2 text-center">
+          <div className="text-xs text-neutral-500">CS</div>
+          <div className="text-sm font-semibold text-neutral-100">
+            {numberFormatter.format(Math.round(cs))}
+          </div>
+        </div>
+        <div className="bg-neutral-800/40 rounded p-2 text-center">
+          <div className="text-xs text-neutral-500">CS/M</div>
+          <div className="text-sm font-semibold text-neutral-100">
+            {csPerMin && Number.isFinite(csPerMin)
+              ? preciseNumberFormatter.format(csPerMin)
+              : '—'}
+          </div>
+        </div>
+      </div>
+
+      {/* Compact Tabs */}
       <Tabs defaultValue="build" className="w-full">
-        <TabsList className="gap-1">
-          <TabsTrigger value="build">Build</TabsTrigger>
-          <TabsTrigger value="damage">Damage</TabsTrigger>
-          <TabsTrigger value="stats">Stats</TabsTrigger>
+        <TabsList className="grid grid-cols-3 gap-1 p-1 bg-neutral-800/30 rounded-md h-8">
+          <TabsTrigger value="build" className="text-xs py-1">
+            Build
+          </TabsTrigger>
+          <TabsTrigger value="damage" className="text-xs py-1">
+            Damage
+          </TabsTrigger>
+          <TabsTrigger value="stats" className="text-xs py-1">
+            Stats
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="build" className="space-y-3">
-          <div className="grid grid-cols-3 gap-2 pt-1">
+        <TabsContent value="build" className="mt-2 space-y-2">
+          {/* Compact Items Grid */}
+          <div className="grid grid-cols-6 gap-1">
             {slots.map((itemId, idx) => (
-              <div
-                key={`slot-${entry.participantId}-${idx}`}
-                className="flex flex-col items-center gap-1 text-[11px] text-neutral-400"
-              >
+              <div key={`slot-${entry.participantId}-${idx}`}>
                 {itemId ? (
                   <img
                     src={getItemIcon(itemId) || undefined}
                     alt={`Item ${itemId}`}
                     title={`Item ${itemId}`}
-                    className="h-12 w-12 rounded-lg border border-neutral-700/60 bg-neutral-900 object-cover shadow"
+                    className="h-8 w-8 rounded border border-neutral-700 bg-neutral-900 object-cover"
                   />
                 ) : (
-                  <div className="h-12 w-12 rounded-lg border border-dashed border-neutral-700/40 bg-neutral-800/40" />
+                  <div className="h-8 w-8 rounded border border-dashed border-neutral-700 bg-neutral-800/20" />
                 )}
               </div>
             ))}
           </div>
-          {overflow.length > 0 ? (
-            <p className="text-xs text-neutral-400">
-              +{overflow.length} component{overflow.length > 1 ? 's' : ''} in
-              inventory
-            </p>
-          ) : null}
-          <div className="space-y-1 text-sm">
-            <div className="flex items-center justify-between text-neutral-300">
-              <span>Gold in bag</span>
-              <span className="font-semibold text-accent-yellow-200">
+
+          {/* Compact Gold Stats */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-neutral-800/40 rounded p-2">
+              <div className="text-xs text-neutral-500">Gold</div>
+              <div className="text-sm font-semibold text-yellow-400">
                 {goldInBag != null ? numberFormatter.format(goldInBag) : '—'}
-              </span>
+              </div>
             </div>
-            <div className="flex items-center justify-between text-neutral-300">
-              <span>Total gold earned</span>
-              <span>
+            <div className="bg-neutral-800/40 rounded p-2">
+              <div className="text-xs text-neutral-500">Total</div>
+              <div className="text-sm font-semibold text-neutral-200">
                 {totalGold != null
                   ? numberFormatter.format(Math.round(totalGold))
                   : '—'}
-              </span>
+              </div>
             </div>
           </div>
-          {inventory.length === 0 && (
-            <p className="text-xs text-neutral-400">
-              No items purchased yet at this timestamp.
-            </p>
+
+          {overflow.length > 0 && (
+            <div className="text-center">
+              <Badge variant="secondary" className="text-[10px] px-1.5">
+                +{overflow.length}
+              </Badge>
+            </div>
           )}
         </TabsContent>
 
-        <TabsContent value="damage" className="space-y-4">
-          <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              Damage Dealt
-            </h4>
-            <div className="mt-2 space-y-2">
-              {['physical', 'magic', 'true'].map((key) =>
-                renderDamageRow(
-                  key.charAt(0).toUpperCase() + key.slice(1),
-                  damageDealt[key as keyof typeof damageDealt],
-                  totalDamageDealt,
-                ),
-              )}
+        <TabsContent value="damage" className="mt-2 space-y-2">
+          {/* Compact Damage Dealt */}
+          <div className="bg-neutral-800/40 rounded p-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-neutral-400 flex items-center gap-1">
+                <Zap className="h-3 w-3 text-orange-400" />
+                Dealt
+              </span>
+              <span className="text-xs font-semibold text-neutral-200 font-mono">
+                {numberFormatter.format(Math.round(totalDamageDealt))}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {[
+                { key: 'physical', color: 'text-orange-400' },
+                { key: 'magic', color: 'text-blue-400' },
+                { key: 'true', color: 'text-neutral-300' },
+              ].map(({ key, color }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className={cn('text-[10px] capitalize', color)}>
+                    {key.slice(0, 3)}
+                  </span>
+                  <Progress
+                    value={
+                      totalDamageDealt > 0
+                        ? Math.min(
+                            100,
+                            (damageDealt[key as keyof typeof damageDealt] /
+                              totalDamageDealt) *
+                              100,
+                          )
+                        : 0
+                    }
+                    className="h-1.5 flex-1"
+                  />
+                  <span className="text-[10px] text-neutral-400 font-mono">
+                    {numberFormatter.format(
+                      Math.round(damageDealt[key as keyof typeof damageDealt]),
+                    )}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
-          <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              Damage Taken
-            </h4>
-            <div className="mt-2 space-y-2">
-              {['physical', 'magic', 'true'].map((key) =>
-                renderDamageRow(
-                  key.charAt(0).toUpperCase() + key.slice(1),
-                  damageTaken[key as keyof typeof damageTaken],
-                  totalDamageTaken,
-                ),
-              )}
+
+          {/* Compact Damage Taken */}
+          <div className="bg-neutral-800/40 rounded p-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-neutral-400 flex items-center gap-1">
+                <div className="h-2 w-2 rounded-full bg-red-500" />
+                Taken
+              </span>
+              <span className="text-xs font-semibold text-neutral-200 font-mono">
+                {numberFormatter.format(Math.round(totalDamageTaken))}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {[
+                { key: 'physical', color: 'text-orange-400' },
+                { key: 'magic', color: 'text-blue-400' },
+                { key: 'true', color: 'text-neutral-300' },
+              ].map(({ key, color }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className={cn('text-[10px] capitalize', color)}>
+                    {key.slice(0, 3)}
+                  </span>
+                  <Progress
+                    value={
+                      totalDamageTaken > 0
+                        ? Math.min(
+                            100,
+                            (damageTaken[key as keyof typeof damageTaken] /
+                              totalDamageTaken) *
+                              100,
+                          )
+                        : 0
+                    }
+                    className="h-1.5 flex-1"
+                  />
+                  <span className="text-[10px] text-neutral-400 font-mono">
+                    {numberFormatter.format(
+                      Math.round(damageTaken[key as keyof typeof damageTaken]),
+                    )}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </TabsContent>
 
-        <TabsContent value="stats" className="space-y-3">
-          <div className="grid grid-cols-2 gap-3 text-sm text-neutral-300">
-            <div>
-              <span className="block text-xs uppercase tracking-wide text-neutral-500">
-                Level
-              </span>
-              <span className="text-neutral-100">{level ?? '—'}</span>
-            </div>
-            <div>
-              <span className="block text-xs uppercase tracking-wide text-neutral-500">
-                K / D / A
-              </span>
-              <span className="text-neutral-100">{kda}</span>
-            </div>
-            <div>
-              <span className="block text-xs uppercase tracking-wide text-neutral-500">
-                Creep Score
-              </span>
-              <span className="text-neutral-100">
-                {numberFormatter.format(Math.round(cs))}
-                {csPerMin && Number.isFinite(csPerMin) ? (
-                  <span className="ml-1 text-[11px] text-neutral-400">
-                    ({preciseNumberFormatter.format(csPerMin)}/m)
-                  </span>
-                ) : null}
-              </span>
-            </div>
-            <div>
-              <span className="block text-xs uppercase tracking-wide text-neutral-500">
-                Experience
-              </span>
-              <span className="text-neutral-100">
+        <TabsContent value="stats" className="mt-2 space-y-2">
+          {/* Compact Core Stats */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-neutral-800/40 rounded p-2">
+              <div className="text-xs text-neutral-500">XP</div>
+              <div className="text-sm font-semibold text-neutral-100">
                 {xp != null ? numberFormatter.format(Math.round(xp)) : '—'}
-              </span>
+              </div>
             </div>
-            <div>
-              <span className="block text-xs uppercase tracking-wide text-neutral-500">
-                Vision Score
-              </span>
-              <span className="text-neutral-100">
+            <div className="bg-neutral-800/40 rounded p-2">
+              <div className="text-xs text-neutral-500">Vision</div>
+              <div className="text-sm font-semibold text-neutral-100">
                 {visionScore != null
                   ? numberFormatter.format(Math.round(visionScore))
                   : '—'}
-              </span>
-            </div>
-            <div>
-              <span className="block text-xs uppercase tracking-wide text-neutral-500">
-                Total Damage
-              </span>
-              <span className="text-neutral-100">
-                {participant?.totalDamageDealtToChampions != null
-                  ? numberFormatter.format(
-                      Math.round(participant.totalDamageDealtToChampions),
-                    )
-                  : '—'}
-              </span>
+              </div>
             </div>
           </div>
+
+          {/* Compact Match Total Damage */}
+          {participant?.totalDamageDealtToChampions != null && (
+            <div className="bg-neutral-800/40 rounded p-2">
+              <div className="text-xs text-neutral-500">Match Damage</div>
+              <div className="text-sm font-semibold text-neutral-100 font-mono">
+                {numberFormatter.format(
+                  Math.round(participant.totalDamageDealtToChampions),
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Compact Additional Info */}
+          <div className="text-xs text-neutral-500 text-center">
+            {inventory.length === 0 ? (
+              <span>No items</span>
+            ) : (
+              <span>{snapshotClock}</span>
+            )}
+            {deltaLabel && (
+              <span className="ml-1 text-neutral-600">({deltaLabel})</span>
+            )}
+          </div>
+          
         </TabsContent>
       </Tabs>
     </div>
