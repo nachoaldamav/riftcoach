@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Crown, Swords, User } from 'lucide-react';
+import { Crown, Snowflake, Swords, User } from 'lucide-react';
 
 interface ProfileTabsProps {
   region: string;
@@ -35,6 +35,12 @@ export function ProfileTabs({ region, name, tag }: ProfileTabsProps) {
       label: 'Champions',
       icon: Crown,
       path: `/${encodedRegion}/${encodedName}/${encodedTag}/champions`,
+    },
+    {
+      id: 'aram',
+      label: 'ARAM',
+      icon: Snowflake,
+      path: `/${encodedRegion}/${encodedName}/${encodedTag}/aram`,
     },
   ];
 
