@@ -1221,6 +1221,7 @@ app.post(
           }),
         ),
         badges: z.array(z.string()).optional(),
+        role: z.string().optional(),
       });
       const parsed = shareCardSchema.safeParse(payload);
       if (!parsed.success) {

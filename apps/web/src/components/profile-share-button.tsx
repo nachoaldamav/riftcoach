@@ -67,6 +67,19 @@ interface ChampionInsightsResponse {
   }>;
 }
 
+// API: /v1/:region/:name/:tag/champions (playerChampsByRole)
+interface ChampionsByRoleDoc {
+  _id: string; // role
+  champs: Array<{
+    championId: number;
+    championName: string;
+    games: number;
+    wins: number;
+    losses: number;
+    winRate: number; // 0..1
+  }>;
+}
+
 const DEFAULT_BACKGROUND =
   'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/loadouts/summonerbacks/2024_preseason_hunter_premium_summoner_back.jpg';
 
@@ -181,12 +194,13 @@ const ProfileShareModal = memo(function ProfileShareModal({
     return url || '/logo512.png';
   }, [getProfileIconUrl, summoner.profileIconId]);
 
-  const { data: overviewData } = useQuery({
-    queryKey: ['player-overview', region, name, tag, 'ALL', 'share-card'],
+  // Player champions by role (for role recommendation)
+  const { data: championsByRole } = useQuery<ChampionsByRoleDoc[]>({
+    queryKey: ['champions-by-role', region, name, tag, 'share-card'],
     enabled: true,
-    queryFn: async (): Promise<OverviewData> => {
-      const res = await http.get<OverviewData>(
-        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/overview`,
+    queryFn: async () => {
+      const res = await http.get<ChampionsByRoleDoc[]>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/champions`,
       );
       return res.data;
     },
@@ -237,6 +251,49 @@ const ProfileShareModal = memo(function ProfileShareModal({
     return [...data].sort((a, b) => b.totalGames - a.totalGames)[0];
   }, [championInsights?.championData]);
 
+  // Recommended role for the selected or top champion
+  const recommendedRole = useMemo(() => {
+    const champId = selectedChampionData
+      ? Number(selectedChampionData.key)
+      : (topChampion?.championId ?? null);
+    if (!champId) return null;
+    const docs = championsByRole ?? [];
+    let best: { role: string; games: number } | null = null;
+    for (const doc of docs) {
+      const found = doc.champs.find((c) => c.championId === champId);
+      if (found) {
+        const role = String(doc._id ?? 'UNKNOWN');
+        if (!best || found.games > best.games) {
+          best = { role, games: found.games };
+        }
+      }
+    }
+    return best?.role ?? null;
+  }, [championsByRole, selectedChampionData, topChampion?.championId]);
+
+  // Overview metrics scoped by recommended role
+  const { data: overviewData } = useQuery({
+    queryKey: [
+      'player-overview',
+      region,
+      name,
+      tag,
+      recommendedRole ?? 'ALL',
+      'share-card',
+    ],
+    enabled: true,
+    queryFn: async (): Promise<OverviewData> => {
+      const res = await http.get<OverviewData>(
+        `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/overview`,
+        {
+          params: recommendedRole ? { position: recommendedRole } : undefined,
+        },
+      );
+      return res.data;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+
   const championSplashUrlBase = useMemo(() => {
     if (!topChampion) return DEFAULT_BACKGROUND;
     const splash = getChampionImageUrl(topChampion.championId, 'centered');
@@ -257,6 +314,13 @@ const ProfileShareModal = memo(function ProfileShareModal({
     selectedSkinOverrideNum,
     championSplashUrlBase,
   ]);
+
+  // Regenerate preview when recommended role changes
+  useEffect(() => {
+    // Reference recommendedRole in expressions to satisfy hook lint rules
+    setPreviewUrl(recommendedRole ? null : null);
+    setDownloadBlob(recommendedRole ? null : null);
+  }, [recommendedRole]);
 
   const metrics = useMemo<ShareMetric[]>(() => {
     const data = overviewData?.spiderChartData ?? [];
@@ -316,17 +380,36 @@ const ProfileShareModal = memo(function ProfileShareModal({
             ) ?? null)
           : null;
 
+        // Use champions-by-role for role-specific games/winrate when available
+        const champIdForStats = selectedChampionData
+          ? Number(selectedChampionData.key)
+          : (topChampion?.championId ?? null);
+        const roleDoc = recommendedRole
+          ? (championsByRole ?? []).find(
+              (d) => String(d._id) === recommendedRole,
+            )
+          : null;
+        const roleStats = champIdForStats
+          ? (roleDoc?.champs.find((c) => c.championId === champIdForStats) ??
+            null)
+          : null;
+
         const championName =
           selectedChampionData?.name ??
           topChampion?.championName ??
           'League Champion';
         const games =
-          overrideInsights?.totalGames ?? topChampion?.totalGames ?? 0;
-        const winRate =
-          overrideInsights?.winRate ??
-          topChampion?.winRate ??
-          overviewData?.winRate ??
+          roleStats?.games ??
+          overrideInsights?.totalGames ??
+          topChampion?.totalGames ??
           0;
+        const winRate =
+          roleStats && typeof roleStats.winRate === 'number'
+            ? Math.round(roleStats.winRate * 1000) / 10 // to percent with 1 decimal
+            : (overrideInsights?.winRate ??
+              topChampion?.winRate ??
+              overviewData?.winRate ??
+              0);
         const kda =
           overrideInsights?.avgKda ??
           topChampion?.avgKda ??
@@ -344,6 +427,7 @@ const ProfileShareModal = memo(function ProfileShareModal({
           tagLine: tag,
           profileIconUrl,
           backgroundUrl: effectiveSplashUrl || DEFAULT_BACKGROUND,
+          role: recommendedRole ?? undefined,
           champion: {
             name: championName,
             games,
@@ -427,6 +511,8 @@ const ProfileShareModal = memo(function ProfileShareModal({
     tag,
     region,
     summoner.name,
+    championsByRole,
+    recommendedRole,
   ]);
 
   // Cleanup URL
