@@ -264,8 +264,6 @@ function RouteComponent() {
           <Outlet />
         </div>
       </div>
-
-      {/* Status box now shown via Navbar popover; remove floating box */}
     </div>
   );
 }
