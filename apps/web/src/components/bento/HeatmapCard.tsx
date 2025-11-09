@@ -3,6 +3,17 @@ import { ChampionImage } from '@/components/champion-image';
 import { HeatmapOverlay } from '@/components/heatmap-overlay';
 import { HeatmapIcon } from '@/components/icons/CustomIcons';
 import { Card, CardBody } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import {
   Select,
   SelectContent,
@@ -13,7 +24,7 @@ import {
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 export interface HeatmapData {
@@ -42,7 +53,7 @@ interface HeatmapCardProps {
 }
 
 export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
-  const { champions } = useDataDragon();
+  const { champions, getChampionImageUrl } = useDataDragon();
 
   // Static role and mode lists
   const roles = [
@@ -62,6 +73,8 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
   const [selectedChampion, setSelectedChampion] = useState<number | null>(null);
   const [selectedMode, setSelectedMode] = useState<'kills' | 'deaths'>('kills');
   const [hasUserSelectedRole, setHasUserSelectedRole] = useState(false);
+  const [isRolePickerOpen, setIsRolePickerOpen] = useState(false);
+  const [isChampionPickerOpen, setIsChampionPickerOpen] = useState(false);
 
   // Champion list from Data Dragon, sorted by name
   const championList = useMemo(
@@ -229,118 +242,166 @@ export function HeatmapCard({ region, name, tag }: HeatmapCardProps) {
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Select
-              value={selectedRole}
-              onValueChange={(value) => {
-                if (!disabledRoleKeys.includes(value)) {
-                  setSelectedRole(value);
-                  setHasUserSelectedRole(true);
-                }
-              }}
+            {/* Role combobox */}
+            <Popover open={isRolePickerOpen} onOpenChange={setIsRolePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="flat"
+                  className="h-11 w-full flex items-center justify-between px-3 py-2 bg-neutral-800/70 border border-neutral-700 text-neutral-100"
+                  aria-label="Role combobox"
+                >
+                  {(() => {
+                    const role = roles.find((r) => r.key === selectedRole);
+                    const games = role ? roleGames[role.key] || 0 : 0;
+                    return (
+                      <>
+                        <div className="flex items-center gap-2">
+                          {role ? (
+                            <img
+                              src={getRoleIconUrl(role.key)}
+                              alt={role.label}
+                              className="h-5 w-5"
+                            />
+                          ) : null}
+                          <span>{role ? role.label : 'Select role'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-300">{games}</span>
+                          <ChevronDown className="h-4 w-4 opacity-70" />
+                        </div>
+                      </>
+                    );
+                  })()}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
+                <Command className="bg-neutral-900 text-neutral-100 z-[100]">
+                  <CommandInput placeholder="Search role..." />
+                  <CommandList>
+                    <CommandEmpty>No roles found.</CommandEmpty>
+                    <CommandGroup>
+                      {roles.map((role) => (
+                        <CommandItem
+                          key={role.key}
+                          value={role.label}
+                          disabled={disabledRoleKeys.includes(role.key)}
+                          onSelect={() => {
+                            if (!disabledRoleKeys.includes(role.key)) {
+                              setSelectedRole(role.key);
+                              setHasUserSelectedRole(true);
+                              setIsRolePickerOpen(false);
+                            }
+                          }}
+                        >
+                          <div className="flex w-full items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={getRoleIconUrl(role.key)}
+                                alt={role.label}
+                                className="h-5 w-5"
+                              />
+                              <span>{role.label}</span>
+                            </div>
+                            <span className="text-xs text-slate-300">
+                              {roleGames[role.key] || 0}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Champion combobox */}
+            <Popover
+              open={isChampionPickerOpen}
+              onOpenChange={setIsChampionPickerOpen}
             >
-              <SelectTrigger className="h-11 border-neutral-700 bg-neutral-800/70 text-neutral-100">
-                {(() => {
-                  const role = roles.find((r) => r.key === selectedRole);
-                  if (!role) {
-                    return <SelectValue placeholder="Select role" />;
-                  }
-                  const games = roleGames[role.key] || 0;
-                  return (
-                    <div className="flex w-full items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={getRoleIconUrl(role.key)}
-                          alt={role.label}
-                          className="h-5 w-5"
-                        />
-                        <span>{role.label}</span>
-                      </div>
-                      <span className="text-xs text-slate-300">{games}</span>
-                    </div>
-                  );
-                })()}
-              </SelectTrigger>
-              <SelectContent className="bg-neutral-900 text-neutral-100">
-                {roles.map((role) => (
-                  <SelectItem
-                    key={role.key}
-                    value={role.key}
-                    disabled={disabledRoleKeys.includes(role.key)}
-                  >
-                    <div className="flex w-full items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={getRoleIconUrl(role.key)}
-                          alt={role.label}
-                          className="h-5 w-5"
-                        />
-                        <span>{role.label}</span>
-                      </div>
-                      <span className="text-xs text-slate-300">
-                        {roleGames[role.key] || 0}
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={selectedChampion ? String(selectedChampion) : 'ALL'}
-              onValueChange={(value) => {
-                setSelectedChampion(value === 'ALL' ? null : Number(value));
-              }}
-            >
-              <SelectTrigger className="h-11 border-neutral-700 bg-neutral-800/70 text-neutral-100">
-                {selectedChampionData ? (
-                  <div className="flex w-full items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ChampionImage
-                        championId={selectedChampionData.id}
-                        size="sm"
-                        showName={false}
-                      />
-                      <span>{selectedChampionData.name}</span>
-                    </div>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="flat"
+                  className="h-11 w-full flex items-center justify-between px-3 py-2 bg-neutral-800/70 border border-neutral-700 text-neutral-100"
+                  aria-label="Champion combobox"
+                >
+                  <div className="flex items-center gap-2">
+                    {selectedChampionData ? (
+                      <>
+                        <Avatar className="h-5 w-5 rounded border border-neutral-700">
+                          <AvatarImage
+                            src={getChampionImageUrl(selectedChampionData.id, 'square')}
+                            alt={selectedChampionData.name}
+                          />
+                        </Avatar>
+                        <span>{selectedChampionData.name}</span>
+                      </>
+                    ) : (
+                      <span className="text-neutral-400">All champions</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-300">
                       {selectedChampion
-                        ? championGamesBySelectedRole[
-                            Number(selectedChampion)
-                          ] || 0
-                        : 0}
+                        ? championGamesBySelectedRole[Number(selectedChampion)] || 0
+                        : visibleChampions.length}
                     </span>
+                    <ChevronDown className="h-4 w-4 opacity-70" />
                   </div>
-                ) : (
-                  <SelectValue placeholder="All champions" />
-                )}
-              </SelectTrigger>
-              <SelectContent className="bg-neutral-900 text-neutral-100">
-                <SelectItem value="ALL">
-                  <div className="flex w-full items-center justify-between">
-                    <span>All champions</span>
-                    <span className="text-xs text-slate-300">
-                      {visibleChampions.length}
-                    </span>
-                  </div>
-                </SelectItem>
-                {visibleChampions.map((champion) => (
-                  <SelectItem key={champion.key} value={champion.key}>
-                    <div className="flex w-full items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ChampionImage
-                          championId={champion.id}
-                          size="sm"
-                          showName={false}
-                        />
-                        <span>{champion.name}</span>
-                      </div>
-                      <span className="text-xs text-slate-300">
-                        {championGamesBySelectedRole[Number(champion.key)] || 0}
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="z-[80] p-0 w-[260px] bg-neutral-900 text-neutral-100 border border-neutral-800">
+                <Command className="bg-neutral-900 text-neutral-100 z-[100]">
+                  <CommandInput placeholder="Search champion..." />
+                  <CommandList>
+                    <CommandEmpty>No champions found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="All champions"
+                        onSelect={() => {
+                          setSelectedChampion(null);
+                          setIsChampionPickerOpen(false);
+                        }}
+                      >
+                        <div className="flex w-full items-center justify-between">
+                          <span>All champions</span>
+                          <span className="text-xs text-slate-300">
+                            {visibleChampions.length}
+                          </span>
+                        </div>
+                      </CommandItem>
+                      {visibleChampions.map((champ) => (
+                        <CommandItem
+                          key={champ.key}
+                          value={champ.name}
+                          onSelect={() => {
+                            setSelectedChampion(Number(champ.key));
+                            setIsChampionPickerOpen(false);
+                          }}
+                        >
+                          <div className="flex w-full items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-6 w-6 rounded-lg border border-neutral-700">
+                                <AvatarImage
+                                  src={getChampionImageUrl(champ.id, 'square')}
+                                  alt={champ.name}
+                                />
+                              </Avatar>
+                              <span>{champ.name}</span>
+                            </div>
+                            <span className="text-xs text-slate-300">
+                              {championGamesBySelectedRole[Number(champ.key)] || 0}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             <Select
               value={selectedMode}
               onValueChange={(value: 'kills' | 'deaths') => {
