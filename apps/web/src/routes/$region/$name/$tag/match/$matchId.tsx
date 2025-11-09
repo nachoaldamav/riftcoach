@@ -1,6 +1,11 @@
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
+import {
+  ChartContainer,
+  type ChartConfig,
+} from '@/components/ui/chart';
 import {
   Popover,
   PopoverContent,
@@ -19,6 +24,7 @@ import { useDataDragon } from '@/providers/data-dragon-provider';
 import {
   type ItemSuggestion,
   getAllMatchDataQueryOptions,
+  getChampionRoleDetailQueryOptions,
 } from '@/queries/get-match-insights';
 import type { RiotAPITypes } from '@fightmegg/riot-api';
 import { useQuery } from '@tanstack/react-query';
@@ -27,6 +33,16 @@ import { motion } from 'framer-motion';
 import { ChevronRight, Clock, Map as MapIcon, Target, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 export const Route = createFileRoute('/$region/$name/$tag/match/$matchId')({
   component: MatchAnalysisComponent,
@@ -362,6 +378,7 @@ function MatchAnalysisComponent() {
   // Key moments state
   const [selectedMomentIndex, setSelectedMomentIndex] = useState(0);
   const selectedMoment = insightsData?.keyMoments[selectedMomentIndex] || null;
+  const [comparisonMode, setComparisonMode] = useState<'cohort' | 'self'>('cohort');
 
   const participantById = useMemo(() => {
     if (!matchData)
@@ -769,6 +786,326 @@ function MatchAnalysisComponent() {
     });
   }, [subjectParticipant, buildsData, slotKeys]);
 
+  const normalizedRole = (
+    subjectParticipant?.teamPosition ??
+    subjectParticipant?.individualPosition ??
+    ''
+  ).toUpperCase();
+  const championRoleQueryEnabled =
+    Boolean(subjectParticipant?.championName) &&
+    normalizedRole !== '' &&
+    !['UNKNOWN', 'INVALID', 'NONE'].includes(normalizedRole);
+
+  const {
+    data: championRoleDetail,
+    isLoading: isChampionRoleLoading,
+  } = useQuery({
+    ...getChampionRoleDetailQueryOptions(
+      region,
+      name,
+      tag,
+      subjectParticipant?.championName ?? '',
+      normalizedRole || 'UNKNOWN',
+    ),
+    enabled: championRoleQueryEnabled,
+  });
+
+  const matchDurationMinutes = useMemo(
+    () =>
+      matchData ? Math.max(matchData.info.gameDuration / 60, 1) : 1,
+    [matchData],
+  );
+
+  const laneSnapshots = useMemo(() => {
+    if (!timelineData || !subjectParticipant) return null;
+    const frames = timelineData.info.frames ?? [];
+    if (!frames.length) return null;
+    const pid = subjectParticipant.participantId;
+    const findFrame = (targetMs: number) => {
+      for (const frame of frames) {
+        const ts = Number(frame.timestamp ?? Number.NaN);
+        if (!Number.isFinite(ts)) continue;
+        if (ts >= targetMs) {
+          const pf =
+            (frame.participantFrames?.[String(pid)] as ParticipantFrame | undefined) ??
+            null;
+          if (pf) return pf;
+        }
+      }
+      const last = frames[frames.length - 1];
+      return (last?.participantFrames?.[String(pid)] as ParticipantFrame | undefined) ?? null;
+    };
+    const getValues = (pf: ParticipantFrame | null | undefined) => {
+      if (!pf) return { gold: null, cs: null };
+      const gold =
+        typeof pf.totalGold === 'number'
+          ? pf.totalGold
+          : typeof pf.currentGold === 'number'
+            ? pf.currentGold
+            : null;
+      const cs =
+        (pf.minionsKilled ?? 0) + (pf.jungleMinionsKilled ?? 0);
+      return { gold, cs };
+    };
+    const at10 = getValues(findFrame(10 * 60 * 1000));
+    const at15 = getValues(findFrame(15 * 60 * 1000));
+    return {
+      goldAt10: at10.gold,
+      csAt10: at10.cs,
+      goldAt15: at15.gold,
+      csAt15: at15.cs,
+    };
+  }, [timelineData, subjectParticipant]);
+
+  const comparisonBaselineLabel =
+    comparisonMode === 'cohort'
+      ? 'Similar players (median)'
+      : 'Your historical median';
+  const comparisonSubtitle =
+    comparisonMode === 'cohort'
+      ? 'Compared with similar players for this champion and role.'
+      : 'Compared with your recent median for this champion and role.';
+  const comparisonSourceAvailable =
+    comparisonMode === 'cohort'
+      ? Boolean(championRoleDetail?.cohort?.percentiles?.p50)
+      : Boolean(championRoleDetail?.playerPercentiles?.percentiles?.p50);
+
+  const performanceComparisons = useMemo(() => {
+    if (!subjectParticipant || !matchData) return [];
+    const minutes = matchDurationMinutes || 1;
+    const totalCs =
+      (subjectParticipant.totalMinionsKilled ?? 0) +
+      (subjectParticipant.neutralMinionsKilled ?? 0);
+    const cspm = totalCs / minutes;
+    const dpm =
+      (subjectParticipant.totalDamageDealtToChampions ?? 0) / minutes;
+    const dtpm =
+      (subjectParticipant.totalDamageTaken ?? 0) / minutes;
+    const kpm = (subjectParticipant.kills ?? 0) / minutes;
+    const apm = (subjectParticipant.assists ?? 0) / minutes;
+    const deathsPerMin = (subjectParticipant.deaths ?? 0) / minutes;
+
+    const baselineSource =
+      comparisonMode === 'cohort'
+        ? championRoleDetail?.cohort?.percentiles?.p50 ?? null
+        : championRoleDetail?.playerPercentiles?.percentiles?.p50 ?? null;
+
+    const getBaseline = (key: string) =>
+      baselineSource && typeof baselineSource[key] === 'number'
+        ? (baselineSource[key] as number)
+        : null;
+
+    const formatValue = (value: number | null, digits: number) => {
+      if (value == null || Number.isNaN(value)) return '—';
+      if (digits <= 0) {
+        return numberFormatter.format(Math.round(value));
+      }
+      return value.toFixed(digits);
+    };
+
+    const formatDiff = (value: number | null, digits: number) => {
+      if (value == null || Number.isNaN(value)) return null;
+      if (digits <= 0) {
+        const rounded = Math.round(value);
+        if (rounded === 0) return '±0';
+        return `${rounded > 0 ? '+' : ''}${numberFormatter.format(rounded)}`;
+      }
+      const rounded = Number(value.toFixed(digits));
+      if (Math.abs(rounded) < Math.pow(10, -digits)) return '±0';
+      return `${rounded > 0 ? '+' : ''}${rounded.toFixed(digits)}`;
+    };
+
+    const cards = [
+      { key: 'goldAt10', label: 'Gold @ 10', value: laneSnapshots?.goldAt10 ?? null, digits: 0 },
+      { key: 'csAt10', label: 'CS @ 10', value: laneSnapshots?.csAt10 ?? null, digits: 0 },
+      { key: 'goldAt15', label: 'Gold @ 15', value: laneSnapshots?.goldAt15 ?? null, digits: 0 },
+      { key: 'csAt15', label: 'CS @ 15', value: laneSnapshots?.csAt15 ?? null, digits: 0 },
+      { key: 'cspm', label: 'CS / Min', value: cspm, digits: 2 },
+      { key: 'dpm', label: 'Damage / Min', value: dpm, digits: 0 },
+      { key: 'dtpm', label: 'Damage Taken / Min', value: dtpm, digits: 0, invert: true },
+      { key: 'kpm', label: 'Kills / Min', value: kpm, digits: 2 },
+      { key: 'apm', label: 'Assists / Min', value: apm, digits: 2 },
+      { key: 'deathsPerMin', label: 'Deaths / Min', value: deathsPerMin, digits: 2, invert: true },
+    ];
+
+    return cards.map((card) => {
+      const baseline = getBaseline(card.key);
+      const diff =
+        baseline != null && card.value != null
+          ? card.value - baseline
+          : null;
+      const diffDisplay = formatDiff(diff, card.digits);
+      const trendClass =
+        diffDisplay === '±0'
+          ? 'text-neutral-300'
+          : diff == null
+            ? 'text-neutral-300'
+            : diff > 0
+              ? card.invert
+                ? 'text-red-300'
+                : 'text-emerald-300'
+              : card.invert
+                ? 'text-emerald-300'
+                : 'text-red-300';
+      return {
+        key: card.key,
+        label: card.label,
+        valueDisplay: formatValue(card.value, card.digits),
+        baselineDisplay:
+          baseline != null ? formatValue(baseline, card.digits) : '—',
+        diffDisplay,
+        trendClass,
+      };
+    });
+  }, [
+    subjectParticipant,
+    matchData,
+    matchDurationMinutes,
+    comparisonMode,
+    championRoleDetail,
+    laneSnapshots,
+  ]);
+
+  const winProbabilityChartConfig = useMemo(
+    () =>
+      ({
+        winProb: {
+          label: 'Win Probability',
+          color: '#60a5fa',
+        },
+        impact: {
+          label: 'Impact Score',
+          color: '#facc15',
+        },
+      }) satisfies ChartConfig,
+    [],
+  );
+
+  const winProbabilityData = useMemo(() => {
+    if (!timelineData || !subjectParticipant || participantById.size === 0)
+      return [];
+    const frames = timelineData.info.frames ?? [];
+    if (!frames.length) return [];
+    const pid = subjectParticipant.participantId;
+    let prevGold = 0;
+    let prevXp = 0;
+    let prevDamage = 0;
+    let prevCs = 0;
+
+    return frames
+      .map((frame) => {
+        const ts = Number(frame.timestamp ?? Number.NaN);
+        if (!Number.isFinite(ts)) return null;
+
+        const pf =
+          (frame.participantFrames?.[String(pid)] as ParticipantFrame | undefined) ??
+          null;
+
+        let teamGold = 0;
+        let enemyGold = 0;
+        for (const [id, meta] of participantById.entries()) {
+          const pfTeam =
+            (frame.participantFrames?.[String(id)] as ParticipantFrame | undefined) ??
+            null;
+          const totalGold =
+            typeof pfTeam?.totalGold === 'number'
+              ? pfTeam.totalGold
+              : typeof pfTeam?.currentGold === 'number'
+                ? pfTeam.currentGold
+                : 0;
+          if (meta.teamId === subjectParticipant.teamId) {
+            teamGold += totalGold;
+          } else {
+            enemyGold += totalGold;
+          }
+        }
+
+        const goldDiff = teamGold - enemyGold;
+        const probability = 1 / (1 + Math.exp(-goldDiff / 1800));
+
+        const totalGold =
+          typeof pf?.totalGold === 'number'
+            ? pf.totalGold
+            : typeof pf?.currentGold === 'number'
+              ? pf.currentGold
+              : prevGold;
+        const xp = typeof pf?.xp === 'number' ? pf.xp : prevXp;
+        const damage =
+          (pf?.damageStats as { totalDamageDoneToChampions?: number } | undefined)
+            ?.totalDamageDoneToChampions ?? prevDamage;
+        const cs =
+          (pf?.minionsKilled ?? 0) + (pf?.jungleMinionsKilled ?? 0);
+
+        const goldDelta = totalGold - prevGold;
+        const xpDelta = xp - prevXp;
+        const damageDelta = damage - prevDamage;
+        const csDelta = cs - prevCs;
+
+        const rawImpact =
+          goldDelta / 320 + xpDelta / 150 + damageDelta / 900 + csDelta * 0.9;
+        const clampedImpact = Math.max(0, rawImpact);
+
+        prevGold = totalGold;
+        prevXp = xp;
+        prevDamage = damage;
+        prevCs = cs;
+
+        return {
+          minute: Number((ts / 60000).toFixed(1)),
+          winProb: Math.max(0, Math.min(100, probability * 100)),
+          impact: Math.max(0, Math.min(100, clampedImpact * 12)),
+          impactRaw: Number(clampedImpact.toFixed(2)),
+        };
+      })
+      .filter((entry): entry is { minute: number; winProb: number; impact: number; impactRaw: number } => Boolean(entry));
+  }, [timelineData, subjectParticipant, participantById]);
+
+  const detailedStatsByTeam = useMemo(() => {
+    if (!matchData) return [];
+    type MaybeRiotId = { riotIdGameName?: string; riotIdTagline?: string };
+    return [100, 200].map((teamId) => {
+      const teamMeta = matchData.info.teams.find((team) => team.teamId === teamId);
+      const participants = matchData.info.participants
+        .filter((p) => p.teamId === teamId)
+        .map((p) => {
+          const rp = p as MaybeRiotId;
+          const displayName = rp.riotIdGameName ?? p.summonerName ?? 'Unknown';
+          const displayTag = rp.riotIdTagline ?? null;
+          const cs =
+            (p.totalMinionsKilled ?? 0) + (p.neutralMinionsKilled ?? 0);
+          const csPerMin = cs / matchDurationMinutes;
+          const kdaRatio =
+            (p.kills + p.assists) / Math.max(1, p.deaths ?? 0);
+          const damageShare =
+            typeof p.challenges?.teamDamagePercentage === 'number'
+              ? p.challenges.teamDamagePercentage * 100
+              : null;
+          return {
+            participant: p,
+            displayName,
+            displayTag,
+            cs,
+            csPerMin,
+            kdaRatio,
+            goldEarned: p.goldEarned ?? 0,
+            damage: p.totalDamageDealtToChampions ?? 0,
+            damageTaken: p.totalDamageTaken ?? 0,
+            visionScore: p.visionScore ?? 0,
+            wardsPlaced: p.wardsPlaced ?? 0,
+            wardsKilled: p.wardsKilled ?? 0,
+            damageShare,
+          };
+        });
+      return {
+        teamId,
+        win: Boolean(teamMeta?.win),
+        name: teamId === 100 ? 'Blue Side' : 'Red Side',
+        participants,
+      };
+    });
+  }, [matchData, matchDurationMinutes]);
+
+
   if (isEssentialDataLoading) {
     return (
       <div className="max-w-7xl mx-auto">
@@ -817,7 +1154,21 @@ function MatchAnalysisComponent() {
           </Badge>
         </motion.div>
 
-        {/* Match Results (Scoreboard) */}
+        <Tabs defaultValue="overview" className="space-y-8">
+          <TabsList className="bg-neutral-900/60 border border-neutral-700/60 rounded-lg p-1 w-full sm:w-auto">
+            <TabsTrigger value="overview" className="px-4 py-2">
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="performance" className="px-4 py-2">
+              Performance
+            </TabsTrigger>
+            <TabsTrigger value="details" className="px-4 py-2">
+              Details
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-8">
+            {/* Match Results (Scoreboard) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1008,179 +1359,6 @@ function MatchAnalysisComponent() {
                   </div>
                 ))}
               </div>
-            </CardBody>
-          </Card>
-        </motion.div>
-
-        {/* Build Suggestions */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-        >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
-            <CardBody className="p-6">
-              <div className="flex items-center gap-1 mb-4 flex-row">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  data-name="Your Icon"
-                  viewBox="0 0 100 125"
-                  x="0px"
-                  y="0px"
-                  className="size-8 text-white"
-                  color="currentColor"
-                  fill="currentColor"
-                  stroke="transparent"
-                >
-                  <title>Item Suggestions</title>
-                  <path d="m90.64,59.09l-16.25-7.09c-3.93-1.71-7.06-4.85-8.77-8.77l-7.09-16.25c-.55-1.26-2.34-1.26-2.89,0l-7.09,16.25c-1.71,3.93-4.85,7.06-8.77,8.77l-16.27,7.1c-1.26.55-1.26,2.33,0,2.88l16.55,7.32c3.92,1.73,7.04,4.88,8.73,8.82l6.86,15.94c.54,1.27,2.34,1.27,2.89,0l7.08-16.22c1.71-3.93,4.85-7.06,8.77-8.77l16.25-7.09c1.26-.55,1.26-2.34,0-2.89Z" />
-                  <path d="m25.28,48.51l3.32-7.61c.8-1.84,2.27-3.31,4.11-4.11l7.62-3.32c.59-.26.59-1.1,0-1.35l-7.62-3.32c-1.84-.8-3.31-2.27-4.11-4.11l-3.32-7.62c-.26-.59-1.1-.59-1.35,0l-3.32,7.62c-.8,1.84-2.27,3.31-4.11,4.11l-7.63,3.33c-.59.26-.59,1.09,0,1.35l7.76,3.43c1.84.81,3.3,2.29,4.09,4.13l3.22,7.47c.26.59,1.1.6,1.35,0Z" />
-                  <path d="m39.89,13.95l4.12,1.82c.98.43,1.75,1.22,2.17,2.19l1.71,3.97c.14.32.58.32.72,0l1.76-4.04c.43-.98,1.21-1.76,2.18-2.18l4.04-1.76c.31-.14.31-.58,0-.72l-4.04-1.76c-.98-.43-1.76-1.21-2.18-2.18l-1.76-4.04c-.14-.31-.58-.31-.72,0l-1.76,4.04c-.43.98-1.21,1.76-2.18,2.18l-4.05,1.77c-.31.14-.31.58,0,.72Z" />
-                </svg>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <h2 className="text-2xl font-bold text-neutral-50 decoration-dotted underline">
-                      Item Suggestions
-                    </h2>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-black/90 text-neutral-100">
-                    AI generated item suggestions
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-
-              {/* 6 columns: built item + suggestions */}
-              <div className="flex items-center gap-4 overflow-x-auto py-2">
-                {isBuildsLoading ? (
-                  <div className="flex items-center justify-center w-full py-8">
-                    <div className="flex items-center gap-3">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
-                      <span className="text-neutral-300">
-                        Generating build recommendation with AI...
-                      </span>
-                    </div>
-                  </div>
-                ) : buildsData?.buildOrder &&
-                  buildsData.buildOrder.length > 0 ? (
-                  buildsData.buildOrder.map((entry, idx) => (
-                    <div
-                      key={`bo-${entry.order}-${entry.itemId}`}
-                      className="flex items-center gap-2"
-                    >
-                      <div className="flex flex-col items-center">
-                        {entry.itemId > 0 ? (
-                          <img
-                            src={getItemIcon(entry.itemId)}
-                            alt={entry.itemName}
-                            title={entry.reasoning}
-                            className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
-                          />
-                        ) : (
-                          <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
-                        )}
-                        <span className="mt-1 text-xs text-neutral-400">
-                          #{entry.order} {entry.itemName}
-                        </span>
-                      </div>
-                      {idx < buildsData.buildOrder.length - 1 && (
-                        <ChevronRight className="w-4 h-4 text-neutral-500" />
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  slotColumns.map((col, idx) => (
-                    <div
-                      key={`col-wrapper-${col.slotKey}`}
-                      className="flex items-center gap-2"
-                    >
-                      <div
-                        key={`col-${col.slotKey}`}
-                        className="flex flex-col items-start gap-3 ml-2"
-                      >
-                        {/* Base item */}
-                        <div className="flex flex-col items-center">
-                          {col.baseId > 0 ? (
-                            <img
-                              src={getItemIcon(col.baseId)}
-                              alt={`Base ${col.slotKey}`}
-                              title={
-                                col.overridden
-                                  ? 'AI override: component added to slot'
-                                  : undefined
-                              }
-                              className={cn(
-                                'size-12 rounded-lg bg-neutral-900 border object-cover',
-                                col.overridden
-                                  ? 'border-accent-yellow-500/70 ring-2 ring-accent-yellow-400'
-                                  : 'border-neutral-700/70',
-                              )}
-                            />
-                          ) : (
-                            <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
-                          )}
-                        </div>
-
-                        {/* Suggestions stack */}
-                        <div className="flex flex-col gap-2">
-                          {col.suggestions.length > 0
-                            ? col.suggestions.map((sug, sidx) => (
-                                <div
-                                  key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
-                                  className="relative"
-                                  title={
-                                    sug.action === 'replace_item'
-                                      ? `Replace ${sug.replacesName ?? 'item'} → ${sug.name ?? 'recommended'}. ${sug.reasoning}`
-                                      : `Add to ${col.slotKey}. ${sug.reasoning}`
-                                  }
-                                >
-                                  <img
-                                    src={getItemIcon(sug.id)}
-                                    alt={sug.name || 'Suggestion'}
-                                    className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
-                                  />
-                                  {sug.action === 'replace_item' &&
-                                  sug.replacesId > 0 ? (
-                                    <img
-                                      src={getItemIcon(sug.replacesId)}
-                                      alt={sug.replacesName || 'Replaced item'}
-                                      className="absolute -bottom-1 -left-1 size-5 rounded-full bg-neutral-900 border border-red-500/60 object-cover shadow-md"
-                                    />
-                                  ) : null}
-                                  <span
-                                    className={cn(
-                                      'absolute -top-1 -right-1 text-[10px] px-1 py-0.5 rounded border',
-                                      sug.action === 'replace_item'
-                                        ? 'bg-red-900/60 border-red-500/60 text-red-200'
-                                        : 'bg-accent-yellow-900/60 border-accent-yellow-500/60 text-accent-yellow-200',
-                                    )}
-                                  >
-                                    {sug.action === 'replace_item'
-                                      ? 'Replace'
-                                      : 'Add'}
-                                  </span>
-                                </div>
-                              ))
-                            : null}
-                        </div>
-                      </div>
-                      {idx < slotColumns.length - 1 && (
-                        <ChevronRight className="w-4 h-4 text-neutral-500" />
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Overall analysis */}
-              {buildsData?.overallAnalysis && (
-                <p className="mt-4 text-sm text-neutral-300 leading-relaxed">
-                  {
-                    buildsData.overallAnalysis.split(
-                      'Grounded item facts (from DDragon):',
-                    )[0]
-                  }
-                </p>
-              )}
             </CardBody>
           </Card>
         </motion.div>
@@ -1411,6 +1589,496 @@ function MatchAnalysisComponent() {
             </CardBody>
           </Card>
         </motion.div>
+
+          </TabsContent>
+
+
+          <TabsContent value="performance" className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+                <CardBody className="p-6 space-y-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold text-neutral-50">
+                        Performance Benchmarks
+                      </h2>
+                      <p className="text-sm text-neutral-400">{comparisonSubtitle}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={comparisonMode === 'cohort' ? 'secondary' : 'outline'}
+                        size="sm"
+                        onClick={() => setComparisonMode('cohort')}
+                      >
+                        Cohort
+                      </Button>
+                      <Button
+                        variant={comparisonMode === 'self' ? 'secondary' : 'outline'}
+                        size="sm"
+                        onClick={() => setComparisonMode('self')}
+                        disabled={!championRoleDetail?.playerPercentiles}
+                      >
+                        Personal
+                      </Button>
+                    </div>
+                  </div>
+                  {isChampionRoleLoading ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {[...Array(6).keys()].map((idx) => (
+                        <div
+                          key={`benchmark-skeleton-${idx}`}
+                          className="rounded-lg border border-neutral-800/60 bg-neutral-800/40 p-4 space-y-3 animate-pulse"
+                        >
+                          <div className="h-3 w-1/3 rounded bg-neutral-700/50" />
+                          <div className="h-6 w-1/2 rounded bg-neutral-700/50" />
+                          <div className="h-3 w-2/3 rounded bg-neutral-700/50" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : comparisonSourceAvailable ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {performanceComparisons.map((card) => (
+                        <div
+                          key={card.key}
+                          className="rounded-lg border border-neutral-700/50 bg-neutral-800/40 p-4 space-y-3"
+                        >
+                          <div className="text-sm text-neutral-400">{card.label}</div>
+                          <div className="text-2xl font-semibold text-neutral-100">
+                            {card.valueDisplay}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-neutral-400">
+                            <span>{comparisonBaselineLabel}</span>
+                            <span className="font-medium text-neutral-200">
+                              {card.baselineDisplay}
+                            </span>
+                          </div>
+                          {card.diffDisplay ? (
+                            <div className={`text-sm font-semibold ${card.trendClass}`}>
+                              {card.diffDisplay}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-neutral-500">No data</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
+                      {comparisonMode === 'cohort'
+                        ? 'Not enough historical data yet to build cohort benchmarks for this champion and role.'
+                        : 'Not enough historical data yet to build personal medians for this champion and role.'}
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+                <CardBody className="p-6 space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-neutral-50">
+                      Win Probability Timeline
+                    </h2>
+                    <p className="text-sm text-neutral-400">
+                      Gold advantage logistic model with an impact score per minute.
+                    </p>
+                  </div>
+                  {winProbabilityData.length > 0 ? (
+                    <ChartContainer
+                      config={winProbabilityChartConfig}
+                      className="h-[320px]"
+                    >
+                      <ComposedChart data={winProbabilityData}>
+                        <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
+                        <XAxis
+                          dataKey="minute"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fill: '#9ca3af', fontSize: 12 }}
+                          label={{ value: 'Minutes', position: 'insideBottomRight', offset: -4, fill: '#9ca3af', fontSize: 12 }}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          tickFormatter={(value) => `${Math.round(value)}%`}
+                          tick={{ fill: '#9ca3af', fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <RechartsTooltip
+                          cursor={{ stroke: 'rgba(148, 163, 184, 0.4)', strokeWidth: 1 }}
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null;
+                            const datum = payload[0]?.payload as
+                              | { winProb: number; impactRaw: number }
+                              | undefined;
+                            if (!datum) return null;
+                            return (
+                              <div className="rounded-lg border border-neutral-700/60 bg-neutral-900/90 p-3 text-xs text-neutral-200">
+                                <div className="font-semibold text-neutral-100">Minute {label}</div>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span className="text-neutral-400">Win probability</span>
+                                  <span className="font-semibold text-accent-blue-200">
+                                    {datum.winProb.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between">
+                                  <span className="text-neutral-400">Impact score</span>
+                                  <span className="font-semibold text-accent-yellow-200">
+                                    {datum.impactRaw.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="winProb"
+                          stroke="var(--color-winProb)"
+                          fill="var(--color-winProb)"
+                          fillOpacity={0.15}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="impact"
+                          stroke="var(--color-impact)"
+                          strokeWidth={2}
+                          dot={false}
+                          strokeDasharray="4 2"
+                        />
+                        <ReferenceLine y={50} stroke="rgba(148,163,184,0.4)" strokeDasharray="6 6" />
+                      </ComposedChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
+                      Win probability chart unavailable without timeline frames.
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </motion.div>
+          {/* Build Suggestions */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+          >
+            <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
+              <CardBody className="p-6">
+                <div className="flex items-center gap-1 mb-4 flex-row">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    data-name="Your Icon"
+                    viewBox="0 0 100 125"
+                    x="0px"
+                    y="0px"
+                    className="size-8 text-white"
+                    color="currentColor"
+                    fill="currentColor"
+                    stroke="transparent"
+                  >
+                    <title>Item Suggestions</title>
+                    <path d="m90.64,59.09l-16.25-7.09c-3.93-1.71-7.06-4.85-8.77-8.77l-7.09-16.25c-.55-1.26-2.34-1.26-2.89,0l-7.09,16.25c-1.71,3.93-4.85,7.06-8.77,8.77l-16.27,7.1c-1.26.55-1.26,2.33,0,2.88l16.55,7.32c3.92,1.73,7.04,4.88,8.73,8.82l6.86,15.94c.54,1.27,2.34,1.27,2.89,0l7.08-16.22c1.71-3.93,4.85-7.06,8.77-8.77l16.25-7.09c1.26-.55,1.26-2.34,0-2.89Z" />
+                    <path d="m25.28,48.51l3.32-7.61c.8-1.84,2.27-3.31,4.11-4.11l7.62-3.32c.59-.26.59-1.1,0-1.35l-7.62-3.32c-1.84-.8-3.31-2.27-4.11-4.11l-3.32-7.62c-.26-.59-1.1-.59-1.35,0l-3.32,7.62c-.8,1.84-2.27,3.31-4.11,4.11l-7.63,3.33c-.59.26-.59,1.09,0,1.35l7.76,3.43c1.84.81,3.3,2.29,4.09,4.13l3.22,7.47c.26.59,1.1.6,1.35,0Z" />
+                    <path d="m39.89,13.95l4.12,1.82c.98.43,1.75,1.22,2.17,2.19l1.71,3.97c.14.32.58.32.72,0l1.76-4.04c.43-.98,1.21-1.76,2.18-2.18l4.04-1.76c.31-.14.31-.58,0-.72l-4.04-1.76c-.98-.43-1.76-1.21-2.18-2.18l-1.76-4.04c-.14-.31-.58-.31-.72,0l-1.76,4.04c-.43.98-1.21,1.76-2.18,2.18l-4.05,1.77c-.31.14-.31.58,0,.72Z" />
+                  </svg>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <h2 className="text-2xl font-bold text-neutral-50 decoration-dotted underline">
+                        Item Suggestions
+                      </h2>
+                    </TooltipTrigger>
+                    <TooltipContent className="bg-black/90 text-neutral-100">
+                      AI generated item suggestions
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+  
+                {/* 6 columns: built item + suggestions */}
+                <div className="flex items-center gap-4 overflow-x-auto py-2">
+                  {isBuildsLoading ? (
+                    <div className="flex items-center justify-center w-full py-8">
+                      <div className="flex items-center gap-3">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
+                        <span className="text-neutral-300">
+                          Generating build recommendation with AI...
+                        </span>
+                      </div>
+                    </div>
+                  ) : buildsData?.buildOrder &&
+                    buildsData.buildOrder.length > 0 ? (
+                    buildsData.buildOrder.map((entry, idx) => (
+                      <div
+                        key={`bo-${entry.order}-${entry.itemId}`}
+                        className="flex items-center gap-2"
+                      >
+                        <div className="flex flex-col items-center">
+                          {entry.itemId > 0 ? (
+                            <img
+                              src={getItemIcon(entry.itemId)}
+                              alt={entry.itemName}
+                              title={entry.reasoning}
+                              className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                            />
+                          ) : (
+                            <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
+                          )}
+                          <span className="mt-1 text-xs text-neutral-400">
+                            #{entry.order} {entry.itemName}
+                          </span>
+                        </div>
+                        {idx < buildsData.buildOrder.length - 1 && (
+                          <ChevronRight className="w-4 h-4 text-neutral-500" />
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    slotColumns.map((col, idx) => (
+                      <div
+                        key={`col-wrapper-${col.slotKey}`}
+                        className="flex items-center gap-2"
+                      >
+                        <div
+                          key={`col-${col.slotKey}`}
+                          className="flex flex-col items-start gap-3 ml-2"
+                        >
+                          {/* Base item */}
+                          <div className="flex flex-col items-center">
+                            {col.baseId > 0 ? (
+                              <img
+                                src={getItemIcon(col.baseId)}
+                                alt={`Base ${col.slotKey}`}
+                                title={
+                                  col.overridden
+                                    ? 'AI override: component added to slot'
+                                    : undefined
+                                }
+                                className={cn(
+                                  'size-12 rounded-lg bg-neutral-900 border object-cover',
+                                  col.overridden
+                                    ? 'border-accent-yellow-500/70 ring-2 ring-accent-yellow-400'
+                                    : 'border-neutral-700/70',
+                                )}
+                              />
+                            ) : (
+                              <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
+                            )}
+                          </div>
+  
+                          {/* Suggestions stack */}
+                          <div className="flex flex-col gap-2">
+                            {col.suggestions.length > 0
+                              ? col.suggestions.map((sug, sidx) => (
+                                  <div
+                                    key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
+                                    className="relative"
+                                    title={
+                                      sug.action === 'replace_item'
+                                        ? `Replace ${sug.replacesName ?? 'item'} → ${sug.name ?? 'recommended'}. ${sug.reasoning}`
+                                        : `Add to ${col.slotKey}. ${sug.reasoning}`
+                                    }
+                                  >
+                                    <img
+                                      src={getItemIcon(sug.id)}
+                                      alt={sug.name || 'Suggestion'}
+                                      className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                                    />
+                                    {sug.action === 'replace_item' &&
+                                    sug.replacesId > 0 ? (
+                                      <img
+                                        src={getItemIcon(sug.replacesId)}
+                                        alt={sug.replacesName || 'Replaced item'}
+                                        className="absolute -bottom-1 -left-1 size-5 rounded-full bg-neutral-900 border border-red-500/60 object-cover shadow-md"
+                                      />
+                                    ) : null}
+                                    <span
+                                      className={cn(
+                                        'absolute -top-1 -right-1 text-[10px] px-1 py-0.5 rounded border',
+                                        sug.action === 'replace_item'
+                                          ? 'bg-red-900/60 border-red-500/60 text-red-200'
+                                          : 'bg-accent-yellow-900/60 border-accent-yellow-500/60 text-accent-yellow-200',
+                                      )}
+                                    >
+                                      {sug.action === 'replace_item'
+                                        ? 'Replace'
+                                        : 'Add'}
+                                    </span>
+                                  </div>
+                                ))
+                              : null}
+                          </div>
+                        </div>
+                        {idx < slotColumns.length - 1 && (
+                          <ChevronRight className="w-4 h-4 text-neutral-500" />
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+  
+                {/* Overall analysis */}
+                {buildsData?.overallAnalysis && (
+                  <p className="mt-4 text-sm text-neutral-300 leading-relaxed">
+                    {
+                      buildsData.overallAnalysis.split(
+                        'Grounded item facts (from DDragon):',
+                      )[0]
+                    }
+                  </p>
+                )}
+              </CardBody>
+            </Card>
+          </motion.div>
+  
+
+          </TabsContent>
+
+          <TabsContent value="details" className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+                <CardBody className="p-6 space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-neutral-50">
+                      Detailed Player Stats
+                    </h2>
+                    <p className="text-sm text-neutral-400">
+                      Expanded postgame-style breakdown including damage share, vision, and pacing metrics.
+                    </p>
+                  </div>
+                  <div className="space-y-8">
+                    {detailedStatsByTeam.map((team) => (
+                      <div key={`team-details-${team.teamId}`} className="space-y-3">
+                        <div
+                          className={cn(
+                            'flex items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold',
+                            team.teamId === 100
+                              ? 'border-accent-blue-400/40 bg-accent-blue-900/20 text-accent-blue-100'
+                              : 'border-red-400/40 bg-red-900/20 text-red-100',
+                          )}
+                        >
+                          <span>
+                            {team.win ? 'Victory' : 'Defeat'} · {team.name}
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm text-neutral-200">
+                            <thead className="text-xs uppercase tracking-wide text-neutral-500">
+                              <tr>
+                                <th className="px-3 py-2 text-left">Player</th>
+                                <th className="px-3 py-2 text-left">Role</th>
+                                <th className="px-3 py-2 text-left">K / D / A</th>
+                                <th className="px-3 py-2 text-right">KDA</th>
+                                <th className="px-3 py-2 text-right">CS (CS/min)</th>
+                                <th className="px-3 py-2 text-right">Gold</th>
+                                <th className="px-3 py-2 text-right">Damage</th>
+                                <th className="px-3 py-2 text-right">Taken</th>
+                                <th className="px-3 py-2 text-right">Vision</th>
+                                <th className="px-3 py-2 text-right">Wards</th>
+                                <th className="px-3 py-2 text-right">DMG%</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-800/60">
+                              {team.participants.map((row) => {
+                                const isSubject =
+                                  row.participant.puuid === subjectParticipant?.puuid;
+                                const role =
+                                  row.participant.teamPosition ||
+                                  row.participant.individualPosition ||
+                                  '—';
+                                const damageShareDisplay =
+                                  row.damageShare != null
+                                    ? `${row.damageShare.toFixed(1)}%`
+                                    : '—';
+                                const wardsDisplay = `${row.wardsPlaced}/${row.wardsKilled}`;
+                                return (
+                                  <tr
+                                    key={row.participant.puuid}
+                                    className={cn(
+                                      'transition-colors',
+                                      isSubject
+                                        ? 'bg-accent-blue-900/30'
+                                        : 'bg-neutral-900/20 hover:bg-neutral-800/30',
+                                    )}
+                                  >
+                                    <td className="px-3 py-2">
+                                      <div className="flex items-center gap-3">
+                                        <Avatar className="h-10 w-10 rounded-lg">
+                                          <AvatarImage
+                                            src={getChampionSquare(row.participant.championName)}
+                                            alt={row.participant.championName}
+                                          />
+                                        </Avatar>
+                                        <div>
+                                          <div className="font-semibold text-neutral-100">
+                                            {row.displayName}
+                                            {row.displayTag ? (
+                                              <span className="text-xs text-neutral-500 ml-1">
+                                                #{row.displayTag}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          <div className="text-xs text-neutral-500">
+                                            {row.participant.championName}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 text-neutral-300">{role}</td>
+                                    <td className="px-3 py-2 text-neutral-300">
+                                      {row.participant.kills}/{row.participant.deaths}/{row.participant.assists}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      {Number.isFinite(row.kdaRatio)
+                                        ? row.kdaRatio.toFixed(2)
+                                        : '—'}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      {numberFormatter.format(row.cs)}
+                                      <span className="text-xs text-neutral-500 ml-1">
+                                        ({row.csPerMin.toFixed(2)})
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      {numberFormatter.format(row.goldEarned)}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      {numberFormatter.format(row.damage)}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      {numberFormatter.format(row.damageTaken)}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      {numberFormatter.format(row.visionScore)}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">{wardsDisplay}</td>
+                                    <td className="px-3 py-2 text-right">{damageShareDisplay}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardBody>
+              </Card>
+            </motion.div>
+          </TabsContent>
+        </Tabs>
+
       </div>
     </TooltipProvider>
   );

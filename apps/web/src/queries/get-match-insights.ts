@@ -143,3 +143,72 @@ export const getAllMatchDataQueryOptions = (
   insights: getMatchInsightsQueryOptions(region, name, tag, matchId),
   builds: getMatchBuildSuggestionsQueryOptions(region, name, tag, matchId),
 });
+
+// Champion-role detail (player vs cohort) used for match-level comparisons
+export interface ChampionRolePercentiles {
+  p50: Record<string, number>;
+  p75: Record<string, number>;
+  p90: Record<string, number>;
+  p95: Record<string, number>;
+}
+
+export interface ChampionRoleDetailResponse {
+  championName: string;
+  role: string;
+  aiScore: number | null;
+  reasoning?: string;
+  stats: {
+    avgCspm: number;
+    avgGoldAt10: number;
+    avgCsAt10: number;
+    avgGoldAt15: number;
+    avgCsAt15: number;
+    avgDpm: number;
+    avgDtpm: number;
+    avgKpm: number;
+    avgApm: number;
+    avgDeathsPerMin: number;
+  };
+  cohort: {
+    championName: string;
+    role: string;
+    percentiles: ChampionRolePercentiles;
+  } | null;
+  playerPercentiles?: {
+    championName: string;
+    role: string;
+    percentiles: ChampionRolePercentiles;
+  } | null;
+  insights: {
+    summary: string;
+    strengths: string[];
+    weaknesses: string[];
+  };
+}
+
+export const getChampionRoleDetailQueryOptions = (
+  region: string,
+  name: string,
+  tag: string,
+  championName: string,
+  role: string,
+) =>
+  queryOptions({
+    queryKey: [
+      'champion-role-detail',
+      region,
+      name,
+      tag,
+      championName,
+      role,
+    ],
+    queryFn: () =>
+      http
+        .get<ChampionRoleDetailResponse>(
+          `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/champions/${encodeURIComponent(
+            championName,
+          )}/${encodeURIComponent(role)}`,
+        )
+        .then((res) => res.data),
+    staleTime: 1000 * 60 * 10,
+  });
