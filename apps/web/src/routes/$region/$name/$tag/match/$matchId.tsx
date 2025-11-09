@@ -1163,8 +1163,6 @@ function MatchAnalysisComponent() {
 
     // Extract percentiles from championRoleDetail cohort data
     const percentiles = championRoleDetail?.cohort?.percentiles;
-    console.log('championRoleDetail:', championRoleDetail);
-    console.log('percentiles:', percentiles);
     const getPercentile = (key: string, percentile: 'p50' | 'p75' | 'p90') => {
       const value = percentiles?.[percentile]?.[key];
       console.log(`getPercentile(${key}, ${percentile}):`, value);
