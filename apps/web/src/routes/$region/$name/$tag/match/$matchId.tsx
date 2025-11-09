@@ -1,11 +1,9 @@
+import { PerformanceCategoryCard } from '@/components/performance/PerformanceCategoryCard';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
-import {
-  ChartContainer,
-  type ChartConfig,
-} from '@/components/ui/chart';
+import { type ChartConfig, ChartContainer } from '@/components/ui/chart';
 import {
   Popover,
   PopoverContent,
@@ -38,8 +36,8 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
-  ReferenceLine,
   Tooltip as RechartsTooltip,
+  ReferenceLine,
   XAxis,
   YAxis,
 } from 'recharts';
@@ -378,7 +376,9 @@ function MatchAnalysisComponent() {
   // Key moments state
   const [selectedMomentIndex, setSelectedMomentIndex] = useState(0);
   const selectedMoment = insightsData?.keyMoments[selectedMomentIndex] || null;
-  const [comparisonMode, setComparisonMode] = useState<'cohort' | 'self'>('cohort');
+  const [comparisonMode, setComparisonMode] = useState<'cohort' | 'self'>(
+    'cohort',
+  );
 
   const participantById = useMemo(() => {
     if (!matchData)
@@ -796,23 +796,20 @@ function MatchAnalysisComponent() {
     normalizedRole !== '' &&
     !['UNKNOWN', 'INVALID', 'NONE'].includes(normalizedRole);
 
-  const {
-    data: championRoleDetail,
-    isLoading: isChampionRoleLoading,
-  } = useQuery({
-    ...getChampionRoleDetailQueryOptions(
-      region,
-      name,
-      tag,
-      subjectParticipant?.championName ?? '',
-      normalizedRole || 'UNKNOWN',
-    ),
-    enabled: championRoleQueryEnabled,
-  });
+  const { data: championRoleDetail, isLoading: isChampionRoleLoading } =
+    useQuery({
+      ...getChampionRoleDetailQueryOptions(
+        region,
+        name,
+        tag,
+        subjectParticipant?.championName ?? '',
+        normalizedRole || 'UNKNOWN',
+      ),
+      enabled: championRoleQueryEnabled,
+    });
 
   const matchDurationMinutes = useMemo(
-    () =>
-      matchData ? Math.max(matchData.info.gameDuration / 60, 1) : 1,
+    () => (matchData ? Math.max(matchData.info.gameDuration / 60, 1) : 1),
     [matchData],
   );
 
@@ -827,13 +824,18 @@ function MatchAnalysisComponent() {
         if (!Number.isFinite(ts)) continue;
         if (ts >= targetMs) {
           const pf =
-            (frame.participantFrames?.[String(pid)] as ParticipantFrame | undefined) ??
-            null;
+            (frame.participantFrames?.[String(pid)] as
+              | ParticipantFrame
+              | undefined) ?? null;
           if (pf) return pf;
         }
       }
       const last = frames[frames.length - 1];
-      return (last?.participantFrames?.[String(pid)] as ParticipantFrame | undefined) ?? null;
+      return (
+        (last?.participantFrames?.[String(pid)] as
+          | ParticipantFrame
+          | undefined) ?? null
+      );
     };
     const getValues = (pf: ParticipantFrame | null | undefined) => {
       if (!pf) return { gold: null, cs: null };
@@ -843,8 +845,7 @@ function MatchAnalysisComponent() {
           : typeof pf.currentGold === 'number'
             ? pf.currentGold
             : null;
-      const cs =
-        (pf.minionsKilled ?? 0) + (pf.jungleMinionsKilled ?? 0);
+      const cs = (pf.minionsKilled ?? 0) + (pf.jungleMinionsKilled ?? 0);
       return { gold, cs };
     };
     const at10 = getValues(findFrame(10 * 60 * 1000));
@@ -877,18 +878,16 @@ function MatchAnalysisComponent() {
       (subjectParticipant.totalMinionsKilled ?? 0) +
       (subjectParticipant.neutralMinionsKilled ?? 0);
     const cspm = totalCs / minutes;
-    const dpm =
-      (subjectParticipant.totalDamageDealtToChampions ?? 0) / minutes;
-    const dtpm =
-      (subjectParticipant.totalDamageTaken ?? 0) / minutes;
+    const dpm = (subjectParticipant.totalDamageDealtToChampions ?? 0) / minutes;
+    const dtpm = (subjectParticipant.totalDamageTaken ?? 0) / minutes;
     const kpm = (subjectParticipant.kills ?? 0) / minutes;
     const apm = (subjectParticipant.assists ?? 0) / minutes;
     const deathsPerMin = (subjectParticipant.deaths ?? 0) / minutes;
 
     const baselineSource =
       comparisonMode === 'cohort'
-        ? championRoleDetail?.cohort?.percentiles?.p50 ?? null
-        : championRoleDetail?.playerPercentiles?.percentiles?.p50 ?? null;
+        ? (championRoleDetail?.cohort?.percentiles?.p50 ?? null)
+        : (championRoleDetail?.playerPercentiles?.percentiles?.p50 ?? null);
 
     const getBaseline = (key: string) =>
       baselineSource && typeof baselineSource[key] === 'number'
@@ -911,29 +910,59 @@ function MatchAnalysisComponent() {
         return `${rounded > 0 ? '+' : ''}${numberFormatter.format(rounded)}`;
       }
       const rounded = Number(value.toFixed(digits));
-      if (Math.abs(rounded) < Math.pow(10, -digits)) return '±0';
+      if (Math.abs(rounded) < 10 ** -digits) return '±0';
       return `${rounded > 0 ? '+' : ''}${rounded.toFixed(digits)}`;
     };
 
     const cards = [
-      { key: 'goldAt10', label: 'Gold @ 10', value: laneSnapshots?.goldAt10 ?? null, digits: 0 },
-      { key: 'csAt10', label: 'CS @ 10', value: laneSnapshots?.csAt10 ?? null, digits: 0 },
-      { key: 'goldAt15', label: 'Gold @ 15', value: laneSnapshots?.goldAt15 ?? null, digits: 0 },
-      { key: 'csAt15', label: 'CS @ 15', value: laneSnapshots?.csAt15 ?? null, digits: 0 },
+      {
+        key: 'goldAt10',
+        label: 'Gold @ 10',
+        value: laneSnapshots?.goldAt10 ?? null,
+        digits: 0,
+      },
+      {
+        key: 'csAt10',
+        label: 'CS @ 10',
+        value: laneSnapshots?.csAt10 ?? null,
+        digits: 0,
+      },
+      {
+        key: 'goldAt15',
+        label: 'Gold @ 15',
+        value: laneSnapshots?.goldAt15 ?? null,
+        digits: 0,
+      },
+      {
+        key: 'csAt15',
+        label: 'CS @ 15',
+        value: laneSnapshots?.csAt15 ?? null,
+        digits: 0,
+      },
       { key: 'cspm', label: 'CS / Min', value: cspm, digits: 2 },
       { key: 'dpm', label: 'Damage / Min', value: dpm, digits: 0 },
-      { key: 'dtpm', label: 'Damage Taken / Min', value: dtpm, digits: 0, invert: true },
+      {
+        key: 'dtpm',
+        label: 'Damage Taken / Min',
+        value: dtpm,
+        digits: 0,
+        invert: true,
+      },
       { key: 'kpm', label: 'Kills / Min', value: kpm, digits: 2 },
       { key: 'apm', label: 'Assists / Min', value: apm, digits: 2 },
-      { key: 'deathsPerMin', label: 'Deaths / Min', value: deathsPerMin, digits: 2, invert: true },
+      {
+        key: 'deathsPerMin',
+        label: 'Deaths / Min',
+        value: deathsPerMin,
+        digits: 2,
+        invert: true,
+      },
     ];
 
     return cards.map((card) => {
       const baseline = getBaseline(card.key);
       const diff =
-        baseline != null && card.value != null
-          ? card.value - baseline
-          : null;
+        baseline != null && card.value != null ? card.value - baseline : null;
       const diffDisplay = formatDiff(diff, card.digits);
       const trendClass =
         diffDisplay === '±0'
@@ -950,11 +979,15 @@ function MatchAnalysisComponent() {
       return {
         key: card.key,
         label: card.label,
+        value: card.value,
         valueDisplay: formatValue(card.value, card.digits),
+        baselineValue: baseline,
         baselineDisplay:
           baseline != null ? formatValue(baseline, card.digits) : '—',
         diffDisplay,
         trendClass,
+        invert: Boolean(card.invert),
+        digits: card.digits,
       };
     });
   }, [
@@ -998,15 +1031,17 @@ function MatchAnalysisComponent() {
         if (!Number.isFinite(ts)) return null;
 
         const pf =
-          (frame.participantFrames?.[String(pid)] as ParticipantFrame | undefined) ??
-          null;
+          (frame.participantFrames?.[String(pid)] as
+            | ParticipantFrame
+            | undefined) ?? null;
 
         let teamGold = 0;
         let enemyGold = 0;
         for (const [id, meta] of participantById.entries()) {
           const pfTeam =
-            (frame.participantFrames?.[String(id)] as ParticipantFrame | undefined) ??
-            null;
+            (frame.participantFrames?.[String(id)] as
+              | ParticipantFrame
+              | undefined) ?? null;
           const totalGold =
             typeof pfTeam?.totalGold === 'number'
               ? pfTeam.totalGold
@@ -1031,10 +1066,12 @@ function MatchAnalysisComponent() {
               : prevGold;
         const xp = typeof pf?.xp === 'number' ? pf.xp : prevXp;
         const damage =
-          (pf?.damageStats as { totalDamageDoneToChampions?: number } | undefined)
-            ?.totalDamageDoneToChampions ?? prevDamage;
-        const cs =
-          (pf?.minionsKilled ?? 0) + (pf?.jungleMinionsKilled ?? 0);
+          (
+            pf?.damageStats as
+              | { totalDamageDoneToChampions?: number }
+              | undefined
+          )?.totalDamageDoneToChampions ?? prevDamage;
+        const cs = (pf?.minionsKilled ?? 0) + (pf?.jungleMinionsKilled ?? 0);
 
         const goldDelta = totalGold - prevGold;
         const xpDelta = xp - prevXp;
@@ -1057,14 +1094,25 @@ function MatchAnalysisComponent() {
           impactRaw: Number(clampedImpact.toFixed(2)),
         };
       })
-      .filter((entry): entry is { minute: number; winProb: number; impact: number; impactRaw: number } => Boolean(entry));
+      .filter(
+        (
+          entry,
+        ): entry is {
+          minute: number;
+          winProb: number;
+          impact: number;
+          impactRaw: number;
+        } => Boolean(entry),
+      );
   }, [timelineData, subjectParticipant, participantById]);
 
   const detailedStatsByTeam = useMemo(() => {
     if (!matchData) return [];
     type MaybeRiotId = { riotIdGameName?: string; riotIdTagline?: string };
     return [100, 200].map((teamId) => {
-      const teamMeta = matchData.info.teams.find((team) => team.teamId === teamId);
+      const teamMeta = matchData.info.teams.find(
+        (team) => team.teamId === teamId,
+      );
       const participants = matchData.info.participants
         .filter((p) => p.teamId === teamId)
         .map((p) => {
@@ -1074,8 +1122,7 @@ function MatchAnalysisComponent() {
           const cs =
             (p.totalMinionsKilled ?? 0) + (p.neutralMinionsKilled ?? 0);
           const csPerMin = cs / matchDurationMinutes;
-          const kdaRatio =
-            (p.kills + p.assists) / Math.max(1, p.deaths ?? 0);
+          const kdaRatio = (p.kills + p.assists) / Math.max(1, p.deaths ?? 0);
           const damageShare =
             typeof p.challenges?.teamDamagePercentage === 'number'
               ? p.challenges.teamDamagePercentage * 100
@@ -1105,6 +1152,206 @@ function MatchAnalysisComponent() {
     });
   }, [matchData, matchDurationMinutes]);
 
+  // Build grouped category metrics
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-render when performanceComparisons change
+  const categoryCards = useMemo(() => {
+    const byKey = new Map(performanceComparisons.map((c) => [c.key, c]));
+
+    const get = (k: string) => byKey.get(k);
+    const num = (n: number | null | undefined) =>
+      n == null || Number.isNaN(n) ? null : n;
+
+    // Extract percentiles from championRoleDetail cohort data
+    const percentiles = championRoleDetail?.cohort?.percentiles;
+    console.log('championRoleDetail:', championRoleDetail);
+    console.log('percentiles:', percentiles);
+    const getPercentile = (key: string, percentile: 'p50' | 'p75' | 'p90') => {
+      const value = percentiles?.[percentile]?.[key];
+      console.log(`getPercentile(${key}, ${percentile}):`, value);
+      return num(value);
+    };
+
+    const toMetric = (
+      k: string,
+      label: string,
+      opts?: { invert?: boolean; percent?: boolean },
+    ) => {
+      const c = get(k);
+      return c
+        ? {
+            key: k,
+            label,
+            value: num(c.value),
+            valueDisplay: c.valueDisplay,
+            baseline: num(c.baselineValue ?? null),
+            invert: opts?.invert ?? Boolean(c.invert),
+            percent: opts?.percent ?? false,
+            p50: getPercentile(k, 'p50'),
+            p75: getPercentile(k, 'p75'),
+            p90: getPercentile(k, 'p90'),
+          }
+        : null;
+    };
+
+    const normalize = (
+      val: number | null | undefined,
+      base: number | null | undefined,
+      invert?: boolean,
+    ) => {
+      if (val == null || base == null) return null;
+      const v = Number(val);
+      const b = Number(base);
+      if (!Number.isFinite(v) || !Number.isFinite(b) || b === 0) return null;
+      const ratio = invert ? b / v : v / b;
+      // Map ratio to 0-100 scale where 0.5 ratio = 0 points, 1.0 ratio = 50 points, 2.0 ratio = 100 points
+      // Formula: score = (ratio - 0.5) * 100, clamped to [0, 100]
+      const score = (ratio - 0.5) * 100;
+      return Math.max(0, Math.min(100, Math.round(score)));
+    };
+
+    // Economy metrics
+    const econMetrics = [
+      toMetric('goldAt10', 'Gold @10'),
+      toMetric('goldAt15', 'Gold @15'),
+      toMetric('csAt10', 'CS @10'),
+      toMetric('csAt15', 'CS @15'),
+      toMetric('cspm', 'CS / Min'),
+    ].filter(Boolean) as Array<{
+      key: string;
+      label: string;
+      value: number | null;
+      valueDisplay: string;
+      baseline: number | null;
+      invert?: boolean;
+      percent?: boolean;
+      p50?: number | null;
+      p75?: number | null;
+      p90?: number | null;
+    }>;
+    const econScoreParts = econMetrics
+      .map((m) => normalize(m.value, m.baseline, m.invert))
+      .filter((v): v is number => v != null);
+    const econScore = econScoreParts.length
+      ? Math.round(
+          econScoreParts.reduce((a, b) => a + b, 0) / econScoreParts.length,
+        )
+      : 0;
+
+    // Fighting metrics
+    const fightMetrics = [
+      toMetric('dpm', 'Damage / Min'),
+      toMetric('kpm', 'Kills / Min'),
+      toMetric('apm', 'Assists / Min'),
+      toMetric('dtpm', 'Damage Taken / Min', { invert: true }),
+      toMetric('deathsPerMin', 'Deaths / Min', { invert: true }),
+    ].filter(Boolean) as Array<{
+      key: string;
+      label: string;
+      value: number | null;
+      valueDisplay: string;
+      baseline: number | null;
+      invert?: boolean;
+      percent?: boolean;
+      p50?: number | null;
+      p75?: number | null;
+      p90?: number | null;
+    }>;
+    const fightScoreParts = fightMetrics
+      .map((m) => normalize(m.value, m.baseline, m.invert))
+      .filter((v): v is number => v != null);
+    const fightScore = fightScoreParts.length
+      ? Math.round(
+          fightScoreParts.reduce((a, b) => a + b, 0) / fightScoreParts.length,
+        )
+      : 0;
+
+    // Vision metrics from team comparison
+    let visionMetrics: Array<{
+      key: string;
+      label: string;
+      value: number | null;
+      valueDisplay: string;
+      baseline: number | null;
+      invert?: boolean;
+      percent?: boolean;
+      p50?: number | null;
+      p75?: number | null;
+      p90?: number | null;
+    }> = [];
+    let visionScore = 0;
+    if (subjectParticipant) {
+      const team = detailedStatsByTeam.find(
+        (t) => t.teamId === subjectParticipant.teamId,
+      );
+      const subject =
+        team?.participants.find(
+          (p) => p.participant.puuid === subjectParticipant.puuid,
+        ) ?? null;
+      if (team && subject) {
+        const avg = (arr: number[]) =>
+          arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+        const teamVisionAvg = avg(team.participants.map((p) => p.visionScore));
+        const teamWardsPlacedAvg = avg(
+          team.participants.map((p) => p.wardsPlaced),
+        );
+        const teamWardsKilledAvg = avg(
+          team.participants.map((p) => p.wardsKilled),
+        );
+        const fmt = (n?: number | null) =>
+          n == null ? '—' : numberFormatter.format(Math.round(n));
+        visionMetrics = [
+          {
+            key: 'visionScore',
+            label: 'Vision Score',
+            value: subject.visionScore ?? null,
+            valueDisplay: fmt(subject.visionScore),
+            baseline: teamVisionAvg,
+            p50: getPercentile('visionScore', 'p50'),
+            p75: getPercentile('visionScore', 'p75'),
+            p90: getPercentile('visionScore', 'p90'),
+          },
+          {
+            key: 'wardsPlaced',
+            label: 'Wards Placed',
+            value: subject.wardsPlaced ?? null,
+            valueDisplay: fmt(subject.wardsPlaced),
+            baseline: teamWardsPlacedAvg,
+            p50: getPercentile('wardsPlaced', 'p50'),
+            p75: getPercentile('wardsPlaced', 'p75'),
+            p90: getPercentile('wardsPlaced', 'p90'),
+          },
+          {
+            key: 'wardsKilled',
+            label: 'Wards Cleared',
+            value: subject.wardsKilled ?? null,
+            valueDisplay: fmt(subject.wardsKilled),
+            baseline: teamWardsKilledAvg,
+            p50: getPercentile('wardsKilled', 'p50'),
+            p75: getPercentile('wardsKilled', 'p75'),
+            p90: getPercentile('wardsKilled', 'p90'),
+          },
+        ];
+        const visScoreParts = visionMetrics
+          .map((m) => normalize(m.value, m.baseline, false))
+          .filter((v): v is number => v != null);
+        visionScore = visScoreParts.length
+          ? Math.round(
+              visScoreParts.reduce((a, b) => a + b, 0) / visScoreParts.length,
+            )
+          : 0;
+      }
+    }
+
+    const bgUrl = subjectParticipant
+      ? getChampionCentered(subjectParticipant.championName)
+      : undefined;
+
+    return {
+      economy: { score: econScore, metrics: econMetrics, bgUrl },
+      fighting: { score: fightScore, metrics: fightMetrics, bgUrl },
+      vision: { score: visionScore, metrics: visionMetrics, bgUrl },
+    };
+  }, [performanceComparisons, detailedStatsByTeam, subjectParticipant]);
 
   if (isEssentialDataLoading) {
     return (
@@ -1169,429 +1416,432 @@ function MatchAnalysisComponent() {
 
           <TabsContent value="overview" className="space-y-8">
             {/* Match Results (Scoreboard) */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
-            <CardBody className="p-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-neutral-50 flex items-center gap-3">
-                  <Target className="w-6 h-6 text-accent-blue-400" />
-                  Match Results
-                </h2>
-                <div className="flex items-center gap-2 text-sm text-neutral-400">
-                  <Clock className="w-4 h-4" />
-                  {Math.floor(matchData.info.gameDuration / 60)}m{' '}
-                  {matchData.info.gameDuration % 60}s
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {matchData.info.teams.map((team) => (
-                  <div key={team.teamId} className="space-y-4">
-                    {/* Team result header */}
-                    <div
-                      className={`text-center p-4 rounded-lg ${team.win ? 'bg-accent-emerald-900/30 border border-accent-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}
-                    >
-                      <h3
-                        className={`text-lg font-bold ${team.win ? 'text-accent-emerald-400' : 'text-red-400'}`}
-                      >
-                        {team.win ? 'Victory' : 'Defeat'}
-                        <span className="ml-2 text-sm text-neutral-300">
-                          ({team.teamId === 100 ? 'Blue Side' : 'Red Side'})
-                        </span>
-                      </h3>
-                    </div>
-
-                    {/* Players */}
-                    <div className="space-y-2">
-                      {matchData.info.participants
-                        .filter((p) => p.teamId === team.teamId)
-                        .map((p) => {
-                          const rp = p as {
-                            riotIdGameName?: string;
-                            riotIdTagline?: string;
-                          };
-                          const isSubject =
-                            subjectParticipant?.puuid === p.puuid;
-                          const displayName =
-                            rp.riotIdGameName ?? p.summonerName;
-                          const displayTag =
-                            rp.riotIdTagline ?? (isSubject ? tag : undefined);
-                          const teamKills = matchData.info.participants
-                            .filter((q) => q.teamId === team.teamId)
-                            .reduce((acc, q) => acc + (q.kills ?? 0), 0);
-                          const minutes = Math.max(
-                            1,
-                            Math.floor(matchData.info.gameDuration / 60),
-                          );
-                          const csTotal =
-                            (p.totalMinionsKilled ?? 0) +
-                            (p.neutralMinionsKilled ?? 0);
-                          const csPerMin = csTotal / minutes;
-                          const kpPct =
-                            teamKills > 0
-                              ? Math.round(
-                                  ((p.kills + p.assists) / teamKills) * 100,
-                                )
-                              : 0;
-                          return (
-                            <div
-                              key={`row-${p.puuid}`}
-                              className={cn(
-                                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-                                isSubject
-                                  ? 'bg-accent-blue-900/20 border-accent-blue-400 ring-2 ring-accent-blue-400'
-                                  : 'bg-neutral-800/50 border-neutral-700/40',
-                              )}
-                            >
-                              {/* Champion + spells */}
-                              <div className="flex items-center gap-2 shrink-0">
-                                <Avatar className="h-10 w-10 rounded-lg">
-                                  <AvatarImage
-                                    src={getChampionSquare(p.championName)}
-                                    alt={p.championName}
-                                  />
-                                </Avatar>
-                                <div className="flex flex-col gap-1">
-                                  <img
-                                    src={getSpellIcon(p.summoner1Id)}
-                                    alt="S1"
-                                    className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
-                                  />
-                                  <img
-                                    src={getSpellIcon(p.summoner2Id)}
-                                    alt="S2"
-                                    className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Name + tagline + small stats */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 truncate">
-                                  <span className="font-medium text-neutral-200 truncate">
-                                    {displayName}
-                                  </span>
-                                  {displayTag && (
-                                    <span className="text-xs text-neutral-300 px-2 py-0.5 rounded border border-neutral-700/60 bg-neutral-800/60">
-                                      #{displayTag}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
-                                  <span className="flex items-center gap-1">
-                                    <span className="text-neutral-500">
-                                      KDA
-                                    </span>
-                                    <span className="text-neutral-300 font-semibold">
-                                      {p.kills}/{p.deaths}/{p.assists}
-                                    </span>
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <span className="text-neutral-500">
-                                      CS/min
-                                    </span>
-                                    <span className="text-neutral-300 font-semibold">
-                                      {csPerMin.toFixed(1)}
-                                    </span>
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <span className="text-neutral-500">
-                                      Vision
-                                    </span>
-                                    <span className="text-neutral-300 font-semibold">
-                                      {p.visionScore ?? 0}
-                                    </span>
-                                  </span>
-                                  {teamKills > 0 && (
-                                    <span className="flex items-center gap-1">
-                                      <span className="text-neutral-500">
-                                        KP
-                                      </span>
-                                      <span className="text-neutral-300 font-semibold">
-                                        {kpPct}%
-                                      </span>
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Items */}
-                                <div className="flex items-center gap-1 mt-2">
-                                  {[
-                                    p.item0,
-                                    p.item1,
-                                    p.item2,
-                                    p.item3,
-                                    p.item4,
-                                    p.item5,
-                                  ].map(
-                                    (it: number | undefined, idx: number) =>
-                                      it && it > 0 ? (
-                                        <img
-                                          key={`it-${p.puuid}-${idx}-${it}`}
-                                          src={getItemIcon(it)}
-                                          alt="item"
-                                          className="w-5 h-5 rounded bg-neutral-900 border border-neutral-700 object-cover"
-                                        />
-                                      ) : (
-                                        <div
-                                          key={`it-${p.puuid}-${idx}-${it}`}
-                                          className="w-5 h-5 rounded bg-neutral-800/50 border border-neutral-700/40"
-                                        />
-                                      ),
-                                  )}
-                                  {/* Trinket */}
-                                  <img
-                                    key={`it-${p.puuid}-trinket-${p.item6}`}
-                                    src={getItemIcon(p.item6)}
-                                    alt="trinket"
-                                    className="w-5 h-5 rounded bg-neutral-900 border border-amber-500/50 object-cover"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
+                <CardBody className="p-8">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-neutral-50 flex items-center gap-3">
+                      <Target className="w-6 h-6 text-accent-blue-400" />
+                      Match Results
+                    </h2>
+                    <div className="flex items-center gap-2 text-sm text-neutral-400">
+                      <Clock className="w-4 h-4" />
+                      {Math.floor(matchData.info.gameDuration / 60)}m{' '}
+                      {matchData.info.gameDuration % 60}s
                     </div>
                   </div>
-                ))}
-              </div>
-            </CardBody>
-          </Card>
-        </motion.div>
 
-        {/* Key Moments with Map */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
-            <CardBody className="p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <Zap className="w-6 h-6 text-accent-yellow-400" />
-                <h2 className="text-2xl font-bold text-neutral-50">
-                  Key Moments
-                </h2>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                {/* Map */}
-                <div className="md:col-span-3">
-                  <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
-                    {/* Transform layer: scales and pans the map and markers to center AOI */}
-                    <div
-                      className="absolute inset-0"
-                      style={getMapTransformStyle(1.75)}
-                    >
-                      <img
-                        src="/map.svg"
-                        alt="Summoner's Rift Map"
-                        className="absolute inset-0 w-full h-full opacity-70 contrast-90 filter brightness-75"
-                      />
-
-                      {/* Interpolated player markers at selected moment */}
-                      {eventSnapshot?.entries.map((pp) => {
-                        const participantDetails = participantDetailsById.get(
-                          pp.participantId,
-                        );
-                        return (
-                          <div
-                            key={`pp-${pp.participantId}`}
-                            className="absolute"
-                            style={coordToStyle(pp.x, pp.y)}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {matchData.info.teams.map((team) => (
+                      <div key={team.teamId} className="space-y-4">
+                        {/* Team result header */}
+                        <div
+                          className={`text-center p-4 rounded-lg ${team.win ? 'bg-accent-emerald-900/30 border border-accent-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}
+                        >
+                          <h3
+                            className={`text-lg font-bold ${team.win ? 'text-accent-emerald-400' : 'text-red-400'}`}
                           >
-                            {/* Uncertainty halo */}
-                            <div
-                              className="absolute rounded-full border border-white/10 bg-white/5"
-                              style={{
-                                ...radiusToStyle(pp.radius),
-                                left: '50%',
-                                top: '50%',
-                                transform: 'translate(-50%, -50%)',
-                                opacity: Math.max(
-                                  0.25,
-                                  Math.min(0.85, 1 - pp.confidence + 0.35),
-                                ),
-                                filter: 'blur(2px)',
-                              }}
-                            />
-                            {/* Avatar marker */}
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Avatar
+                            {team.win ? 'Victory' : 'Defeat'}
+                            <span className="ml-2 text-sm text-neutral-300">
+                              ({team.teamId === 100 ? 'Blue Side' : 'Red Side'})
+                            </span>
+                          </h3>
+                        </div>
+
+                        {/* Players */}
+                        <div className="space-y-2">
+                          {matchData.info.participants
+                            .filter((p) => p.teamId === team.teamId)
+                            .map((p) => {
+                              const rp = p as {
+                                riotIdGameName?: string;
+                                riotIdTagline?: string;
+                              };
+                              const isSubject =
+                                subjectParticipant?.puuid === p.puuid;
+                              const displayName =
+                                rp.riotIdGameName ?? p.summonerName;
+                              const displayTag =
+                                rp.riotIdTagline ??
+                                (isSubject ? tag : undefined);
+                              const teamKills = matchData.info.participants
+                                .filter((q) => q.teamId === team.teamId)
+                                .reduce((acc, q) => acc + (q.kills ?? 0), 0);
+                              const minutes = Math.max(
+                                1,
+                                Math.floor(matchData.info.gameDuration / 60),
+                              );
+                              const csTotal =
+                                (p.totalMinionsKilled ?? 0) +
+                                (p.neutralMinionsKilled ?? 0);
+                              const csPerMin = csTotal / minutes;
+                              const kpPct =
+                                teamKills > 0
+                                  ? Math.round(
+                                      ((p.kills + p.assists) / teamKills) * 100,
+                                    )
+                                  : 0;
+                              return (
+                                <div
+                                  key={`row-${p.puuid}`}
                                   className={cn(
-                                    'h-6 w-6 cursor-pointer rounded-md ring-2 transition-transform hover:scale-[1.08]',
-                                    pp.teamId === 100
-                                      ? 'ring-blue-400'
-                                      : 'ring-red-400',
-                                    'shadow-md z-20',
-                                    !pp.isActor ? 'opacity-50' : '',
+                                    'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                                    isSubject
+                                      ? 'bg-accent-blue-900/20 border-accent-blue-400 ring-2 ring-accent-blue-400'
+                                      : 'bg-neutral-800/50 border-neutral-700/40',
                                   )}
                                 >
-                                  <AvatarImage
-                                    src={getChampionSquare(pp.championName)}
-                                    alt={pp.summonerName}
-                                  />
-                                </Avatar>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                side="top"
-                                align="center"
-                                className="w-[22rem] border-neutral-700/70 bg-neutral-900/95 p-0 text-neutral-100"
-                              >
-                                <PlayerPopoverContent
-                                  entry={pp}
-                                  participant={participantDetails}
-                                  formatClock={formatClock}
-                                  getChampionSquare={getChampionSquare}
-                                  getItemIcon={getItemIcon}
-                                  timelineEvents={timelineEvents}
-                                />
-                              </PopoverContent>
-                            </Popover>
-                          </div>
-                        );
-                      })}
-                    </div>
+                                  {/* Champion + spells */}
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <Avatar className="h-10 w-10 rounded-lg">
+                                      <AvatarImage
+                                        src={getChampionSquare(p.championName)}
+                                        alt={p.championName}
+                                      />
+                                    </Avatar>
+                                    <div className="flex flex-col gap-1">
+                                      <img
+                                        src={getSpellIcon(p.summoner1Id)}
+                                        alt="S1"
+                                        className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
+                                      />
+                                      <img
+                                        src={getSpellIcon(p.summoner2Id)}
+                                        alt="S2"
+                                        className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
+                                      />
+                                    </div>
+                                  </div>
 
-                    {/* Corner controls (outside of transform so UI doesn't scale) */}
-                    <div className="absolute top-4 right-4 flex items-center gap-2">
-                      <div className="px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
-                        <MapIcon className="w-3 h-3" />
-                        {eventSnapshot
-                          ? `t ${formatClock(eventSnapshot.ts)}`
-                          : '—'}
+                                  {/* Name + tagline + small stats */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 truncate">
+                                      <span className="font-medium text-neutral-200 truncate">
+                                        {displayName}
+                                      </span>
+                                      {displayTag && (
+                                        <span className="text-xs text-neutral-300 px-2 py-0.5 rounded border border-neutral-700/60 bg-neutral-800/60">
+                                          #{displayTag}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
+                                      <span className="flex items-center gap-1">
+                                        <span className="text-neutral-500">
+                                          KDA
+                                        </span>
+                                        <span className="text-neutral-300 font-semibold">
+                                          {p.kills}/{p.deaths}/{p.assists}
+                                        </span>
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <span className="text-neutral-500">
+                                          CS/min
+                                        </span>
+                                        <span className="text-neutral-300 font-semibold">
+                                          {csPerMin.toFixed(1)}
+                                        </span>
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <span className="text-neutral-500">
+                                          Vision
+                                        </span>
+                                        <span className="text-neutral-300 font-semibold">
+                                          {p.visionScore ?? 0}
+                                        </span>
+                                      </span>
+                                      {teamKills > 0 && (
+                                        <span className="flex items-center gap-1">
+                                          <span className="text-neutral-500">
+                                            KP
+                                          </span>
+                                          <span className="text-neutral-300 font-semibold">
+                                            {kpPct}%
+                                          </span>
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Items */}
+                                    <div className="flex items-center gap-1 mt-2">
+                                      {[
+                                        p.item0,
+                                        p.item1,
+                                        p.item2,
+                                        p.item3,
+                                        p.item4,
+                                        p.item5,
+                                      ].map(
+                                        (
+                                          it: number | undefined,
+                                          idx: number,
+                                        ) =>
+                                          it && it > 0 ? (
+                                            <img
+                                              key={`it-${p.puuid}-${idx}-${it}`}
+                                              src={getItemIcon(it)}
+                                              alt="item"
+                                              className="w-5 h-5 rounded bg-neutral-900 border border-neutral-700 object-cover"
+                                            />
+                                          ) : (
+                                            <div
+                                              key={`it-${p.puuid}-${idx}-${it}`}
+                                              className="w-5 h-5 rounded bg-neutral-800/50 border border-neutral-700/40"
+                                            />
+                                          ),
+                                      )}
+                                      {/* Trinket */}
+                                      <img
+                                        key={`it-${p.puuid}-trinket-${p.item6}`}
+                                        src={getItemIcon(p.item6)}
+                                        alt="trinket"
+                                        className="w-5 h-5 rounded bg-neutral-900 border border-amber-500/50 object-cover"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setAoiZoomEnabled((v) => !v)}
-                        className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
-                        title="Toggle Area-of-Interest zoom"
-                      >
-                        {aoiZoomEnabled ? 'Zoom Out' : 'Zoom In'}
-                      </button>
-                    </div>
+                    ))}
+                  </div>
+                </CardBody>
+              </Card>
+            </motion.div>
+
+            {/* Key Moments with Map */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
+                <CardBody className="p-8">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Zap className="w-6 h-6 text-accent-yellow-400" />
+                    <h2 className="text-2xl font-bold text-neutral-50">
+                      Key Moments
+                    </h2>
                   </div>
 
-                  {/* Selected moment details */}
-                  {selectedMoment && (
-                    <div className="mt-4 p-4 bg-neutral-800/60 rounded-lg border border-neutral-700/50">
-                      <div className="flex items-center justify-between mb-1">
-                        <h3 className="font-semibold text-neutral-100 truncate">
-                          {selectedMoment.title}
-                        </h3>
-                        <Badge
-                          className={`text-xs font-semibold ${
-                            selectedMoment.enemyHalf
-                              ? 'bg-red-500/10 text-red-200 border border-red-500/40'
-                              : 'bg-neutral-800/70 text-neutral-200 border border-neutral-700/60'
-                          }`}
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                    {/* Map */}
+                    <div className="md:col-span-3">
+                      <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
+                        {/* Transform layer: scales and pans the map and markers to center AOI */}
+                        <div
+                          className="absolute inset-0"
+                          style={getMapTransformStyle(1.75)}
                         >
-                          {selectedMoment.zone}
-                        </Badge>
+                          <img
+                            src="/map.svg"
+                            alt="Summoner's Rift Map"
+                            className="absolute inset-0 w-full h-full opacity-70 contrast-90 filter brightness-75"
+                          />
+
+                          {/* Interpolated player markers at selected moment */}
+                          {eventSnapshot?.entries.map((pp) => {
+                            const participantDetails =
+                              participantDetailsById.get(pp.participantId);
+                            return (
+                              <div
+                                key={`pp-${pp.participantId}`}
+                                className="absolute"
+                                style={coordToStyle(pp.x, pp.y)}
+                              >
+                                {/* Uncertainty halo */}
+                                <div
+                                  className="absolute rounded-full border border-white/10 bg-white/5"
+                                  style={{
+                                    ...radiusToStyle(pp.radius),
+                                    left: '50%',
+                                    top: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    opacity: Math.max(
+                                      0.25,
+                                      Math.min(0.85, 1 - pp.confidence + 0.35),
+                                    ),
+                                    filter: 'blur(2px)',
+                                  }}
+                                />
+                                {/* Avatar marker */}
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Avatar
+                                      className={cn(
+                                        'h-6 w-6 cursor-pointer rounded-md ring-2 transition-transform hover:scale-[1.08]',
+                                        pp.teamId === 100
+                                          ? 'ring-blue-400'
+                                          : 'ring-red-400',
+                                        'shadow-md z-20',
+                                        !pp.isActor ? 'opacity-50' : '',
+                                      )}
+                                    >
+                                      <AvatarImage
+                                        src={getChampionSquare(pp.championName)}
+                                        alt={pp.summonerName}
+                                      />
+                                    </Avatar>
+                                  </PopoverTrigger>
+                                  <PopoverContent
+                                    side="top"
+                                    align="center"
+                                    className="w-[22rem] border-neutral-700/70 bg-neutral-900/95 p-0 text-neutral-100"
+                                  >
+                                    <PlayerPopoverContent
+                                      entry={pp}
+                                      participant={participantDetails}
+                                      formatClock={formatClock}
+                                      getChampionSquare={getChampionSquare}
+                                      getItemIcon={getItemIcon}
+                                      timelineEvents={timelineEvents}
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Corner controls (outside of transform so UI doesn't scale) */}
+                        <div className="absolute top-4 right-4 flex items-center gap-2">
+                          <div className="px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
+                            <MapIcon className="w-3 h-3" />
+                            {eventSnapshot
+                              ? `t ${formatClock(eventSnapshot.ts)}`
+                              : '—'}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setAoiZoomEnabled((v) => !v)}
+                            className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
+                            title="Toggle Area-of-Interest zoom"
+                          >
+                            {aoiZoomEnabled ? 'Zoom Out' : 'Zoom In'}
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-sm text-neutral-300">
-                        {selectedMoment.insight}
-                      </p>
-                      {selectedMoment.suggestion && (
-                        <p className="text-xs text-neutral-400 mt-1 italic">
-                          Suggestion: {selectedMoment.suggestion}
-                        </p>
+
+                      {/* Selected moment details */}
+                      {selectedMoment && (
+                        <div className="mt-4 p-4 bg-neutral-800/60 rounded-lg border border-neutral-700/50">
+                          <div className="flex items-center justify-between mb-1">
+                            <h3 className="font-semibold text-neutral-100 truncate">
+                              {selectedMoment.title}
+                            </h3>
+                            <Badge
+                              className={`text-xs font-semibold ${
+                                selectedMoment.enemyHalf
+                                  ? 'bg-red-500/10 text-red-200 border border-red-500/40'
+                                  : 'bg-neutral-800/70 text-neutral-200 border border-neutral-700/60'
+                              }`}
+                            >
+                              {selectedMoment.zone}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-neutral-300">
+                            {selectedMoment.insight}
+                          </p>
+                          {selectedMoment.suggestion && (
+                            <p className="text-xs text-neutral-400 mt-1 italic">
+                              Suggestion: {selectedMoment.suggestion}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
 
-                {/* Moments list */}
-                <div className="space-y-3 md:col-span-2">
-                  {isInsightsLoading ? (
-                    <div className="flex items-center justify-center w-full py-8">
-                      <div className="flex items-center gap-3">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
-                        <span className="text-neutral-300">
-                          Gathering key moments...
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    insightsData?.keyMoments.map((moment, index: number) => {
-                      const isSelected = index === selectedMomentIndex;
-                      const versus = findKillParticipants(moment.ts);
-                      return (
-                        <motion.button
-                          key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
-                          type="button"
-                          onClick={() => setSelectedMomentIndex(index)}
-                          initial={{ opacity: 0, x: 10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.03 }}
-                          className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
-                        >
-                          {versus && (
-                            <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
-                              {/* Killer background (left side) */}
-                              <div
-                                className="absolute inset-0 w-1/2 bg-cover opacity-100"
-                                style={{
-                                  backgroundImage: versus.killer
-                                    ? `url(${getChampionCentered(versus.killer)})`
-                                    : 'none',
-                                  backgroundPosition: 'center 20%',
-                                  maskImage:
-                                    'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                  WebkitMaskImage:
-                                    'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                }}
-                              />
-                              {/* Victim background (right side) */}
-                              <div
-                                className="absolute inset-0 left-1/2 w-1/2 bg-cover opacity-40 grayscale"
-                                style={{
-                                  backgroundImage: versus.victim
-                                    ? `url(${getChampionCentered(versus.victim)})`
-                                    : 'none',
-                                  backgroundPosition: 'center 20%',
-                                  maskImage:
-                                    'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                  WebkitMaskImage:
-                                    'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                }}
-                              />
-                              <div className="absolute inset-0 bg-black/30" />
-                              <div className="relative flex items-center justify-center h-full">
-                                <span className="text-sm font-bold text-white drop-shadow-lg">
-                                  VS
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-medium text-neutral-100 truncate">
-                              {moment.title}
-                            </h4>
-                            <span className="text-xs text-neutral-400 ml-2">
-                              {formatClock(moment.ts)}
+                    {/* Moments list */}
+                    <div className="space-y-3 md:col-span-2">
+                      {isInsightsLoading ? (
+                        <div className="flex items-center justify-center w-full py-8">
+                          <div className="flex items-center gap-3">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
+                            <span className="text-neutral-300">
+                              Gathering key moments...
                             </span>
                           </div>
-                          <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                            {moment.insight}
-                          </p>
-                        </motion.button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-        </motion.div>
-
+                        </div>
+                      ) : (
+                        insightsData?.keyMoments.map(
+                          (moment, index: number) => {
+                            const isSelected = index === selectedMomentIndex;
+                            const versus = findKillParticipants(moment.ts);
+                            return (
+                              <motion.button
+                                key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
+                                type="button"
+                                onClick={() => setSelectedMomentIndex(index)}
+                                initial={{ opacity: 0, x: 10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.03 }}
+                                className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
+                              >
+                                {versus && (
+                                  <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
+                                    {/* Killer background (left side) */}
+                                    <div
+                                      className="absolute inset-0 w-1/2 bg-cover opacity-100"
+                                      style={{
+                                        backgroundImage: versus.killer
+                                          ? `url(${getChampionCentered(versus.killer)})`
+                                          : 'none',
+                                        backgroundPosition: 'center 20%',
+                                        maskImage:
+                                          'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                        WebkitMaskImage:
+                                          'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                      }}
+                                    />
+                                    {/* Victim background (right side) */}
+                                    <div
+                                      className="absolute inset-0 left-1/2 w-1/2 bg-cover opacity-40 grayscale"
+                                      style={{
+                                        backgroundImage: versus.victim
+                                          ? `url(${getChampionCentered(versus.victim)})`
+                                          : 'none',
+                                        backgroundPosition: 'center 20%',
+                                        maskImage:
+                                          'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                        WebkitMaskImage:
+                                          'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                      }}
+                                    />
+                                    <div className="absolute inset-0 bg-black/30" />
+                                    <div className="relative flex items-center justify-center h-full">
+                                      <span className="text-sm font-bold text-white drop-shadow-lg">
+                                        VS
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="flex items-center justify-between">
+                                  <h4 className="font-medium text-neutral-100 truncate">
+                                    {moment.title}
+                                  </h4>
+                                  <span className="text-xs text-neutral-400 ml-2">
+                                    {formatClock(moment.ts)}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
+                                  {moment.insight}
+                                </p>
+                              </motion.button>
+                            );
+                          },
+                        )
+                      )}
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            </motion.div>
           </TabsContent>
-
 
           <TabsContent value="performance" className="space-y-8">
             <motion.div
@@ -1605,18 +1855,24 @@ function MatchAnalysisComponent() {
                       <h2 className="text-2xl font-bold text-neutral-50">
                         Performance Benchmarks
                       </h2>
-                      <p className="text-sm text-neutral-400">{comparisonSubtitle}</p>
+                      <p className="text-sm text-neutral-400">
+                        {comparisonSubtitle}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
-                        variant={comparisonMode === 'cohort' ? 'secondary' : 'outline'}
+                        variant={
+                          comparisonMode === 'cohort' ? 'secondary' : 'outline'
+                        }
                         size="sm"
                         onClick={() => setComparisonMode('cohort')}
                       >
                         Cohort
                       </Button>
                       <Button
-                        variant={comparisonMode === 'self' ? 'secondary' : 'outline'}
+                        variant={
+                          comparisonMode === 'self' ? 'secondary' : 'outline'
+                        }
                         size="sm"
                         onClick={() => setComparisonMode('self')}
                         disabled={!championRoleDetail?.playerPercentiles}
@@ -1627,7 +1883,7 @@ function MatchAnalysisComponent() {
                   </div>
                   {isChampionRoleLoading ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {[...Array(6).keys()].map((idx) => (
+                      {[...Array(3).keys()].map((idx) => (
                         <div
                           key={`benchmark-skeleton-${idx}`}
                           className="rounded-lg border border-neutral-800/60 bg-neutral-800/40 p-4 space-y-3 animate-pulse"
@@ -1640,30 +1896,57 @@ function MatchAnalysisComponent() {
                     </div>
                   ) : comparisonSourceAvailable ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {performanceComparisons.map((card) => (
-                        <div
-                          key={card.key}
-                          className="rounded-lg border border-neutral-700/50 bg-neutral-800/40 p-4 space-y-3"
-                        >
-                          <div className="text-sm text-neutral-400">{card.label}</div>
-                          <div className="text-2xl font-semibold text-neutral-100">
-                            {card.valueDisplay}
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-neutral-400">
-                            <span>{comparisonBaselineLabel}</span>
-                            <span className="font-medium text-neutral-200">
-                              {card.baselineDisplay}
-                            </span>
-                          </div>
-                          {card.diffDisplay ? (
-                            <div className={`text-sm font-semibold ${card.trendClass}`}>
-                              {card.diffDisplay}
-                            </div>
-                          ) : (
-                            <div className="text-sm text-neutral-500">No data</div>
-                          )}
-                        </div>
-                      ))}
+                      <PerformanceCategoryCard
+                        title="Economy"
+                        score={categoryCards.economy.score}
+                        bgImageUrl={categoryCards.economy.bgUrl}
+                        metrics={categoryCards.economy.metrics.map((m) => ({
+                          key: m.key,
+                          label: m.label,
+                          value: m.value,
+                          valueDisplay: m.valueDisplay,
+                          baseline: m.baseline,
+                          invert: m.invert,
+                          percent: m.percent,
+                          p50: m.p50,
+                          p75: m.p75,
+                          p90: m.p90,
+                        }))}
+                      />
+                      <PerformanceCategoryCard
+                        title="Fighting"
+                        score={categoryCards.fighting.score}
+                        bgImageUrl={categoryCards.fighting.bgUrl}
+                        metrics={categoryCards.fighting.metrics.map((m) => ({
+                          key: m.key,
+                          label: m.label,
+                          value: m.value,
+                          valueDisplay: m.valueDisplay,
+                          baseline: m.baseline,
+                          invert: m.invert,
+                          percent: m.percent,
+                          p50: m.p50,
+                          p75: m.p75,
+                          p90: m.p90,
+                        }))}
+                      />
+                      <PerformanceCategoryCard
+                        title="Vision"
+                        score={categoryCards.vision.score}
+                        bgImageUrl={categoryCards.vision.bgUrl}
+                        metrics={categoryCards.vision.metrics.map((m) => ({
+                          key: m.key,
+                          label: m.label,
+                          value: m.value,
+                          valueDisplay: m.valueDisplay,
+                          baseline: m.baseline,
+                          invert: m.invert,
+                          percent: m.percent,
+                          p50: m.p50,
+                          p75: m.p75,
+                          p90: m.p90,
+                        }))}
+                      />
                     </div>
                   ) : (
                     <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
@@ -1687,13 +1970,14 @@ function MatchAnalysisComponent() {
                       Win Probability Timeline
                     </h2>
                     <p className="text-sm text-neutral-400">
-                      Gold advantage logistic model with an impact score per minute.
+                      Gold advantage logistic model with an impact score per
+                      minute.
                     </p>
                   </div>
                   {winProbabilityData.length > 0 ? (
                     <ChartContainer
                       config={winProbabilityChartConfig}
-                      className="h-[320px]"
+                      className="h-[320px] w-full"
                     >
                       <ComposedChart data={winProbabilityData}>
                         <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
@@ -1702,7 +1986,13 @@ function MatchAnalysisComponent() {
                           tickLine={false}
                           axisLine={false}
                           tick={{ fill: '#9ca3af', fontSize: 12 }}
-                          label={{ value: 'Minutes', position: 'insideBottomRight', offset: -4, fill: '#9ca3af', fontSize: 12 }}
+                          label={{
+                            value: 'Minutes',
+                            position: 'insideBottomRight',
+                            offset: -4,
+                            fill: '#9ca3af',
+                            fontSize: 12,
+                          }}
                         />
                         <YAxis
                           domain={[0, 100]}
@@ -1712,7 +2002,10 @@ function MatchAnalysisComponent() {
                           tickLine={false}
                         />
                         <RechartsTooltip
-                          cursor={{ stroke: 'rgba(148, 163, 184, 0.4)', strokeWidth: 1 }}
+                          cursor={{
+                            stroke: 'rgba(148, 163, 184, 0.4)',
+                            strokeWidth: 1,
+                          }}
                           content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
                             const datum = payload[0]?.payload as
@@ -1721,15 +2014,21 @@ function MatchAnalysisComponent() {
                             if (!datum) return null;
                             return (
                               <div className="rounded-lg border border-neutral-700/60 bg-neutral-900/90 p-3 text-xs text-neutral-200">
-                                <div className="font-semibold text-neutral-100">Minute {label}</div>
+                                <div className="font-semibold text-neutral-100">
+                                  Minute {label}
+                                </div>
                                 <div className="mt-2 flex items-center justify-between">
-                                  <span className="text-neutral-400">Win probability</span>
+                                  <span className="text-neutral-400">
+                                    Win probability
+                                  </span>
                                   <span className="font-semibold text-accent-blue-200">
                                     {datum.winProb.toFixed(1)}%
                                   </span>
                                 </div>
                                 <div className="mt-1 flex items-center justify-between">
-                                  <span className="text-neutral-400">Impact score</span>
+                                  <span className="text-neutral-400">
+                                    Impact score
+                                  </span>
                                   <span className="font-semibold text-accent-yellow-200">
                                     {datum.impactRaw.toFixed(2)}
                                   </span>
@@ -1755,7 +2054,11 @@ function MatchAnalysisComponent() {
                           dot={false}
                           strokeDasharray="4 2"
                         />
-                        <ReferenceLine y={50} stroke="rgba(148,163,184,0.4)" strokeDasharray="6 6" />
+                        <ReferenceLine
+                          y={50}
+                          stroke="rgba(148,163,184,0.4)"
+                          strokeDasharray="6 6"
+                        />
                       </ComposedChart>
                     </ChartContainer>
                   ) : (
@@ -1766,180 +2069,180 @@ function MatchAnalysisComponent() {
                 </CardBody>
               </Card>
             </motion.div>
-          {/* Build Suggestions */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
-          >
-            <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
-              <CardBody className="p-6">
-                <div className="flex items-center gap-1 mb-4 flex-row">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    data-name="Your Icon"
-                    viewBox="0 0 100 125"
-                    x="0px"
-                    y="0px"
-                    className="size-8 text-white"
-                    color="currentColor"
-                    fill="currentColor"
-                    stroke="transparent"
-                  >
-                    <title>Item Suggestions</title>
-                    <path d="m90.64,59.09l-16.25-7.09c-3.93-1.71-7.06-4.85-8.77-8.77l-7.09-16.25c-.55-1.26-2.34-1.26-2.89,0l-7.09,16.25c-1.71,3.93-4.85,7.06-8.77,8.77l-16.27,7.1c-1.26.55-1.26,2.33,0,2.88l16.55,7.32c3.92,1.73,7.04,4.88,8.73,8.82l6.86,15.94c.54,1.27,2.34,1.27,2.89,0l7.08-16.22c1.71-3.93,4.85-7.06,8.77-8.77l16.25-7.09c1.26-.55,1.26-2.34,0-2.89Z" />
-                    <path d="m25.28,48.51l3.32-7.61c.8-1.84,2.27-3.31,4.11-4.11l7.62-3.32c.59-.26.59-1.1,0-1.35l-7.62-3.32c-1.84-.8-3.31-2.27-4.11-4.11l-3.32-7.62c-.26-.59-1.1-.59-1.35,0l-3.32,7.62c-.8,1.84-2.27,3.31-4.11,4.11l-7.63,3.33c-.59.26-.59,1.09,0,1.35l7.76,3.43c1.84.81,3.3,2.29,4.09,4.13l3.22,7.47c.26.59,1.1.6,1.35,0Z" />
-                    <path d="m39.89,13.95l4.12,1.82c.98.43,1.75,1.22,2.17,2.19l1.71,3.97c.14.32.58.32.72,0l1.76-4.04c.43-.98,1.21-1.76,2.18-2.18l4.04-1.76c.31-.14.31-.58,0-.72l-4.04-1.76c-.98-.43-1.76-1.21-2.18-2.18l-1.76-4.04c-.14-.31-.58-.31-.72,0l-1.76,4.04c-.43.98-1.21,1.76-2.18,2.18l-4.05,1.77c-.31.14-.31.58,0,.72Z" />
-                  </svg>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <h2 className="text-2xl font-bold text-neutral-50 decoration-dotted underline">
-                        Item Suggestions
-                      </h2>
-                    </TooltipTrigger>
-                    <TooltipContent className="bg-black/90 text-neutral-100">
-                      AI generated item suggestions
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-  
-                {/* 6 columns: built item + suggestions */}
-                <div className="flex items-center gap-4 overflow-x-auto py-2">
-                  {isBuildsLoading ? (
-                    <div className="flex items-center justify-center w-full py-8">
-                      <div className="flex items-center gap-3">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
-                        <span className="text-neutral-300">
-                          Generating build recommendation with AI...
-                        </span>
-                      </div>
-                    </div>
-                  ) : buildsData?.buildOrder &&
-                    buildsData.buildOrder.length > 0 ? (
-                    buildsData.buildOrder.map((entry, idx) => (
-                      <div
-                        key={`bo-${entry.order}-${entry.itemId}`}
-                        className="flex items-center gap-2"
-                      >
-                        <div className="flex flex-col items-center">
-                          {entry.itemId > 0 ? (
-                            <img
-                              src={getItemIcon(entry.itemId)}
-                              alt={entry.itemName}
-                              title={entry.reasoning}
-                              className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
-                            />
-                          ) : (
-                            <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
-                          )}
-                          <span className="mt-1 text-xs text-neutral-400">
-                            #{entry.order} {entry.itemName}
+            {/* Build Suggestions */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
+                <CardBody className="p-6">
+                  <div className="flex items-center gap-1 mb-4 flex-row">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      data-name="Your Icon"
+                      viewBox="0 0 100 125"
+                      x="0px"
+                      y="0px"
+                      className="size-8 text-white"
+                      color="currentColor"
+                      fill="currentColor"
+                      stroke="transparent"
+                    >
+                      <title>Item Suggestions</title>
+                      <path d="m90.64,59.09l-16.25-7.09c-3.93-1.71-7.06-4.85-8.77-8.77l-7.09-16.25c-.55-1.26-2.34-1.26-2.89,0l-7.09,16.25c-1.71,3.93-4.85,7.06-8.77,8.77l-16.27,7.1c-1.26.55-1.26,2.33,0,2.88l16.55,7.32c3.92,1.73,7.04,4.88,8.73,8.82l6.86,15.94c.54,1.27,2.34,1.27,2.89,0l7.08-16.22c1.71-3.93,4.85-7.06,8.77-8.77l16.25-7.09c1.26-.55,1.26-2.34,0-2.89Z" />
+                      <path d="m25.28,48.51l3.32-7.61c.8-1.84,2.27-3.31,4.11-4.11l7.62-3.32c.59-.26.59-1.1,0-1.35l-7.62-3.32c-1.84-.8-3.31-2.27-4.11-4.11l-3.32-7.62c-.26-.59-1.1-.59-1.35,0l-3.32,7.62c-.8,1.84-2.27,3.31-4.11,4.11l-7.63,3.33c-.59.26-.59,1.09,0,1.35l7.76,3.43c1.84.81,3.3,2.29,4.09,4.13l3.22,7.47c.26.59,1.1.6,1.35,0Z" />
+                      <path d="m39.89,13.95l4.12,1.82c.98.43,1.75,1.22,2.17,2.19l1.71,3.97c.14.32.58.32.72,0l1.76-4.04c.43-.98,1.21-1.76,2.18-2.18l4.04-1.76c.31-.14.31-.58,0-.72l-4.04-1.76c-.98-.43-1.76-1.21-2.18-2.18l-1.76-4.04c-.14-.31-.58-.31-.72,0l-1.76,4.04c-.43.98-1.21,1.76-2.18,2.18l-4.05,1.77c-.31.14-.31.58,0,.72Z" />
+                    </svg>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <h2 className="text-2xl font-bold text-neutral-50 decoration-dotted underline">
+                          Item Suggestions
+                        </h2>
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-black/90 text-neutral-100">
+                        AI generated item suggestions
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+
+                  {/* 6 columns: built item + suggestions */}
+                  <div className="flex items-center gap-4 overflow-x-auto py-2">
+                    {isBuildsLoading ? (
+                      <div className="flex items-center justify-center w-full py-8">
+                        <div className="flex items-center gap-3">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
+                          <span className="text-neutral-300">
+                            Generating build recommendation with AI...
                           </span>
                         </div>
-                        {idx < buildsData.buildOrder.length - 1 && (
-                          <ChevronRight className="w-4 h-4 text-neutral-500" />
-                        )}
                       </div>
-                    ))
-                  ) : (
-                    slotColumns.map((col, idx) => (
-                      <div
-                        key={`col-wrapper-${col.slotKey}`}
-                        className="flex items-center gap-2"
-                      >
+                    ) : buildsData?.buildOrder &&
+                      buildsData.buildOrder.length > 0 ? (
+                      buildsData.buildOrder.map((entry, idx) => (
                         <div
-                          key={`col-${col.slotKey}`}
-                          className="flex flex-col items-start gap-3 ml-2"
+                          key={`bo-${entry.order}-${entry.itemId}`}
+                          className="flex items-center gap-2"
                         >
-                          {/* Base item */}
                           <div className="flex flex-col items-center">
-                            {col.baseId > 0 ? (
+                            {entry.itemId > 0 ? (
                               <img
-                                src={getItemIcon(col.baseId)}
-                                alt={`Base ${col.slotKey}`}
-                                title={
-                                  col.overridden
-                                    ? 'AI override: component added to slot'
-                                    : undefined
-                                }
-                                className={cn(
-                                  'size-12 rounded-lg bg-neutral-900 border object-cover',
-                                  col.overridden
-                                    ? 'border-accent-yellow-500/70 ring-2 ring-accent-yellow-400'
-                                    : 'border-neutral-700/70',
-                                )}
+                                src={getItemIcon(entry.itemId)}
+                                alt={entry.itemName}
+                                title={entry.reasoning}
+                                className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
                               />
                             ) : (
                               <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
                             )}
+                            <span className="mt-1 text-xs text-neutral-400">
+                              #{entry.order} {entry.itemName}
+                            </span>
                           </div>
-  
-                          {/* Suggestions stack */}
-                          <div className="flex flex-col gap-2">
-                            {col.suggestions.length > 0
-                              ? col.suggestions.map((sug, sidx) => (
-                                  <div
-                                    key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
-                                    className="relative"
-                                    title={
-                                      sug.action === 'replace_item'
-                                        ? `Replace ${sug.replacesName ?? 'item'} → ${sug.name ?? 'recommended'}. ${sug.reasoning}`
-                                        : `Add to ${col.slotKey}. ${sug.reasoning}`
-                                    }
-                                  >
-                                    <img
-                                      src={getItemIcon(sug.id)}
-                                      alt={sug.name || 'Suggestion'}
-                                      className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
-                                    />
-                                    {sug.action === 'replace_item' &&
-                                    sug.replacesId > 0 ? (
-                                      <img
-                                        src={getItemIcon(sug.replacesId)}
-                                        alt={sug.replacesName || 'Replaced item'}
-                                        className="absolute -bottom-1 -left-1 size-5 rounded-full bg-neutral-900 border border-red-500/60 object-cover shadow-md"
-                                      />
-                                    ) : null}
-                                    <span
-                                      className={cn(
-                                        'absolute -top-1 -right-1 text-[10px] px-1 py-0.5 rounded border',
-                                        sug.action === 'replace_item'
-                                          ? 'bg-red-900/60 border-red-500/60 text-red-200'
-                                          : 'bg-accent-yellow-900/60 border-accent-yellow-500/60 text-accent-yellow-200',
-                                      )}
-                                    >
-                                      {sug.action === 'replace_item'
-                                        ? 'Replace'
-                                        : 'Add'}
-                                    </span>
-                                  </div>
-                                ))
-                              : null}
-                          </div>
+                          {idx < buildsData.buildOrder.length - 1 && (
+                            <ChevronRight className="w-4 h-4 text-neutral-500" />
+                          )}
                         </div>
-                        {idx < slotColumns.length - 1 && (
-                          <ChevronRight className="w-4 h-4 text-neutral-500" />
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-  
-                {/* Overall analysis */}
-                {buildsData?.overallAnalysis && (
-                  <p className="mt-4 text-sm text-neutral-300 leading-relaxed">
-                    {
-                      buildsData.overallAnalysis.split(
-                        'Grounded item facts (from DDragon):',
-                      )[0]
-                    }
-                  </p>
-                )}
-              </CardBody>
-            </Card>
-          </motion.div>
-  
+                      ))
+                    ) : (
+                      slotColumns.map((col, idx) => (
+                        <div
+                          key={`col-wrapper-${col.slotKey}`}
+                          className="flex items-center gap-2"
+                        >
+                          <div
+                            key={`col-${col.slotKey}`}
+                            className="flex flex-col items-start gap-3 ml-2"
+                          >
+                            {/* Base item */}
+                            <div className="flex flex-col items-center">
+                              {col.baseId > 0 ? (
+                                <img
+                                  src={getItemIcon(col.baseId)}
+                                  alt={`Base ${col.slotKey}`}
+                                  title={
+                                    col.overridden
+                                      ? 'AI override: component added to slot'
+                                      : undefined
+                                  }
+                                  className={cn(
+                                    'size-12 rounded-lg bg-neutral-900 border object-cover',
+                                    col.overridden
+                                      ? 'border-accent-yellow-500/70 ring-2 ring-accent-yellow-400'
+                                      : 'border-neutral-700/70',
+                                  )}
+                                />
+                              ) : (
+                                <div className="size-12 rounded-lg bg-neutral-800/50 border border-neutral-700/50" />
+                              )}
+                            </div>
 
+                            {/* Suggestions stack */}
+                            <div className="flex flex-col gap-2">
+                              {col.suggestions.length > 0
+                                ? col.suggestions.map((sug, sidx) => (
+                                    <div
+                                      key={`sug-${col.slotKey}-${sidx}-${sug.id}`}
+                                      className="relative"
+                                      title={
+                                        sug.action === 'replace_item'
+                                          ? `Replace ${sug.replacesName ?? 'item'} → ${sug.name ?? 'recommended'}. ${sug.reasoning}`
+                                          : `Add to ${col.slotKey}. ${sug.reasoning}`
+                                      }
+                                    >
+                                      <img
+                                        src={getItemIcon(sug.id)}
+                                        alt={sug.name || 'Suggestion'}
+                                        className="size-12 rounded-lg bg-neutral-900 border border-accent-yellow-500/50 object-cover"
+                                      />
+                                      {sug.action === 'replace_item' &&
+                                      sug.replacesId > 0 ? (
+                                        <img
+                                          src={getItemIcon(sug.replacesId)}
+                                          alt={
+                                            sug.replacesName || 'Replaced item'
+                                          }
+                                          className="absolute -bottom-1 -left-1 size-5 rounded-full bg-neutral-900 border border-red-500/60 object-cover shadow-md"
+                                        />
+                                      ) : null}
+                                      <span
+                                        className={cn(
+                                          'absolute -top-1 -right-1 text-[10px] px-1 py-0.5 rounded border',
+                                          sug.action === 'replace_item'
+                                            ? 'bg-red-900/60 border-red-500/60 text-red-200'
+                                            : 'bg-accent-yellow-900/60 border-accent-yellow-500/60 text-accent-yellow-200',
+                                        )}
+                                      >
+                                        {sug.action === 'replace_item'
+                                          ? 'Replace'
+                                          : 'Add'}
+                                      </span>
+                                    </div>
+                                  ))
+                                : null}
+                            </div>
+                          </div>
+                          {idx < slotColumns.length - 1 && (
+                            <ChevronRight className="w-4 h-4 text-neutral-500" />
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Overall analysis */}
+                  {buildsData?.overallAnalysis && (
+                    <p className="mt-4 text-sm text-neutral-300 leading-relaxed">
+                      {
+                        buildsData.overallAnalysis.split(
+                          'Grounded item facts (from DDragon):',
+                        )[0]
+                      }
+                    </p>
+                  )}
+                </CardBody>
+              </Card>
+            </motion.div>
           </TabsContent>
 
           <TabsContent value="details" className="space-y-8">
@@ -1954,12 +2257,16 @@ function MatchAnalysisComponent() {
                       Detailed Player Stats
                     </h2>
                     <p className="text-sm text-neutral-400">
-                      Expanded postgame-style breakdown including damage share, vision, and pacing metrics.
+                      Expanded postgame-style breakdown including damage share,
+                      vision, and pacing metrics.
                     </p>
                   </div>
                   <div className="space-y-8">
                     {detailedStatsByTeam.map((team) => (
-                      <div key={`team-details-${team.teamId}`} className="space-y-3">
+                      <div
+                        key={`team-details-${team.teamId}`}
+                        className="space-y-3"
+                      >
                         <div
                           className={cn(
                             'flex items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold',
@@ -1978,9 +2285,13 @@ function MatchAnalysisComponent() {
                               <tr>
                                 <th className="px-3 py-2 text-left">Player</th>
                                 <th className="px-3 py-2 text-left">Role</th>
-                                <th className="px-3 py-2 text-left">K / D / A</th>
+                                <th className="px-3 py-2 text-left">
+                                  K / D / A
+                                </th>
                                 <th className="px-3 py-2 text-right">KDA</th>
-                                <th className="px-3 py-2 text-right">CS (CS/min)</th>
+                                <th className="px-3 py-2 text-right">
+                                  CS (CS/min)
+                                </th>
                                 <th className="px-3 py-2 text-right">Gold</th>
                                 <th className="px-3 py-2 text-right">Damage</th>
                                 <th className="px-3 py-2 text-right">Taken</th>
@@ -1992,7 +2303,8 @@ function MatchAnalysisComponent() {
                             <tbody className="divide-y divide-neutral-800/60">
                               {team.participants.map((row) => {
                                 const isSubject =
-                                  row.participant.puuid === subjectParticipant?.puuid;
+                                  row.participant.puuid ===
+                                  subjectParticipant?.puuid;
                                 const role =
                                   row.participant.teamPosition ||
                                   row.participant.individualPosition ||
@@ -2016,7 +2328,9 @@ function MatchAnalysisComponent() {
                                       <div className="flex items-center gap-3">
                                         <Avatar className="h-10 w-10 rounded-lg">
                                           <AvatarImage
-                                            src={getChampionSquare(row.participant.championName)}
+                                            src={getChampionSquare(
+                                              row.participant.championName,
+                                            )}
                                             alt={row.participant.championName}
                                           />
                                         </Avatar>
@@ -2035,9 +2349,13 @@ function MatchAnalysisComponent() {
                                         </div>
                                       </div>
                                     </td>
-                                    <td className="px-3 py-2 text-neutral-300">{role}</td>
                                     <td className="px-3 py-2 text-neutral-300">
-                                      {row.participant.kills}/{row.participant.deaths}/{row.participant.assists}
+                                      {role}
+                                    </td>
+                                    <td className="px-3 py-2 text-neutral-300">
+                                      {row.participant.kills}/
+                                      {row.participant.deaths}/
+                                      {row.participant.assists}
                                     </td>
                                     <td className="px-3 py-2 text-right">
                                       {Number.isFinite(row.kdaRatio)
@@ -2062,8 +2380,12 @@ function MatchAnalysisComponent() {
                                     <td className="px-3 py-2 text-right">
                                       {numberFormatter.format(row.visionScore)}
                                     </td>
-                                    <td className="px-3 py-2 text-right">{wardsDisplay}</td>
-                                    <td className="px-3 py-2 text-right">{damageShareDisplay}</td>
+                                    <td className="px-3 py-2 text-right">
+                                      {wardsDisplay}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      {damageShareDisplay}
+                                    </td>
                                   </tr>
                                 );
                               })}
@@ -2078,7 +2400,6 @@ function MatchAnalysisComponent() {
             </motion.div>
           </TabsContent>
         </Tabs>
-
       </div>
     </TooltipProvider>
   );
