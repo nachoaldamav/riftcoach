@@ -1025,7 +1025,7 @@ function MatchAnalysisComponent() {
     let prevDamage = 0;
     let prevCs = 0;
 
-    return frames
+    const rawData = frames
       .map((frame) => {
         const ts = Number(frame.timestamp ?? Number.NaN);
         if (!Number.isFinite(ts)) return null;
@@ -1090,7 +1090,6 @@ function MatchAnalysisComponent() {
         return {
           minute: Number((ts / 60000).toFixed(1)),
           winProb: Math.max(0, Math.min(100, probability * 100)),
-          impact: Math.max(0, Math.min(100, clampedImpact * 12)),
           impactRaw: Number(clampedImpact.toFixed(2)),
         };
       })
@@ -1100,10 +1099,17 @@ function MatchAnalysisComponent() {
         ): entry is {
           minute: number;
           winProb: number;
-          impact: number;
           impactRaw: number;
         } => Boolean(entry),
       );
+
+    // Find max impact to normalize to 0-100
+    const maxImpact = Math.max(...rawData.map((d) => d.impactRaw), 0.01);
+
+    return rawData.map((d) => ({
+      ...d,
+      impact: Math.min(100, (d.impactRaw / maxImpact) * 100),
+    }));
   }, [timelineData, subjectParticipant, participantById]);
 
   const detailedStatsByTeam = useMemo(() => {
