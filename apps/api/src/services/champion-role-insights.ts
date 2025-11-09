@@ -578,70 +578,87 @@ export async function generateChampionRoleInsights(
       };
 
       const modelId = process.env.INSIGHTS_MODEL || 'openai.gpt-oss-20b-1:0';
-      const maxAttempts = 3;
-      let contentText = '';
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const command = new InvokeModelCommand({
-            modelId,
-            contentType: 'application/json',
-            accept: 'application/json',
-            body: JSON.stringify(payload),
-          });
-          const response = await bedrockClient.send(command);
-          const bodyText = new TextDecoder().decode(
-            response.body ?? new Uint8Array(),
-          );
-          const parsed = JSON.parse(bodyText);
-          contentText = String(
-            parsed?.choices?.[0]?.message?.content ?? '',
-          ).trim();
-          break;
-        } catch (err) {
-          const msg = (err as Error)?.message || '';
-          if (
-            msg.toLowerCase().includes('too many requests') &&
-            attempt < maxAttempts - 1
-          ) {
-            const base = 600;
-            const delayMs = base * (attempt + 1);
-            consola.warn('[champion-role-insights] rate limited, retrying', {
-              attempt: attempt + 1,
-              delayMs,
+      const maxGenAttempts = 3;
+      const maxRateLimitRetries = 3;
+      let finalParsed: Partial<ChampionRoleInsightResult> | null = null;
+      let lastContentText = '';
+
+      for (let genAttempt = 0; genAttempt < maxGenAttempts; genAttempt++) {
+        let contentText = '';
+
+        // Inner loop to handle rate limit retries on the model invocation
+        for (let attempt = 0; attempt < maxRateLimitRetries; attempt++) {
+          try {
+            const command = new InvokeModelCommand({
+              modelId,
+              contentType: 'application/json',
+              accept: 'application/json',
+              body: JSON.stringify(payload),
             });
-            await new Promise((res) => setTimeout(res, delayMs));
-            continue;
+            const response = await bedrockClient.send(command);
+            const bodyText = new TextDecoder().decode(
+              response.body ?? new Uint8Array(),
+            );
+            const parsed = JSON.parse(bodyText);
+            contentText = String(
+              parsed?.choices?.[0]?.message?.content ?? '',
+            ).trim();
+            break;
+          } catch (err) {
+            const msg = (err as Error)?.message || '';
+            if (
+              msg.toLowerCase().includes('too many requests') &&
+              attempt < maxRateLimitRetries - 1
+            ) {
+              const base = 600;
+              const delayMs = base * (attempt + 1);
+              consola.warn('[champion-role-insights] rate limited, retrying', {
+                attempt: attempt + 1,
+                delayMs,
+              });
+              await new Promise((res) => setTimeout(res, delayMs));
+              continue;
+            }
+            throw err;
           }
-          throw err;
+        }
+
+        consola.debug('[champion-role-insights] AI response', contentText);
+        lastContentText = contentText;
+
+        const jsonText = extractJsonFromText(contentText);
+        if (!jsonText) {
+          consola.warn(
+            '[champion-role-insights] No valid assistant JSON found, retrying',
+            {
+              attempt: genAttempt + 1,
+              maxAttempts: maxGenAttempts,
+              extractedPreview: contentText.slice(0, 400),
+            },
+          );
+        } else {
+          try {
+            finalParsed = JSON.parse(jsonText) as Partial<ChampionRoleInsightResult>;
+            break;
+          } catch (parseErr) {
+            consola.warn(
+              '[champion-role-insights] Failed to parse assistant JSON, retrying',
+              {
+                attempt: genAttempt + 1,
+                maxAttempts: maxGenAttempts,
+                extractedPreview: contentText.slice(0, 400),
+                errorMessage:
+                  parseErr instanceof Error ? parseErr.message : String(parseErr),
+              },
+            );
+          }
         }
       }
 
-      consola.debug('[champion-role-insights] AI response', contentText);
-
-      const jsonText = extractJsonFromText(contentText);
-      if (!jsonText) {
+      if (!finalParsed) {
         consola.warn(
-          '[champion-role-insights] No valid assistant JSON found. Returning fallback insights.',
-          { extractedPreview: contentText.slice(0, 400) },
-        );
-        return {
-          summary: `Performance review for ${stats.championName} (${stats.role}).`,
-          strengths: [],
-          weaknesses: [],
-        };
-      }
-
-      let parsed: Partial<ChampionRoleInsightResult> = {};
-      try {
-        parsed = JSON.parse(jsonText) as Partial<ChampionRoleInsightResult>;
-      } catch (parseErr) {
-        consola.warn(
-          '[champion-role-insights] Failed to parse assistant JSON. Returning fallback insights.',
-          {
-            extractedPreview: contentText.slice(0, 400),
-            errorMessage:
-              parseErr instanceof Error ? parseErr.message : String(parseErr),
-          },
+          '[champion-role-insights] No valid JSON after retries. Returning fallback insights.',
+          { extractedPreview: lastContentText.slice(0, 400) },
         );
         return {
           summary: `Performance review for ${stats.championName} (${stats.role}).`,
@@ -651,14 +668,14 @@ export async function generateChampionRoleInsights(
       }
 
       const summary =
-        typeof parsed.summary === 'string'
-          ? parsed.summary
+        typeof finalParsed.summary === 'string'
+          ? finalParsed.summary
           : `Performance review for ${stats.championName} (${stats.role}).`;
-      const strengths = Array.isArray(parsed.strengths)
-        ? parsed.strengths.slice(0, 3).map((s) => String(s))
+      const strengths = Array.isArray(finalParsed.strengths)
+        ? finalParsed.strengths.slice(0, 3).map((s) => String(s))
         : [];
-      const weaknesses = Array.isArray(parsed.weaknesses)
-        ? parsed.weaknesses.slice(0, 3).map((s) => String(s))
+      const weaknesses = Array.isArray(finalParsed.weaknesses)
+        ? finalParsed.weaknesses.slice(0, 3).map((s) => String(s))
         : [];
 
       return { summary, strengths, weaknesses };
