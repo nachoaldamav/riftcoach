@@ -293,9 +293,6 @@ const preciseNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 1,
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// Component
-// ────────────────────────────────────────────────────────────────────────────
 function MatchAnalysisComponent() {
   const { region, name, tag, matchId } = Route.useParams();
   const { version } = useDataDragon();
@@ -1177,7 +1174,11 @@ function MatchAnalysisComponent() {
               {/* Overall analysis */}
               {buildsData?.overallAnalysis && (
                 <p className="mt-4 text-sm text-neutral-300 leading-relaxed">
-                  {buildsData.overallAnalysis}
+                  {
+                    buildsData.overallAnalysis.split(
+                      'Grounded item facts (from DDragon):',
+                    )[0]
+                  }
                 </p>
               )}
             </CardBody>
@@ -1824,7 +1825,6 @@ function PlayerPopoverContent({
               <span className="ml-1 text-neutral-600">({deltaLabel})</span>
             )}
           </div>
-          
         </TabsContent>
       </Tabs>
     </div>

@@ -18,7 +18,11 @@ import type { Document } from 'mongodb';
 import ms from 'ms';
 import { v5 } from 'uuid';
 import z from 'zod';
-import { aramMostPlayedChampions, aramNemesis, aramStats } from '../../aggregations/aram.js';
+import {
+  aramMostPlayedChampions,
+  aramNemesis,
+  aramStats,
+} from '../../aggregations/aram.js';
 import { championInsights } from '../../aggregations/championInsights.js';
 import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
@@ -1603,38 +1607,37 @@ app.get(
       .aggregate(aramStats(puuid, since))
       .toArray();
 
-    const response =
-      stats ?? {
-        totalGames: 0,
-        wins: 0,
-        losses: 0,
-        winRate: 0,
-        totalKills: 0,
-        totalDeaths: 0,
-        totalAssists: 0,
-        averageKills: 0,
-        averageDeaths: 0,
-        averageAssists: 0,
-        kda: 0,
-        totalDamageDealt: 0,
-        averageDamageDealt: 0,
-        totalDamageTaken: 0,
-        averageDamageTaken: 0,
-        totalDamageMitigated: 0,
-        averageDamageMitigated: 0,
-        totalDamageTakenAndMitigated: 0,
-        averageDamageTakenAndMitigated: 0,
-        totalGoldEarned: 0,
-        averageGoldEarned: 0,
-        totalTimePlayed: 0,
-        averageGameDuration: 0,
-        averageDamagePerMinute: 0,
-        averageGoldPerMinute: 0,
-        firstGameTimestamp: null,
-        lastGameTimestamp: null,
-        timeframeStart: since,
-        timeframeEnd: Date.now(),
-      };
+    const response = stats ?? {
+      totalGames: 0,
+      wins: 0,
+      losses: 0,
+      winRate: 0,
+      totalKills: 0,
+      totalDeaths: 0,
+      totalAssists: 0,
+      averageKills: 0,
+      averageDeaths: 0,
+      averageAssists: 0,
+      kda: 0,
+      totalDamageDealt: 0,
+      averageDamageDealt: 0,
+      totalDamageTaken: 0,
+      averageDamageTaken: 0,
+      totalDamageMitigated: 0,
+      averageDamageMitigated: 0,
+      totalDamageTakenAndMitigated: 0,
+      averageDamageTakenAndMitigated: 0,
+      totalGoldEarned: 0,
+      averageGoldEarned: 0,
+      totalTimePlayed: 0,
+      averageGameDuration: 0,
+      averageDamagePerMinute: 0,
+      averageGoldPerMinute: 0,
+      firstGameTimestamp: null,
+      lastGameTimestamp: null,
+      timeframeStart: since,
+      timeframeEnd: Date.now(),
+    };
 
     response.timeframeStart ??= since;
     response.timeframeEnd ??= Date.now();
@@ -1835,7 +1838,7 @@ app.get(
     } = c.req.query();
     const puuid = c.var.account.puuid;
 
-    const cacheKey = `cache:ai:insights:${c.var.internalId}:${matchId}:${modelId}:${locale}:v2`;
+    const cacheKey = `cache:ai:insights:${c.var.internalId}:${matchId}:${modelId}:${locale}:v6`;
 
     if (force !== 'true') {
       const cached = await redis.get(cacheKey);

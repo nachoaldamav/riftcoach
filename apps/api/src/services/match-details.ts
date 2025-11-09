@@ -7,6 +7,19 @@ import consola from 'consola';
 import { riotAPI } from '../clients/riot.js';
 import { getItemMap, inferPatchFromGameVersion, type ItemMap } from '../utils/ddragon-items.js';
 
+// Strict item data shape for enriched itemsData
+type ItemDataResolved = {
+  id: number;
+  name: string;
+  plaintext?: string;
+  tags: string[];
+  gold?: { base?: number; total?: number; sell?: number; purchasable?: boolean };
+  depth?: number;
+  from: string[];
+  into: string[];
+  group?: string;
+};
+
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Item Data Enrichment                                                     */
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -42,7 +55,7 @@ async function enrichMatchWithItems(
   eventsAll: TimelineEvent[],
   gameVersion: string | undefined
 ): Promise<{
-  itemsData: Record<number, any>;
+  itemsData: Record<number, ItemDataResolved>;
 }> {
   const patch = inferPatchFromGameVersion(gameVersion);
   const itemMap = await getItemMap(patch);
@@ -51,20 +64,20 @@ async function enrichMatchWithItems(
   const allItemIds = extractAllItemIds(participants, eventsAll);
   
   // Create items data object
-  const itemsData: Record<number, any> = {};
+  const itemsData: Record<number, ItemDataResolved> = {};
   for (const itemId of allItemIds) {
     const item = itemMap[itemId];
     if (item) {
       itemsData[itemId] = {
         id: itemId,
         name: item.name,
-        plaintext: item.plaintext || null,
-        tags: item.tags || [],
-        gold: item.gold || null,
-        depth: item.depth || null,
-        from: item.from || [],
-        into: item.into || [],
-        group: item.group || null,
+        plaintext: item.plaintext,
+        tags: item.tags ?? [],
+        gold: item.gold,
+        depth: item.depth,
+        from: item.from ?? [],
+        into: item.into ?? [],
+        group: item.group,
       };
     }
   }
@@ -197,6 +210,28 @@ export type MatchEventDetail = {
     reference: 'event' | 'actors';
     participants: EventNearbyParticipant[];
   };
+  proximitySummary?: {
+    allies: {
+      total: number;
+      within600: number;
+      within1000: number;
+      closest: number | null;
+      closestChampions: string[];
+    };
+    enemies: {
+      total: number;
+      within600: number;
+      within1000: number;
+      closest: number | null;
+      closestChampions: string[];
+    };
+    numbersAdvantage: number;
+  };
+  frameDeltaSummary?: {
+    nearby: { count: number; avgMs: number | null; maxMs: number | null };
+    actors: { count: number; avgMs: number | null; maxMs: number | null };
+  };
+  positionConfidence?: number; // 0..1 derived from frame deltas (higher = fresher positions)
   rawEventType?: string; // tiny breadcrumb, no blob
 };
 
@@ -555,7 +590,11 @@ function inferLaneFromMovement(
     else if (z.startsWith('BOTTOM')) counts.BOTTOM++;
   }
   const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-  return best && best[1] > 0 ? (best[0] as any) : 'UNKNOWN';
+  const key = best?.[0];
+  if (best && best[1] > 0 && (key === 'TOP' || key === 'MIDDLE' || key === 'BOTTOM')) {
+    return key;
+  }
+  return 'UNKNOWN';
 }
 
 function hasSmite(p: RiotAPITypes.MatchV5.ParticipantDTO) {
@@ -687,7 +726,7 @@ function buildEventDetail(
   const positionSnapshots = new Map<number, ParticipantPositionSnapshot>();
 
   const participantStates: EventParticipantState[] = actorIds.map((pid) => {
-    const p = participants.find((pp) => pp.participantId === pid)!;
+    const p = participants.find((pp) => pp.participantId === pid);
     const nearest = nearestParticipantPosition(frames, pid, ts);
     positionSnapshots.set(pid, nearest);
     const pf = getParticipantFrame(nearest.frame, pid);
@@ -749,6 +788,52 @@ function buildEventDetail(
 
   nearby.sort((a, b) => a.distance - b.distance);
 
+  // Derive a compact proximity summary for the AI (ally/enemy counts and closest distances)
+  const alliesNear = nearby.filter((n) => n.teamId === subjectTeamId);
+  const enemiesNear = nearby.filter((n) => n.teamId !== subjectTeamId);
+  const countWithin = (arr: typeof nearby, d: number) =>
+    arr.filter((n) => typeof n.distance === 'number' && n.distance <= d).length;
+  const CLOSE_600 = 600;
+  const THREAT_1000 = 1000;
+  const proximitySummary = {
+    allies: {
+      total: alliesNear.length,
+      within600: countWithin(alliesNear, CLOSE_600),
+      within1000: countWithin(alliesNear, THREAT_1000),
+      closest: alliesNear.length ? alliesNear[0].distance : null,
+      closestChampions: alliesNear.slice(0, 3).map((n) => n.championName),
+    },
+    enemies: {
+      total: enemiesNear.length,
+      within600: countWithin(enemiesNear, CLOSE_600),
+      within1000: countWithin(enemiesNear, THREAT_1000),
+      closest: enemiesNear.length ? enemiesNear[0].distance : null,
+      closestChampions: enemiesNear.slice(0, 3).map((n) => n.championName),
+    },
+    numbersAdvantage: alliesNear.length - enemiesNear.length,
+  } as const;
+
+  // Frame distance summary: give AI a quick sense of how fresh positions are
+  const deltasNearby = nearby
+    .map((n) => n.positionDeltaMs)
+    .filter((d): d is number => typeof d === 'number' && Number.isFinite(d));
+  const deltasActors = participantStates
+    .map((s) => s.positionDeltaMs)
+    .filter((d): d is number => typeof d === 'number' && Number.isFinite(d));
+
+  const stats = (vals: number[]) => {
+    if (!vals.length) return { count: 0, avgMs: null as number | null, maxMs: null as number | null };
+    const sum = vals.reduce((a, b) => a + b, 0);
+    const avg = Math.round(sum / vals.length);
+    const max = Math.max(...vals);
+    return { count: vals.length, avgMs: avg, maxMs: max };
+  };
+  const nearbyStats = stats(deltasNearby);
+  const actorStats = stats(deltasActors);
+  const worstMs = Math.max(nearbyStats.maxMs ?? 0, actorStats.maxMs ?? 0);
+  const MAX_DELTA_MS = 30_000; // cap considered stale at ~30s per your UI logic
+  const positionConfidence = Math.max(0, Math.min(1, 1 - worstMs / MAX_DELTA_MS));
+
   return {
     type: event.type,
     timestamp: ts,
@@ -768,6 +853,12 @@ function buildEventDetail(
       reference,
       participants: nearby,
     },
+    proximitySummary,
+    frameDeltaSummary: {
+      nearby: { count: nearbyStats.count, avgMs: nearbyStats.avgMs, maxMs: nearbyStats.maxMs },
+      actors: { count: actorStats.count, avgMs: actorStats.avgMs, maxMs: actorStats.maxMs },
+    },
+    positionConfidence,
     rawEventType: event.type,
   };
 }
@@ -804,9 +895,11 @@ export async function matchDetailsNode(
   const timeline = await collections.timelines.findOne({
     'metadata.matchId': matchId,
   });
-  const frames: TimelineFrame[] = Array.isArray(timeline?.info?.frames)
-    ? (timeline!.info.frames as unknown as TimelineFrame[])
-    : [];
+  let frames: TimelineFrame[] = [];
+  const framesRaw = timeline?.info?.frames;
+  if (Array.isArray(framesRaw)) {
+    frames = framesRaw as unknown as TimelineFrame[];
+  }
   const eventsAll = flattenEvents(frames);
 
   // Slim participants with inferred positions
@@ -818,7 +911,8 @@ export async function matchDetailsNode(
     slimParticipant(p, frames, byTeam[p.teamId as 100 | 200]),
   );
 
-  const subject = slim.find((p) => p.puuid === puuid)!;
+  const subject = slim.find((p) => p.puuid === puuid);
+  if (!subject) return null;
 
   // Choose opponent by **inferred** lane/role
   const opponent =
@@ -876,7 +970,11 @@ export async function matchDetailsNode(
           baron: t.objectives?.baron?.kills ?? 0,
           dragon: t.objectives?.dragon?.kills ?? 0,
           riftHerald: t.objectives?.riftHerald?.kills ?? 0,
-          horde: (t as any)?.objectives?.horde?.kills ?? 0, // if present on patch
+          horde: (() => {
+            const obj = t.objectives as unknown as Record<string, { kills?: number }>;
+            const v = obj?.horde?.kills;
+            return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+          })(),
           tower: t.objectives?.tower?.kills ?? 0,
         },
       })) ?? [],
