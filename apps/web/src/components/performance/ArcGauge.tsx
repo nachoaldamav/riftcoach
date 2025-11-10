@@ -24,6 +24,7 @@ export function ArcGauge({
   color,
 }: ArcGaugeProps) {
   const clamped = Math.max(0, Math.min(100, Math.round(value)));
+  const gradientId = useId();
 
   // Determine color based on performance relative to p50
   const getGaugeColor = () => {
@@ -61,7 +62,7 @@ export function ArcGauge({
       >
         <title id={titleId}>{titleText}</title>
         <defs>
-          <linearGradient id="arc-gauge-gradient" x1="0" y1="0" x2="1" y2="1">
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor={gaugeColor} />
             <stop offset="100%" stopColor={gaugeColor} stopOpacity="0.7" />
           </linearGradient>
@@ -79,7 +80,7 @@ export function ArcGauge({
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke="url(#arc-gauge-gradient)"
+            stroke={`url(#${gradientId})`}
             strokeWidth={thickness}
             strokeLinecap="round"
             strokeDasharray={`${circumference} ${circumference}`}

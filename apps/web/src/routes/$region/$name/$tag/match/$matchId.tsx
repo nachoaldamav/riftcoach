@@ -27,8 +27,16 @@ import {
 import type { RiotAPITypes } from '@fightmegg/riot-api';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
+import { formatDistanceToNow } from 'date-fns';
 import { motion } from 'framer-motion';
-import { ChevronRight, Clock, Map as MapIcon, Target, Zap } from 'lucide-react';
+import {
+  ChevronRight,
+  Clock,
+  Map as MapIcon,
+  Sparkles,
+  Target,
+  Zap,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
@@ -306,6 +314,16 @@ const preciseNumberFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
   minimumFractionDigits: 1,
 });
+
+// Queue label mapping for common Riot queue IDs
+const QUEUE_LABELS: Record<number, string> = {
+  420: 'Ranked Solo/Duo',
+  440: 'Ranked Flex',
+  400: 'Normal Draft',
+  430: 'Normal Blind',
+  700: 'Clash',
+  1900: 'ARAM',
+};
 
 function MatchAnalysisComponent() {
   const { region, name, tag, matchId } = Route.useParams();
@@ -709,6 +727,47 @@ function MatchAnalysisComponent() {
     return bySummoner ?? null;
   }, [matchData, name, tag]);
 
+  // Derived header info
+  const subjectTeam = useMemo(() => {
+    if (!matchData || !subjectParticipant) return null;
+    return (
+      matchData.info.teams.find(
+        (t) => t.teamId === subjectParticipant.teamId,
+      ) ?? null
+    );
+  }, [matchData, subjectParticipant]);
+
+  const queueLabel = useMemo(() => {
+    if (!matchData) return '—';
+    return (
+      QUEUE_LABELS[Number(matchData.info.queueId)] ??
+      matchData.info.gameMode ??
+      'Unknown Queue'
+    );
+  }, [matchData]);
+
+  const gameDurationStr = useMemo(() => {
+    if (!matchData) return '—';
+    const total = Number(matchData.info.gameDuration ?? 0);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }, [matchData]);
+
+  const timeAgoStr = useMemo(() => {
+    if (!matchData) return '—';
+    try {
+      return formatDistanceToNow(
+        new Date(Number(matchData.info.gameCreation ?? 0)),
+        {
+          addSuffix: true,
+        },
+      );
+    } catch {
+      return '—';
+    }
+  }, [matchData]);
+
   const slotKeys = [
     'item0',
     'item1',
@@ -858,10 +917,6 @@ function MatchAnalysisComponent() {
     };
   }, [timelineData, subjectParticipant]);
 
-  const comparisonBaselineLabel =
-    comparisonMode === 'cohort'
-      ? 'Similar players (median)'
-      : 'Your historical median';
   const comparisonSubtitle =
     comparisonMode === 'cohort'
       ? 'Compared with similar players for this champion and role.'
@@ -1112,6 +1167,70 @@ function MatchAnalysisComponent() {
     }));
   }, [timelineData, subjectParticipant, participantById]);
 
+  // Gold graph config and dataset (team gold difference over time)
+  const goldChartConfig = useMemo(
+    () =>
+      ({
+        goldDiff: {
+          label: 'Gold Difference',
+          color: '#f59e0b',
+        },
+      }) satisfies ChartConfig,
+    [],
+  );
+
+  const goldGraphData = useMemo(() => {
+    if (!timelineData || !subjectParticipant || participantById.size === 0)
+      return [];
+    const frames = timelineData.info.frames ?? [];
+    if (!frames.length) return [];
+
+    return frames
+      .map((frame) => {
+        const ts = Number(frame.timestamp ?? Number.NaN);
+        if (!Number.isFinite(ts)) return null;
+
+        let teamGold = 0;
+        let enemyGold = 0;
+        for (const [id, meta] of participantById.entries()) {
+          const pfTeam =
+            (frame.participantFrames?.[String(id)] as
+              | ParticipantFrame
+              | undefined) ?? null;
+          const totalGold =
+            typeof pfTeam?.totalGold === 'number'
+              ? pfTeam.totalGold
+              : typeof pfTeam?.currentGold === 'number'
+                ? pfTeam.currentGold
+                : 0;
+          if (meta.teamId === subjectParticipant.teamId) {
+            teamGold += totalGold;
+          } else {
+            enemyGold += totalGold;
+          }
+        }
+
+        const goldDiff = teamGold - enemyGold;
+
+        return {
+          minute: Number((ts / 60000).toFixed(1)),
+          goldDiff,
+          teamGold,
+          enemyGold,
+        };
+      })
+      .filter(
+        (
+          entry,
+        ): entry is {
+          minute: number;
+          goldDiff: number;
+          teamGold: number;
+          enemyGold: number;
+        } => Boolean(entry),
+      );
+  }, [timelineData, subjectParticipant, participantById]);
+
   const detailedStatsByTeam = useMemo(() => {
     if (!matchData) return [];
     type MaybeRiotId = { riotIdGameName?: string; riotIdTagline?: string };
@@ -1302,6 +1421,19 @@ function MatchAnalysisComponent() {
         );
         const fmt = (n?: number | null) =>
           n == null ? '—' : numberFormatter.format(Math.round(n));
+        // Static percentile data for vision stats
+        // Support (UTILITY) roles have higher values
+        const isSupport = normalizedRole === 'UTILITY';
+        const visionScorePercentiles = isSupport
+          ? { p50: 45, p75: 60, p90: 75 }
+          : { p50: 25, p75: 35, p90: 50 };
+        const wardsPlacedPercentiles = isSupport
+          ? { p50: 20, p75: 28, p90: 35 }
+          : { p50: 8, p75: 12, p90: 18 };
+        const wardsKilledPercentiles = isSupport
+          ? { p50: 8, p75: 12, p90: 16 }
+          : { p50: 3, p75: 5, p90: 8 };
+
         visionMetrics = [
           {
             key: 'visionScore',
@@ -1309,9 +1441,12 @@ function MatchAnalysisComponent() {
             value: subject.visionScore ?? null,
             valueDisplay: fmt(subject.visionScore),
             baseline: teamVisionAvg,
-            p50: getPercentile('visionScore', 'p50'),
-            p75: getPercentile('visionScore', 'p75'),
-            p90: getPercentile('visionScore', 'p90'),
+            p50:
+              getPercentile('visionScore', 'p50') ?? visionScorePercentiles.p50,
+            p75:
+              getPercentile('visionScore', 'p75') ?? visionScorePercentiles.p75,
+            p90:
+              getPercentile('visionScore', 'p90') ?? visionScorePercentiles.p90,
           },
           {
             key: 'wardsPlaced',
@@ -1319,9 +1454,12 @@ function MatchAnalysisComponent() {
             value: subject.wardsPlaced ?? null,
             valueDisplay: fmt(subject.wardsPlaced),
             baseline: teamWardsPlacedAvg,
-            p50: getPercentile('wardsPlaced', 'p50'),
-            p75: getPercentile('wardsPlaced', 'p75'),
-            p90: getPercentile('wardsPlaced', 'p90'),
+            p50:
+              getPercentile('wardsPlaced', 'p50') ?? wardsPlacedPercentiles.p50,
+            p75:
+              getPercentile('wardsPlaced', 'p75') ?? wardsPlacedPercentiles.p75,
+            p90:
+              getPercentile('wardsPlaced', 'p90') ?? wardsPlacedPercentiles.p90,
           },
           {
             key: 'wardsKilled',
@@ -1329,9 +1467,12 @@ function MatchAnalysisComponent() {
             value: subject.wardsKilled ?? null,
             valueDisplay: fmt(subject.wardsKilled),
             baseline: teamWardsKilledAvg,
-            p50: getPercentile('wardsKilled', 'p50'),
-            p75: getPercentile('wardsKilled', 'p75'),
-            p90: getPercentile('wardsKilled', 'p90'),
+            p50:
+              getPercentile('wardsKilled', 'p50') ?? wardsKilledPercentiles.p50,
+            p75:
+              getPercentile('wardsKilled', 'p75') ?? wardsKilledPercentiles.p75,
+            p90:
+              getPercentile('wardsKilled', 'p90') ?? wardsKilledPercentiles.p90,
           },
         ];
         const visScoreParts = visionMetrics
@@ -1396,12 +1537,78 @@ function MatchAnalysisComponent() {
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-4"
+          className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <h1 className="text-3xl font-bold text-neutral-50">Match Analysis</h1>
-          <Badge className="bg-accent-blue-500/15 text-accent-blue-200 border border-accent-blue-400/40">
-            {matchData.info.gameMode}
-          </Badge>
+          <div className="flex items-center gap-4">
+            {/* Subject champion */}
+            {subjectParticipant ? (
+              <div className="relative">
+                <Avatar className="h-12 w-12 rounded-lg ring-2 ring-neutral-700">
+                  <AvatarImage
+                    src={getChampionSquare(subjectParticipant.championName)}
+                    alt={subjectParticipant.championName}
+                  />
+                </Avatar>
+              </div>
+            ) : null}
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-bold text-neutral-50">
+                  {subjectTeam?.win ? 'Victory' : 'Defeat'}
+                </h1>
+                <Badge
+                  className={
+                    subjectTeam?.win
+                      ? 'bg-emerald-500/10 text-emerald-200 border border-emerald-400/40'
+                      : 'bg-red-500/10 text-red-200 border border-red-400/40'
+                  }
+                >
+                  {queueLabel}
+                </Badge>
+              </div>
+              <div className="text-sm text-neutral-400 flex items-center gap-2">
+                <span>{gameDurationStr}</span>
+                <span>•</span>
+                <span>{timeAgoStr}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  aria-label="Show AI match summary"
+                  className="h-9 w-9 rounded-lg border border-neutral-700/60 bg-neutral-900/60 hover:bg-neutral-800 text-neutral-200 p-0"
+                >
+                  <Sparkles className="size-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-96 bg-neutral-900 border-neutral-700 text-neutral-100"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-accent-yellow-400" />
+                    <h3 className="text-sm font-semibold">AI Summary</h3>
+                  </div>
+                  {isInsightsLoading ? (
+                    <p className="text-sm text-neutral-400">
+                      Loading insights…
+                    </p>
+                  ) : insightsData?.summary ? (
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap text-neutral-200">
+                      {insightsData.summary}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-neutral-400">
+                      No summary available yet.
+                    </p>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
         </motion.div>
 
         <Tabs defaultValue="overview" className="space-y-8">
@@ -1409,11 +1616,20 @@ function MatchAnalysisComponent() {
             <TabsTrigger value="overview" className="px-4 py-2">
               Overview
             </TabsTrigger>
-            <TabsTrigger value="performance" className="px-4 py-2">
-              Performance
+            <TabsTrigger value="insights" className="px-4 py-2">
+              Insights
             </TabsTrigger>
-            <TabsTrigger value="details" className="px-4 py-2">
-              Details
+            <TabsTrigger value="timeline" className="px-4 py-2">
+              Timeline
+            </TabsTrigger>
+            <TabsTrigger value="gold" className="px-4 py-2">
+              Gold Graph
+            </TabsTrigger>
+            <TabsTrigger value="winprob" className="px-4 py-2">
+              Win Probability
+            </TabsTrigger>
+            <TabsTrigger value="stats" className="px-4 py-2">
+              Stats
             </TabsTrigger>
           </TabsList>
 
@@ -1438,415 +1654,264 @@ function MatchAnalysisComponent() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {matchData.info.teams.map((team) => (
-                      <div key={team.teamId} className="space-y-4">
-                        {/* Team result header */}
+                  {[100, 200].map((teamId) => {
+                    const team = matchData.info.teams.find(
+                      (t) => t.teamId === teamId,
+                    );
+                    const participants = matchData.info.participants.filter(
+                      (p) => p.teamId === teamId,
+                    );
+                    const teamKills = participants.reduce(
+                      (acc, q) => acc + (q.kills ?? 0),
+                      0,
+                    );
+                    const teamGold = participants.reduce(
+                      (acc, q) => acc + (q.goldEarned ?? 0),
+                      0,
+                    );
+                    const teamDamageTotal = participants.reduce(
+                      (acc, q) => acc + (q.totalDamageDealtToChampions ?? 0),
+                      0,
+                    );
+                    const sideLabel =
+                      teamId === 100
+                        ? 'Team 1 • Blue Side'
+                        : 'Team 2 • Red Side';
+                    const headerClass = team?.win
+                      ? 'bg-accent-emerald-900/25 border-accent-emerald-500/40 text-accent-emerald-300'
+                      : 'bg-red-900/25 border-red-500/40 text-red-300';
+                    return (
+                      <div key={`team-${teamId}`} className="mb-6">
+                        {/* Team header */}
                         <div
-                          className={`text-center p-4 rounded-lg ${team.win ? 'bg-accent-emerald-900/30 border border-accent-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}
+                          className={cn(
+                            'flex items-center justify-between p-3 rounded-lg border',
+                            headerClass,
+                          )}
                         >
-                          <h3
-                            className={`text-lg font-bold ${team.win ? 'text-accent-emerald-400' : 'text-red-400'}`}
-                          >
-                            {team.win ? 'Victory' : 'Defeat'}
-                            <span className="ml-2 text-sm text-neutral-300">
-                              ({team.teamId === 100 ? 'Blue Side' : 'Red Side'})
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{sideLabel}</span>
+                            <span className="text-xs text-neutral-300">
+                              {team?.win ? 'Victory' : 'Defeat'}
                             </span>
-                          </h3>
+                          </div>
+                          <div className="flex items-center gap-4 text-xs text-neutral-300">
+                            <span className="flex items-center gap-1">
+                              Kills{' '}
+                              <span className="font-semibold text-neutral-100">
+                                {teamKills}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              Drakes{' '}
+                              <span className="font-semibold text-neutral-100">
+                                {team?.objectives?.dragon?.kills ?? 0}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              Barons{' '}
+                              <span className="font-semibold text-neutral-100">
+                                {team?.objectives?.baron?.kills ?? 0}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              Towers{' '}
+                              <span className="font-semibold text-neutral-100">
+                                {team?.objectives?.tower?.kills ?? 0}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              Heralds{' '}
+                              <span className="font-semibold text-neutral-100">
+                                {team?.objectives?.riftHerald?.kills ?? 0}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              Gold{' '}
+                              <span className="font-semibold text-neutral-100">
+                                {numberFormatter.format(teamGold)}
+                              </span>
+                            </span>
+                          </div>
                         </div>
 
-                        {/* Players */}
-                        <div className="space-y-2">
-                          {matchData.info.participants
-                            .filter((p) => p.teamId === team.teamId)
-                            .map((p) => {
-                              const rp = p as {
-                                riotIdGameName?: string;
-                                riotIdTagline?: string;
-                              };
-                              const isSubject =
-                                subjectParticipant?.puuid === p.puuid;
-                              const displayName =
-                                rp.riotIdGameName ?? p.summonerName;
-                              const displayTag =
-                                rp.riotIdTagline ??
-                                (isSubject ? tag : undefined);
-                              const teamKills = matchData.info.participants
-                                .filter((q) => q.teamId === team.teamId)
-                                .reduce((acc, q) => acc + (q.kills ?? 0), 0);
-                              const minutes = Math.max(
-                                1,
-                                Math.floor(matchData.info.gameDuration / 60),
-                              );
-                              const csTotal =
-                                (p.totalMinionsKilled ?? 0) +
-                                (p.neutralMinionsKilled ?? 0);
-                              const csPerMin = csTotal / minutes;
-                              const kpPct =
-                                teamKills > 0
-                                  ? Math.round(
-                                      ((p.kills + p.assists) / teamKills) * 100,
-                                    )
-                                  : 0;
-                              return (
-                                <div
-                                  key={`row-${p.puuid}`}
-                                  className={cn(
-                                    'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-                                    isSubject
-                                      ? 'bg-accent-blue-900/20 border-accent-blue-400 ring-2 ring-accent-blue-400'
-                                      : 'bg-neutral-800/50 border-neutral-700/40',
-                                  )}
-                                >
-                                  {/* Champion + spells */}
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <Avatar className="h-10 w-10 rounded-lg">
-                                      <AvatarImage
-                                        src={getChampionSquare(p.championName)}
-                                        alt={p.championName}
-                                      />
-                                    </Avatar>
-                                    <div className="flex flex-col gap-1">
-                                      <img
-                                        src={getSpellIcon(p.summoner1Id)}
-                                        alt="S1"
-                                        className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
-                                      />
-                                      <img
-                                        src={getSpellIcon(p.summoner2Id)}
-                                        alt="S2"
-                                        className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
-                                      />
+                        {/* Player rows */}
+                        <div className="mt-2 space-y-2">
+                          {participants.map((p) => {
+                            const rp = p as {
+                              riotIdGameName?: string;
+                              riotIdTagline?: string;
+                            };
+                            const isSubject =
+                              subjectParticipant?.puuid === p.puuid;
+                            const displayName =
+                              rp.riotIdGameName ?? p.summonerName;
+                            const displayTag =
+                              rp.riotIdTagline ?? (isSubject ? tag : undefined);
+                            const minutes = Math.max(
+                              1,
+                              Math.floor(matchData.info.gameDuration / 60),
+                            );
+                            const csTotal =
+                              (p.totalMinionsKilled ?? 0) +
+                              (p.neutralMinionsKilled ?? 0);
+                            const kdaRatio =
+                              (p.kills + p.assists) /
+                              Math.max(1, p.deaths ?? 0);
+                            const kpPct =
+                              teamKills > 0
+                                ? Math.round(
+                                    ((p.kills + p.assists) / teamKills) * 100,
+                                  )
+                                : 0;
+                            const damage = p.totalDamageDealtToChampions ?? 0;
+                            const dmgShare =
+                              teamDamageTotal > 0
+                                ? (damage / teamDamageTotal) * 100
+                                : 0;
+                            return (
+                              <div
+                                key={`row-${p.puuid}`}
+                                className={cn(
+                                  'flex items-center gap-3 p-3 rounded-lg border',
+                                  isSubject
+                                    ? 'bg-accent-blue-900/20 border-accent-blue-400 ring-2 ring-accent-blue-400'
+                                    : 'bg-neutral-800/50 border-neutral-700/40',
+                                )}
+                              >
+                                {/* Champion + spells */}
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <Avatar className="h-10 w-10 rounded-lg">
+                                    <AvatarImage
+                                      src={getChampionSquare(p.championName)}
+                                      alt={p.championName}
+                                    />
+                                  </Avatar>
+                                  <div className="flex flex-col gap-1">
+                                    <img
+                                      src={getSpellIcon(p.summoner1Id)}
+                                      alt="S1"
+                                      className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
+                                    />
+                                    <img
+                                      src={getSpellIcon(p.summoner2Id)}
+                                      alt="S2"
+                                      className="w-5 h-5 rounded border border-neutral-700 bg-neutral-900 object-cover"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Name + items */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 truncate">
+                                    <span className="font-medium text-neutral-200 truncate">
+                                      {displayName}
+                                    </span>
+                                    {displayTag && (
+                                      <span className="text-xs text-neutral-300 px-2 py-0.5 rounded border border-neutral-700/60 bg-neutral-800/60">
+                                        #{displayTag}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {/* Items */}
+                                  <div className="flex items-center gap-1 mt-2">
+                                    {[
+                                      p.item0,
+                                      p.item1,
+                                      p.item2,
+                                      p.item3,
+                                      p.item4,
+                                      p.item5,
+                                    ].map(
+                                      (it: number | undefined, idx: number) =>
+                                        it && it > 0 ? (
+                                          <img
+                                            key={`it-${p.puuid}-${idx}-${it}`}
+                                            src={getItemIcon(it)}
+                                            alt="item"
+                                            className="w-5 h-5 rounded bg-neutral-900 border border-neutral-700 object-cover"
+                                          />
+                                        ) : (
+                                          <div
+                                            key={`it-${p.puuid}-${idx}-${it}`}
+                                            className="w-5 h-5 rounded bg-neutral-800/50 border border-neutral-700/40"
+                                          />
+                                        ),
+                                    )}
+                                    {/* Trinket */}
+                                    <img
+                                      key={`it-${p.puuid}-trinket-${p.item6}`}
+                                      src={getItemIcon(p.item6)}
+                                      alt="trinket"
+                                      className="w-5 h-5 rounded bg-neutral-900 border border-amber-500/50 object-cover"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Right stats */}
+                                <div className="flex items-center gap-8 shrink-0 min-w-[280px]">
+                                  <div className="text-sm text-neutral-400">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-neutral-500">
+                                        KDA
+                                      </span>
+                                      <span className="text-neutral-300 font-semibold">
+                                        {p.kills}/{p.deaths}/{p.assists}
+                                      </span>
+                                      <span className="ml-1 text-neutral-500">
+                                        ({kdaRatio.toFixed(1)})
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <span className="text-neutral-500">
+                                        CS
+                                      </span>
+                                      <span className="text-neutral-300 font-semibold">
+                                        {csTotal}
+                                      </span>
                                     </div>
                                   </div>
-
-                                  {/* Name + tagline + small stats */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 truncate">
-                                      <span className="font-medium text-neutral-200 truncate">
-                                        {displayName}
+                                  <div className="text-sm text-neutral-400">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-neutral-500">
+                                        KP
                                       </span>
-                                      {displayTag && (
-                                        <span className="text-xs text-neutral-300 px-2 py-0.5 rounded border border-neutral-700/60 bg-neutral-800/60">
-                                          #{displayTag}
-                                        </span>
-                                      )}
+                                      <span className="text-neutral-300 font-semibold">
+                                        {kpPct}%
+                                      </span>
                                     </div>
-                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
-                                      <span className="flex items-center gap-1">
+                                    <div className="mt-1 w-48 sm:w-56">
+                                      <div className="flex items-center justify-between text-[12px]">
                                         <span className="text-neutral-500">
-                                          KDA
+                                          DMG
                                         </span>
                                         <span className="text-neutral-300 font-semibold">
-                                          {p.kills}/{p.deaths}/{p.assists}
+                                          {numberFormatter.format(damage)}
                                         </span>
-                                      </span>
-                                      <span className="flex items-center gap-1">
-                                        <span className="text-neutral-500">
-                                          CS/min
-                                        </span>
-                                        <span className="text-neutral-300 font-semibold">
-                                          {csPerMin.toFixed(1)}
-                                        </span>
-                                      </span>
-                                      <span className="flex items-center gap-1">
-                                        <span className="text-neutral-500">
-                                          Vision
-                                        </span>
-                                        <span className="text-neutral-300 font-semibold">
-                                          {p.visionScore ?? 0}
-                                        </span>
-                                      </span>
-                                      {teamKills > 0 && (
-                                        <span className="flex items-center gap-1">
-                                          <span className="text-neutral-500">
-                                            KP
-                                          </span>
-                                          <span className="text-neutral-300 font-semibold">
-                                            {kpPct}%
-                                          </span>
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    {/* Items */}
-                                    <div className="flex items-center gap-1 mt-2">
-                                      {[
-                                        p.item0,
-                                        p.item1,
-                                        p.item2,
-                                        p.item3,
-                                        p.item4,
-                                        p.item5,
-                                      ].map(
-                                        (
-                                          it: number | undefined,
-                                          idx: number,
-                                        ) =>
-                                          it && it > 0 ? (
-                                            <img
-                                              key={`it-${p.puuid}-${idx}-${it}`}
-                                              src={getItemIcon(it)}
-                                              alt="item"
-                                              className="w-5 h-5 rounded bg-neutral-900 border border-neutral-700 object-cover"
-                                            />
-                                          ) : (
-                                            <div
-                                              key={`it-${p.puuid}-${idx}-${it}`}
-                                              className="w-5 h-5 rounded bg-neutral-800/50 border border-neutral-700/40"
-                                            />
-                                          ),
-                                      )}
-                                      {/* Trinket */}
-                                      <img
-                                        key={`it-${p.puuid}-trinket-${p.item6}`}
-                                        src={getItemIcon(p.item6)}
-                                        alt="trinket"
-                                        className="w-5 h-5 rounded bg-neutral-900 border border-amber-500/50 object-cover"
+                                      </div>
+                                      <Progress
+                                        value={Math.round(dmgShare)}
+                                        className="h-[10px] bg-neutral-800"
                                       />
                                     </div>
                                   </div>
                                 </div>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardBody>
-              </Card>
-            </motion.div>
-
-            {/* Key Moments with Map */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
-                <CardBody className="p-8">
-                  <div className="flex items-center gap-3 mb-6">
-                    <Zap className="w-6 h-6 text-accent-yellow-400" />
-                    <h2 className="text-2xl font-bold text-neutral-50">
-                      Key Moments
-                    </h2>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                    {/* Map */}
-                    <div className="md:col-span-3">
-                      <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
-                        {/* Transform layer: scales and pans the map and markers to center AOI */}
-                        <div
-                          className="absolute inset-0"
-                          style={getMapTransformStyle(1.75)}
-                        >
-                          <img
-                            src="/map.svg"
-                            alt="Summoner's Rift Map"
-                            className="absolute inset-0 w-full h-full opacity-70 contrast-90 filter brightness-75"
-                          />
-
-                          {/* Interpolated player markers at selected moment */}
-                          {eventSnapshot?.entries.map((pp) => {
-                            const participantDetails =
-                              participantDetailsById.get(pp.participantId);
-                            return (
-                              <div
-                                key={`pp-${pp.participantId}`}
-                                className="absolute"
-                                style={coordToStyle(pp.x, pp.y)}
-                              >
-                                {/* Uncertainty halo */}
-                                <div
-                                  className="absolute rounded-full border border-white/10 bg-white/5"
-                                  style={{
-                                    ...radiusToStyle(pp.radius),
-                                    left: '50%',
-                                    top: '50%',
-                                    transform: 'translate(-50%, -50%)',
-                                    opacity: Math.max(
-                                      0.25,
-                                      Math.min(0.85, 1 - pp.confidence + 0.35),
-                                    ),
-                                    filter: 'blur(2px)',
-                                  }}
-                                />
-                                {/* Avatar marker */}
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Avatar
-                                      className={cn(
-                                        'h-6 w-6 cursor-pointer rounded-md ring-2 transition-transform hover:scale-[1.08]',
-                                        pp.teamId === 100
-                                          ? 'ring-blue-400'
-                                          : 'ring-red-400',
-                                        'shadow-md z-20',
-                                        !pp.isActor ? 'opacity-50' : '',
-                                      )}
-                                    >
-                                      <AvatarImage
-                                        src={getChampionSquare(pp.championName)}
-                                        alt={pp.summonerName}
-                                      />
-                                    </Avatar>
-                                  </PopoverTrigger>
-                                  <PopoverContent
-                                    side="top"
-                                    align="center"
-                                    className="w-[22rem] border-neutral-700/70 bg-neutral-900/95 p-0 text-neutral-100"
-                                  >
-                                    <PlayerPopoverContent
-                                      entry={pp}
-                                      participant={participantDetails}
-                                      formatClock={formatClock}
-                                      getChampionSquare={getChampionSquare}
-                                      getItemIcon={getItemIcon}
-                                      timelineEvents={timelineEvents}
-                                    />
-                                  </PopoverContent>
-                                </Popover>
                               </div>
                             );
                           })}
                         </div>
-
-                        {/* Corner controls (outside of transform so UI doesn't scale) */}
-                        <div className="absolute top-4 right-4 flex items-center gap-2">
-                          <div className="px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
-                            <MapIcon className="w-3 h-3" />
-                            {eventSnapshot
-                              ? `t ${formatClock(eventSnapshot.ts)}`
-                              : '—'}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setAoiZoomEnabled((v) => !v)}
-                            className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
-                            title="Toggle Area-of-Interest zoom"
-                          >
-                            {aoiZoomEnabled ? 'Zoom Out' : 'Zoom In'}
-                          </button>
-                        </div>
                       </div>
-
-                      {/* Selected moment details */}
-                      {selectedMoment && (
-                        <div className="mt-4 p-4 bg-neutral-800/60 rounded-lg border border-neutral-700/50">
-                          <div className="flex items-center justify-between mb-1">
-                            <h3 className="font-semibold text-neutral-100 truncate">
-                              {selectedMoment.title}
-                            </h3>
-                            <Badge
-                              className={`text-xs font-semibold ${
-                                selectedMoment.enemyHalf
-                                  ? 'bg-red-500/10 text-red-200 border border-red-500/40'
-                                  : 'bg-neutral-800/70 text-neutral-200 border border-neutral-700/60'
-                              }`}
-                            >
-                              {selectedMoment.zone}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-neutral-300">
-                            {selectedMoment.insight}
-                          </p>
-                          {selectedMoment.suggestion && (
-                            <p className="text-xs text-neutral-400 mt-1 italic">
-                              Suggestion: {selectedMoment.suggestion}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Moments list */}
-                    <div className="space-y-3 md:col-span-2">
-                      {isInsightsLoading ? (
-                        <div className="flex items-center justify-center w-full py-8">
-                          <div className="flex items-center gap-3">
-                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
-                            <span className="text-neutral-300">
-                              Gathering key moments...
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        insightsData?.keyMoments.map(
-                          (moment, index: number) => {
-                            const isSelected = index === selectedMomentIndex;
-                            const versus = findKillParticipants(moment.ts);
-                            return (
-                              <motion.button
-                                key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
-                                type="button"
-                                onClick={() => setSelectedMomentIndex(index)}
-                                initial={{ opacity: 0, x: 10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: index * 0.03 }}
-                                className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
-                              >
-                                {versus && (
-                                  <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
-                                    {/* Killer background (left side) */}
-                                    <div
-                                      className="absolute inset-0 w-1/2 bg-cover opacity-100"
-                                      style={{
-                                        backgroundImage: versus.killer
-                                          ? `url(${getChampionCentered(versus.killer)})`
-                                          : 'none',
-                                        backgroundPosition: 'center 20%',
-                                        maskImage:
-                                          'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                        WebkitMaskImage:
-                                          'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                      }}
-                                    />
-                                    {/* Victim background (right side) */}
-                                    <div
-                                      className="absolute inset-0 left-1/2 w-1/2 bg-cover opacity-40 grayscale"
-                                      style={{
-                                        backgroundImage: versus.victim
-                                          ? `url(${getChampionCentered(versus.victim)})`
-                                          : 'none',
-                                        backgroundPosition: 'center 20%',
-                                        maskImage:
-                                          'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                        WebkitMaskImage:
-                                          'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
-                                      }}
-                                    />
-                                    <div className="absolute inset-0 bg-black/30" />
-                                    <div className="relative flex items-center justify-center h-full">
-                                      <span className="text-sm font-bold text-white drop-shadow-lg">
-                                        VS
-                                      </span>
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="flex items-center justify-between">
-                                  <h4 className="font-medium text-neutral-100 truncate">
-                                    {moment.title}
-                                  </h4>
-                                  <span className="text-xs text-neutral-400 ml-2">
-                                    {formatClock(moment.ts)}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                                  {moment.insight}
-                                </p>
-                              </motion.button>
-                            );
-                          },
-                        )
-                      )}
-                    </div>
-                  </div>
+                    );
+                  })}
                 </CardBody>
               </Card>
             </motion.div>
+
+            {/* Key Moments moved to Timeline tab */}
           </TabsContent>
 
-          <TabsContent value="performance" className="space-y-8">
+          {/* Insights tab: previously Performance */}
+          <TabsContent value="insights" className="space-y-8">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1956,117 +2021,6 @@ function MatchAnalysisComponent() {
                       {comparisonMode === 'cohort'
                         ? 'Not enough historical data yet to build cohort benchmarks for this champion and role.'
                         : 'Not enough historical data yet to build personal medians for this champion and role.'}
-                    </div>
-                  )}
-                </CardBody>
-              </Card>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
-                <CardBody className="p-6 space-y-6">
-                  <div>
-                    <h2 className="text-2xl font-bold text-neutral-50">
-                      Win Probability Timeline
-                    </h2>
-                    <p className="text-sm text-neutral-400">
-                      Gold advantage logistic model with an impact score per
-                      minute.
-                    </p>
-                  </div>
-                  {winProbabilityData.length > 0 ? (
-                    <ChartContainer
-                      config={winProbabilityChartConfig}
-                      className="h-[320px] w-full"
-                    >
-                      <ComposedChart data={winProbabilityData}>
-                        <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
-                        <XAxis
-                          dataKey="minute"
-                          tickLine={false}
-                          axisLine={false}
-                          tick={{ fill: '#9ca3af', fontSize: 12 }}
-                          label={{
-                            value: 'Minutes',
-                            position: 'insideBottomRight',
-                            offset: -4,
-                            fill: '#9ca3af',
-                            fontSize: 12,
-                          }}
-                        />
-                        <YAxis
-                          domain={[0, 100]}
-                          tickFormatter={(value) => `${Math.round(value)}%`}
-                          tick={{ fill: '#9ca3af', fontSize: 12 }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <RechartsTooltip
-                          cursor={{
-                            stroke: 'rgba(148, 163, 184, 0.4)',
-                            strokeWidth: 1,
-                          }}
-                          content={({ active, payload, label }) => {
-                            if (!active || !payload?.length) return null;
-                            const datum = payload[0]?.payload as
-                              | { winProb: number; impactRaw: number }
-                              | undefined;
-                            if (!datum) return null;
-                            return (
-                              <div className="rounded-lg border border-neutral-700/60 bg-neutral-900/90 p-3 text-xs text-neutral-200">
-                                <div className="font-semibold text-neutral-100">
-                                  Minute {label}
-                                </div>
-                                <div className="mt-2 flex items-center justify-between">
-                                  <span className="text-neutral-400">
-                                    Win probability
-                                  </span>
-                                  <span className="font-semibold text-accent-blue-200">
-                                    {datum.winProb.toFixed(1)}%
-                                  </span>
-                                </div>
-                                <div className="mt-1 flex items-center justify-between">
-                                  <span className="text-neutral-400">
-                                    Impact score
-                                  </span>
-                                  <span className="font-semibold text-accent-yellow-200">
-                                    {datum.impactRaw.toFixed(2)}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="winProb"
-                          stroke="var(--color-winProb)"
-                          fill="var(--color-winProb)"
-                          fillOpacity={0.15}
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="impact"
-                          stroke="var(--color-impact)"
-                          strokeWidth={2}
-                          dot={false}
-                          strokeDasharray="4 2"
-                        />
-                        <ReferenceLine
-                          y={50}
-                          stroke="rgba(148,163,184,0.4)"
-                          strokeDasharray="6 6"
-                        />
-                      </ComposedChart>
-                    </ChartContainer>
-                  ) : (
-                    <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
-                      Win probability chart unavailable without timeline frames.
                     </div>
                   )}
                 </CardBody>
@@ -2248,7 +2202,451 @@ function MatchAnalysisComponent() {
             </motion.div>
           </TabsContent>
 
-          <TabsContent value="details" className="space-y-8">
+          {/* Timeline tab */}
+          <TabsContent value="timeline" className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60 py-0">
+                <CardBody className="p-8">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Zap className="w-6 h-6 text-accent-yellow-400" />
+                    <h2 className="text-2xl font-bold text-neutral-50">
+                      Key Moments
+                    </h2>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                    {/* Map */}
+                    <div className="md:col-span-3">
+                      <div className="relative w-full aspect-square bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-2xl overflow-hidden border border-neutral-700/50">
+                        <div
+                          className="absolute inset-0"
+                          style={getMapTransformStyle(1.75)}
+                        >
+                          <img
+                            src="/map.svg"
+                            alt="Summoner's Rift Map"
+                            className="absolute inset-0 w-full h-full opacity-70 contrast-90 filter brightness-75"
+                          />
+                          {eventSnapshot?.entries.map((pp) => {
+                            const participantDetails =
+                              participantDetailsById.get(pp.participantId);
+                            return (
+                              <div
+                                key={`pp-${pp.participantId}`}
+                                className="absolute"
+                                style={coordToStyle(pp.x, pp.y)}
+                              >
+                                <div
+                                  className="absolute rounded-full border border-white/10 bg-white/5"
+                                  style={{
+                                    ...radiusToStyle(pp.radius),
+                                    left: '50%',
+                                    top: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    opacity: Math.max(
+                                      0.25,
+                                      Math.min(0.85, 1 - pp.confidence + 0.35),
+                                    ),
+                                    filter: 'blur(2px)',
+                                  }}
+                                />
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Avatar
+                                      className={cn(
+                                        'h-6 w-6 cursor-pointer rounded-md ring-2 transition-transform hover:scale-[1.08]',
+                                        pp.teamId === 100
+                                          ? 'ring-blue-400'
+                                          : 'ring-red-400',
+                                        'shadow-md z-20',
+                                        !pp.isActor ? 'opacity-50' : '',
+                                      )}
+                                    >
+                                      <AvatarImage
+                                        src={getChampionSquare(pp.championName)}
+                                        alt={pp.summonerName}
+                                      />
+                                    </Avatar>
+                                  </PopoverTrigger>
+                                  <PopoverContent
+                                    side="top"
+                                    align="center"
+                                    className="w-[22rem] border-neutral-700/70 bg-neutral-900/95 p-0 text-neutral-100"
+                                  >
+                                    <PlayerPopoverContent
+                                      entry={pp}
+                                      participant={participantDetails}
+                                      formatClock={formatClock}
+                                      getChampionSquare={getChampionSquare}
+                                      getItemIcon={getItemIcon}
+                                      timelineEvents={timelineEvents}
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="absolute top-4 right-4 flex items-center gap-2">
+                          <div className="px-2 py-1 rounded bg-neutral-900/80 border border-neutral-700/60 text-xs text-neutral-300 flex items-center gap-1">
+                            <MapIcon className="w-3 h-3" />
+                            {eventSnapshot
+                              ? `t ${formatClock(eventSnapshot.ts)}`
+                              : '—'}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setAoiZoomEnabled((v) => !v)}
+                            className={`px-2 py-1 rounded text-xs border ${aoiZoomEnabled ? 'bg-accent-yellow-500/20 border-accent-yellow-400/50 text-accent-yellow-200' : 'bg-neutral-900/80 border-neutral-700/60 text-neutral-300'}`}
+                            title="Toggle Area-of-Interest zoom"
+                          >
+                            {aoiZoomEnabled ? 'Zoom Out' : 'Zoom In'}
+                          </button>
+                        </div>
+                      </div>
+                      {selectedMoment && (
+                        <div className="mt-4 p-4 bg-neutral-800/60 rounded-lg border border-neutral-700/50">
+                          <div className="flex items-center justify-between mb-1">
+                            <h3 className="font-semibold text-neutral-100 truncate">
+                              {selectedMoment.title}
+                            </h3>
+                            <Badge
+                              className={`text-xs font-semibold ${selectedMoment.enemyHalf ? 'bg-red-500/10 text-red-200 border border-red-500/40' : 'bg-neutral-800/70 text-neutral-200 border border-neutral-700/60'}`}
+                            >
+                              {selectedMoment.zone}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-neutral-300">
+                            {selectedMoment.insight}
+                          </p>
+                          {selectedMoment.suggestion && (
+                            <p className="text-xs text-neutral-400 mt-1 italic">
+                              Suggestion: {selectedMoment.suggestion}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {/* Moments list */}
+                    <div className="space-y-3 md:col-span-2">
+                      {isInsightsLoading ? (
+                        <div className="flex items-center justify-center w-full py-8">
+                          <div className="flex items-center gap-3">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-yellow-400" />
+                            <span className="text-neutral-300">
+                              Gathering key moments...
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        insightsData?.keyMoments.map(
+                          (moment, index: number) => {
+                            const isSelected = index === selectedMomentIndex;
+                            const versus = findKillParticipants(moment.ts);
+                            return (
+                              <motion.button
+                                key={`km-${moment.ts}-${moment.title.slice(0, 10)}`}
+                                type="button"
+                                onClick={() => setSelectedMomentIndex(index)}
+                                initial={{ opacity: 0, x: 10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.03 }}
+                                className={`w-full text-left p-3 rounded-lg border transition-colors ${isSelected ? 'bg-neutral-800/70 border-accent-yellow-400/50' : 'bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/70'}`}
+                              >
+                                {versus && (
+                                  <div className="relative h-12 mb-2 rounded-lg overflow-hidden">
+                                    <div
+                                      className="absolute inset-0 w-1/2 bg-cover opacity-100"
+                                      style={{
+                                        backgroundImage: versus.killer
+                                          ? `url(${getChampionCentered(versus.killer)})`
+                                          : 'none',
+                                        backgroundPosition: 'center 20%',
+                                        maskImage:
+                                          'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                        WebkitMaskImage:
+                                          'linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                      }}
+                                    />
+                                    <div
+                                      className="absolute inset-0 left-1/2 w-1/2 bg-cover opacity-40 grayscale"
+                                      style={{
+                                        backgroundImage: versus.victim
+                                          ? `url(${getChampionCentered(versus.victim)})`
+                                          : 'none',
+                                        backgroundPosition: 'center 20%',
+                                        maskImage:
+                                          'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                        WebkitMaskImage:
+                                          'linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 70%, rgba(0,0,0,0) 100%)',
+                                      }}
+                                    />
+                                    <div className="absolute inset-0 bg-black/30" />
+                                    <div className="relative flex items-center justify-center h-full">
+                                      <span className="text-sm font-bold text-white drop-shadow-lg">
+                                        VS
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="flex items-center justify-between">
+                                  <h4 className="font-medium text-neutral-100 truncate">
+                                    {moment.title}
+                                  </h4>
+                                  <span className="text-xs text-neutral-400 ml-2">
+                                    {formatClock(moment.ts)}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
+                                  {moment.insight}
+                                </p>
+                              </motion.button>
+                            );
+                          },
+                        )
+                      )}
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            </motion.div>
+          </TabsContent>
+
+          {/* Gold Graph tab */}
+          <TabsContent value="gold" className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+                <CardBody className="p-6 space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-neutral-50">
+                      Gold Advantage
+                    </h2>
+                    <p className="text-sm text-neutral-400">
+                      Team gold difference over time.
+                    </p>
+                  </div>
+                  {goldGraphData.length > 0 ? (
+                    <ChartContainer
+                      config={goldChartConfig}
+                      className="h-[320px] w-full"
+                    >
+                      <ComposedChart data={goldGraphData}>
+                        <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
+                        <XAxis
+                          dataKey="minute"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fill: '#9ca3af', fontSize: 12 }}
+                          label={{
+                            value: 'Minutes',
+                            position: 'insideBottomRight',
+                            offset: -4,
+                            fill: '#9ca3af',
+                            fontSize: 12,
+                          }}
+                        />
+                        <YAxis
+                          tick={{ fill: '#9ca3af', fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <RechartsTooltip
+                          cursor={{
+                            stroke: 'rgba(148, 163, 184, 0.4)',
+                            strokeWidth: 1,
+                          }}
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null;
+                            const datum = payload[0]?.payload as
+                              | {
+                                  goldDiff: number;
+                                  teamGold: number;
+                                  enemyGold: number;
+                                }
+                              | undefined;
+                            if (!datum) return null;
+                            return (
+                              <div className="rounded-lg border border-neutral-700/60 bg-neutral-900/90 p-3 text-xs text-neutral-200">
+                                <div className="font-semibold text-neutral-100">
+                                  Minute {label}
+                                </div>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span className="text-neutral-400">
+                                    Gold diff
+                                  </span>
+                                  <span className="font-semibold text-accent-blue-200">
+                                    {numberFormatter.format(datum.goldDiff)}
+                                  </span>
+                                </div>
+                                <div className="mt-1 grid grid-cols-2 gap-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-neutral-400">
+                                      Team
+                                    </span>
+                                    <span className="font-semibold">
+                                      {numberFormatter.format(datum.teamGold)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-neutral-400">
+                                      Enemy
+                                    </span>
+                                    <span className="font-semibold">
+                                      {numberFormatter.format(datum.enemyGold)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="goldDiff"
+                          stroke="var(--color-goldDiff)"
+                          fill="var(--color-goldDiff)"
+                          fillOpacity={0.15}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <ReferenceLine
+                          y={0}
+                          stroke="rgba(148,163,184,0.4)"
+                          strokeDasharray="6 6"
+                        />
+                      </ComposedChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
+                      Gold graph unavailable without timeline frames.
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </motion.div>
+          </TabsContent>
+
+          {/* Win Probability tab */}
+          <TabsContent value="winprob" className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+                <CardBody className="p-6 space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-neutral-50">
+                      Win Probability Timeline
+                    </h2>
+                    <p className="text-sm text-neutral-400">
+                      Gold advantage logistic model with an impact score per
+                      minute.
+                    </p>
+                  </div>
+                  {winProbabilityData.length > 0 ? (
+                    <ChartContainer
+                      config={winProbabilityChartConfig}
+                      className="h-[320px] w-full"
+                    >
+                      <ComposedChart data={winProbabilityData}>
+                        <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
+                        <XAxis
+                          dataKey="minute"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fill: '#9ca3af', fontSize: 12 }}
+                          label={{
+                            value: 'Minutes',
+                            position: 'insideBottomRight',
+                            offset: -4,
+                            fill: '#9ca3af',
+                            fontSize: 12,
+                          }}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          tickFormatter={(value) => `${Math.round(value)}%`}
+                          tick={{ fill: '#9ca3af', fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <RechartsTooltip
+                          cursor={{
+                            stroke: 'rgba(148, 163, 184, 0.4)',
+                            strokeWidth: 1,
+                          }}
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null;
+                            const datum = payload[0]?.payload as
+                              | { winProb: number; impactRaw: number }
+                              | undefined;
+                            if (!datum) return null;
+                            return (
+                              <div className="rounded-lg border border-neutral-700/60 bg-neutral-900/90 p-3 text-xs text-neutral-200">
+                                <div className="font-semibold text-neutral-100">
+                                  Minute {label}
+                                </div>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span className="text-neutral-400">
+                                    Win probability
+                                  </span>
+                                  <span className="font-semibold text-accent-blue-200">
+                                    {datum.winProb.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between">
+                                  <span className="text-neutral-400">
+                                    Impact score
+                                  </span>
+                                  <span className="font-semibold text-accent-yellow-200">
+                                    {datum.impactRaw.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="winProb"
+                          stroke="var(--color-winProb)"
+                          fill="var(--color-winProb)"
+                          fillOpacity={0.15}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="impact"
+                          stroke="var(--color-impact)"
+                          strokeWidth={2}
+                          dot={false}
+                          strokeDasharray="4 2"
+                        />
+                        <ReferenceLine
+                          y={50}
+                          stroke="rgba(148,163,184,0.4)"
+                          strokeDasharray="6 6"
+                        />
+                      </ComposedChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
+                      Win probability chart unavailable without timeline frames.
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </motion.div>
+          </TabsContent>
+
+          <TabsContent value="stats" className="space-y-8">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
