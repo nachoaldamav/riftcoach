@@ -173,8 +173,8 @@ export const playerChampionProgressAggregation = (
                   { $eq: ['$$p.championName', championName] },
                   {
                     $cond: [
-                      { $gt: [{ $size: synonyms }, 0] },
-                      { $in: ['$$p.rawRole', synonyms] },
+                      { $gt: [{ $size: { $literal: synonyms } }, 0] },
+                      { $in: ['$$p.rawRole', { $literal: synonyms }] },
                       { $eq: ['$$p.normalizedRole', role] },
                     ],
                   },

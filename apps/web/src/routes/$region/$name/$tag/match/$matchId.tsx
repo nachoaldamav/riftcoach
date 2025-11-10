@@ -373,7 +373,8 @@ const PROGRESS_METRICS: Record<ProgressMetricKey, ProgressMetricDefinition> = {
   killParticipation: {
     key: 'killParticipation',
     label: 'Kill Participation',
-    description: 'Share of team kills you contributed to with kills or assists.',
+    description:
+      'Share of team kills you contributed to with kills or assists.',
     color: '#a855f7',
     format: (value) =>
       typeof value === 'number' ? percentFormatter.format(value) : '—',
@@ -480,23 +481,23 @@ function MatchAnalysisComponent() {
       killParticipation: false,
     };
     for (const match of matches) {
-      (Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]).forEach(
-        (metricKey) => {
-          const rawValue = match[metricKey];
-          if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
-            availability[metricKey] = true;
-          }
-        },
-      );
+      for (const metricKey of Object.keys(
+        PROGRESS_METRICS,
+      ) as ProgressMetricKey[]) {
+        const rawValue = match[metricKey];
+        if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+          availability[metricKey] = true;
+        }
+      }
     }
     return availability;
   }, [progressData]);
 
   useEffect(() => {
     if (!metricAvailability[selectedProgressMetric]) {
-      const fallback = (Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]).find(
-        (metricKey) => metricAvailability[metricKey],
-      );
+      const fallback = (
+        Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]
+      ).find((metricKey) => metricAvailability[metricKey]);
       if (fallback && fallback !== selectedProgressMetric) {
         setSelectedProgressMetric(fallback);
       }
@@ -586,16 +587,17 @@ function MatchAnalysisComponent() {
     );
     const earlierAverage =
       earlierWindow.length > 0
-        ? earlierWindow.reduce(
-            (sum, datum) => sum + (datum.rawValue ?? 0),
-            0,
-          ) /
+        ? earlierWindow.reduce((sum, datum) => sum + (datum.rawValue ?? 0), 0) /
           earlierWindow.length
         : null;
 
     const best = valid.reduce<ProgressChartDatum | null>((acc, datum) => {
       if (datum.rawValue === null) return acc;
-      if (!acc || (datum.rawValue ?? -Infinity) > (acc.rawValue ?? -Infinity)) {
+      if (
+        !acc ||
+        (datum.rawValue ?? Number.NEGATIVE_INFINITY) >
+          (acc.rawValue ?? Number.NEGATIVE_INFINITY)
+      ) {
         return datum;
       }
       return acc;
@@ -603,7 +605,11 @@ function MatchAnalysisComponent() {
 
     const worst = valid.reduce<ProgressChartDatum | null>((acc, datum) => {
       if (datum.rawValue === null) return acc;
-      if (!acc || (datum.rawValue ?? Infinity) < (acc.rawValue ?? Infinity)) {
+      if (
+        !acc ||
+        (datum.rawValue ?? Number.POSITIVE_INFINITY) <
+          (acc.rawValue ?? Number.POSITIVE_INFINITY)
+      ) {
         return datum;
       }
       return acc;
@@ -624,11 +630,14 @@ function MatchAnalysisComponent() {
     if (!progressMatches.length) return null;
     const first = progressMatches[0];
     const last = progressMatches[progressMatches.length - 1];
-    const firstDate = new Date(first.gameCreation).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    const firstDate = new Date(first.gameCreation).toLocaleDateString(
+      undefined,
+      {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      },
+    );
     const lastDate = new Date(last.gameCreation).toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
@@ -647,13 +656,52 @@ function MatchAnalysisComponent() {
     [progressMetricDefinition],
   );
 
+  // Subject participant and normalized role declared before first usage
+  const subjectParticipant = useMemo(() => {
+    if (!matchData) return null;
+    const nameLc = name.toLowerCase();
+    const tagLc = tag.toLowerCase();
+
+    interface MaybeRiotId {
+      riotIdGameName?: string;
+      riotIdTagline?: string;
+    }
+
+    const byRiotId = matchData.info.participants.find((p) => {
+      const rp = p as MaybeRiotId;
+      return (
+        typeof rp.riotIdGameName === 'string' &&
+        typeof rp.riotIdTagline === 'string' &&
+        rp.riotIdGameName.toLowerCase() === nameLc &&
+        rp.riotIdTagline.toLowerCase() === tagLc
+      );
+    });
+    if (byRiotId) return byRiotId;
+
+    const bySummoner = matchData.info.participants.find(
+      (p) =>
+        typeof p.summonerName === 'string' &&
+        p.summonerName.toLowerCase() === nameLc,
+    );
+    return bySummoner ?? null;
+  }, [matchData, name, tag]);
+
+  const normalizedRole = (
+    subjectParticipant?.teamPosition ??
+    subjectParticipant?.individualPosition ??
+    ''
+  ).toUpperCase();
+
   const subjectChampionName =
     subjectParticipant?.championName ??
     progressData?.championName ??
     'Champion';
 
-  const normalizedRoleLabel = (progressData?.role ?? normalizedRole ?? 'UNKNOWN')
-    .toLowerCase();
+  const normalizedRoleLabel = (
+    progressData?.role ??
+    normalizedRole ??
+    'UNKNOWN'
+  ).toLowerCase();
   const friendlyRoleLabel =
     normalizedRoleLabel === 'utility'
       ? 'support'
@@ -972,34 +1020,6 @@ function MatchAnalysisComponent() {
   };
 
   // Subject participant and slot suggestions mapping
-  const subjectParticipant = useMemo(() => {
-    if (!matchData) return null;
-    const nameLc = name.toLowerCase();
-    const tagLc = tag.toLowerCase();
-
-    interface MaybeRiotId {
-      riotIdGameName?: string;
-      riotIdTagline?: string;
-    }
-
-    const byRiotId = matchData.info.participants.find((p) => {
-      const rp = p as MaybeRiotId;
-      return (
-        typeof rp.riotIdGameName === 'string' &&
-        typeof rp.riotIdTagline === 'string' &&
-        rp.riotIdGameName.toLowerCase() === nameLc &&
-        rp.riotIdTagline.toLowerCase() === tagLc
-      );
-    });
-    if (byRiotId) return byRiotId;
-
-    const bySummoner = matchData.info.participants.find(
-      (p) =>
-        typeof p.summonerName === 'string' &&
-        p.summonerName.toLowerCase() === nameLc,
-    );
-    return bySummoner ?? null;
-  }, [matchData, name, tag]);
 
   // Derived header info
   const subjectTeam = useMemo(() => {
@@ -1119,11 +1139,6 @@ function MatchAnalysisComponent() {
     });
   }, [subjectParticipant, buildsData, slotKeys]);
 
-  const normalizedRole = (
-    subjectParticipant?.teamPosition ??
-    subjectParticipant?.individualPosition ??
-    ''
-  ).toUpperCase();
   const championRoleQueryEnabled =
     Boolean(subjectParticipant?.championName) &&
     normalizedRole !== '' &&
@@ -2203,29 +2218,29 @@ function MatchAnalysisComponent() {
                       </h2>
                       <p className="text-sm text-neutral-400">
                         Track how your {subjectChampionName} {friendlyRoleLabel}{' '}
-                        games have trended across the last {progressMatches.length}{' '}
-                        matches{progressRangeLabel ? ` (${progressRangeLabel})` : ''}.
+                        games have trended across the last{' '}
+                        {progressMatches.length} matches.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {(Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]).map(
-                        (metricKey) => {
-                          const metric = PROGRESS_METRICS[metricKey];
-                          const isSelected = metricKey === selectedProgressMetric;
-                          const isAvailable = metricAvailability[metricKey];
-                          return (
-                            <Button
-                              key={metricKey}
-                              variant={isSelected ? 'secondary' : 'outline'}
-                              size="sm"
-                              disabled={!isAvailable}
-                              onClick={() => setSelectedProgressMetric(metricKey)}
-                            >
-                              {metric.label}
-                            </Button>
-                          );
-                        },
-                      )}
+                      {(
+                        Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]
+                      ).map((metricKey) => {
+                        const metric = PROGRESS_METRICS[metricKey];
+                        const isSelected = metricKey === selectedProgressMetric;
+                        const isAvailable = metricAvailability[metricKey];
+                        return (
+                          <Button
+                            key={metricKey}
+                            variant={isSelected ? 'secondary' : 'outline'}
+                            size="sm"
+                            disabled={!isAvailable}
+                            onClick={() => setSelectedProgressMetric(metricKey)}
+                          >
+                            {metric.label}
+                          </Button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -2273,7 +2288,10 @@ function MatchAnalysisComponent() {
                                 />
                               </linearGradient>
                             </defs>
-                            <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
+                            <CartesianGrid
+                              strokeDasharray="4 4"
+                              opacity={0.2}
+                            />
                             <XAxis
                               dataKey="label"
                               tickLine={false}
@@ -2301,14 +2319,25 @@ function MatchAnalysisComponent() {
                                   <div className="rounded-lg border border-neutral-700/60 bg-neutral-900/90 p-3 text-xs text-neutral-200">
                                     <div className="flex items-center justify-between gap-4 text-neutral-100">
                                       <span className="font-semibold">
-                                        {datum.isCurrent ? 'Current match' : `Match ${datum.order}`}
+                                        {datum.isCurrent
+                                          ? 'Current match'
+                                          : `Match ${datum.order}`}
                                       </span>
-                                      <span className={cn('text-[11px]', datum.win ? 'text-emerald-400' : 'text-red-400')}>
+                                      <span
+                                        className={cn(
+                                          'text-[11px]',
+                                          datum.win
+                                            ? 'text-emerald-400'
+                                            : 'text-red-400',
+                                        )}
+                                      >
                                         {datum.win ? 'Win' : 'Loss'}
                                       </span>
                                     </div>
                                     <div className="mt-1 text-[11px] text-neutral-400">
-                                      {new Date(datum.gameCreation).toLocaleDateString()}
+                                      {new Date(
+                                        datum.gameCreation,
+                                      ).toLocaleDateString()}
                                     </div>
                                     <div className="mt-3 text-sm font-semibold text-neutral-50">
                                       {formatProgressValue(datum.rawValue)}
@@ -2338,7 +2367,11 @@ function MatchAnalysisComponent() {
                                     r={radius}
                                     stroke="var(--color-trend)"
                                     strokeWidth={datum.isCurrent ? 2 : 1}
-                                    fill={datum.isCurrent ? 'rgba(250, 204, 21, 0.9)' : '#0f172a'}
+                                    fill={
+                                      datum.isCurrent
+                                        ? 'rgba(250, 204, 21, 0.9)'
+                                        : '#0f172a'
+                                    }
                                   />
                                 );
                               }}
@@ -2349,19 +2382,20 @@ function MatchAnalysisComponent() {
                                 fill: 'rgba(250, 204, 21, 0.9)',
                               }}
                             />
-                            {progressSummary && progressSummary.average !== null && (
-                              <ReferenceLine
-                                y={
-                                  progressMetricDefinition.transform
-                                    ? progressMetricDefinition.transform(
-                                        progressSummary.average,
-                                      ) ?? undefined
-                                    : progressSummary.average
-                                }
-                                stroke="rgba(250, 204, 21, 0.45)"
-                                strokeDasharray="4 4"
-                              />
-                            )}
+                            {progressSummary &&
+                              progressSummary.average !== null && (
+                                <ReferenceLine
+                                  y={
+                                    progressMetricDefinition.transform
+                                      ? (progressMetricDefinition.transform(
+                                          progressSummary.average,
+                                        ) ?? undefined)
+                                      : progressSummary.average
+                                  }
+                                  stroke="rgba(250, 204, 21, 0.45)"
+                                  strokeDasharray="4 4"
+                                />
+                              )}
                           </ComposedChart>
                         </ChartContainer>
                         <div className="space-y-4">
@@ -2371,17 +2405,18 @@ function MatchAnalysisComponent() {
                             </p>
                             <div className="mt-2 flex items-baseline justify-between">
                               <span className="text-3xl font-semibold text-neutral-100">
-                                {formatProgressValue(progressSummary?.current?.rawValue ?? null)}
+                                {formatProgressValue(
+                                  progressSummary?.current?.rawValue ?? null,
+                                )}
                               </span>
                               <span className="text-xs text-neutral-400">
-                                vs avg
-                                {' '}
+                                vs avg{' '}
                                 {formatProgressDifference(
                                   typeof progressSummary?.current?.rawValue ===
                                     'number' &&
                                     typeof progressSummary?.average === 'number'
                                     ? progressSummary.current.rawValue -
-                                      progressSummary.average
+                                        progressSummary.average
                                     : null,
                                 )}
                               </span>
@@ -2396,7 +2431,9 @@ function MatchAnalysisComponent() {
                             </p>
                             <div className="mt-2 flex items-baseline justify-between">
                               <span className="text-lg font-semibold text-neutral-100">
-                                {formatProgressValue(progressSummary?.trailingAverage ?? null)}
+                                {formatProgressValue(
+                                  progressSummary?.trailingAverage ?? null,
+                                )}
                               </span>
                               <span className="text-xs text-neutral-400">
                                 {formatProgressDifference(
@@ -2405,7 +2442,7 @@ function MatchAnalysisComponent() {
                                     typeof progressSummary?.earlierAverage ===
                                       'number'
                                     ? progressSummary.trailingAverage -
-                                      progressSummary.earlierAverage
+                                        progressSummary.earlierAverage
                                     : null,
                                 )}
                               </span>
@@ -2422,18 +2459,23 @@ function MatchAnalysisComponent() {
                               <div className="flex items-center justify-between">
                                 <span className="text-neutral-400">Peak</span>
                                 <span className="font-semibold text-neutral-100">
-                                  {formatProgressValue(progressSummary?.best?.rawValue ?? null)}
+                                  {formatProgressValue(
+                                    progressSummary?.best?.rawValue ?? null,
+                                  )}
                                 </span>
                               </div>
                               <div className="flex items-center justify-between">
                                 <span className="text-neutral-400">Low</span>
                                 <span className="font-semibold text-neutral-100">
-                                  {formatProgressValue(progressSummary?.worst?.rawValue ?? null)}
+                                  {formatProgressValue(
+                                    progressSummary?.worst?.rawValue ?? null,
+                                  )}
                                 </span>
                               </div>
                             </div>
                             <p className="mt-1 text-xs text-neutral-500">
-                              Use these outliers to review what went right or wrong.
+                              Use these outliers to review what went right or
+                              wrong.
                             </p>
                           </div>
                         </div>
@@ -2441,7 +2483,8 @@ function MatchAnalysisComponent() {
                     </div>
                   ) : (
                     <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
-                      Not enough recent games on this champion-role to chart your progress yet.
+                      Not enough recent games on this champion-role to chart
+                      your progress yet.
                     </div>
                   )}
                 </CardBody>
