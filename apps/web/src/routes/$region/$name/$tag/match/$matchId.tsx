@@ -3010,14 +3010,19 @@ function MatchAnalysisComponent() {
                     </p>
                   </div>
                   {goldGraphData.length > 0 ? (
-                    <ChartContainer
-                      config={goldChartConfig}
-                      className="h-[320px] w-full"
-                    >
-                      <ComposedChart data={goldGraphData}>
+                    <>
+                      {console.log('Key moments data:', insightsData?.keyMoments)}
+                      <ChartContainer
+                        config={goldChartConfig}
+                        className="h-[320px] w-full"
+                      >
+                        <ComposedChart data={goldGraphData}>
                         <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
                         <XAxis
                           dataKey="minute"
+                          type="number"
+                          domain={["dataMin", "dataMax"]}
+                          allowDataOverflow
                           tickLine={false}
                           axisLine={false}
                           tick={{ fill: '#9ca3af', fontSize: 12 }}
@@ -3041,6 +3046,39 @@ function MatchAnalysisComponent() {
                           }}
                           content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
+                            
+                            // Check if hovering near a key moment
+                            const nearbyMoment = insightsData?.keyMoments?.find(
+                              (moment) => {
+                                const momentMinute = moment.ts / 60000;
+                                return Math.abs(momentMinute - (label as number)) < 0.5;
+                              }
+                            );
+                            
+                            if (nearbyMoment) {
+                              return (
+                                <div className="max-w-xs rounded-lg border border-orange-500/40 bg-neutral-900/95 p-3 text-xs text-neutral-200">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">⚡</span>
+                                    <div className="font-semibold text-orange-400">
+                                      {formatClock(nearbyMoment.ts)}
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 font-semibold text-neutral-100">
+                                    {nearbyMoment.title}
+                                  </div>
+                                  <div className="mt-1 text-neutral-300">
+                                    {nearbyMoment.insight}
+                                  </div>
+                                  {nearbyMoment.suggestion && (
+                                    <div className="mt-2 rounded border border-neutral-700/60 bg-neutral-800/60 p-2 text-neutral-400">
+                                      💡 {nearbyMoment.suggestion}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            
                             const datum = payload[0]?.payload as
                               | {
                                   goldDiff: number;
@@ -3098,8 +3136,30 @@ function MatchAnalysisComponent() {
                           stroke="rgba(148,163,184,0.4)"
                           strokeDasharray="6 6"
                         />
-                      </ComposedChart>
-                    </ChartContainer>
+                        {/* Key moment markers */}
+                        {insightsData?.keyMoments?.map((moment, idx) => {
+                          const minuteValue = moment.ts / 60000;
+                          console.log('Gold chart moment marker:', { minuteValue, ts: moment.ts, title: moment.title });
+                          return (
+                            <ReferenceLine
+                              key={`gold-moment-${moment.ts}-${idx}`}
+                              x={minuteValue}
+                              stroke="rgba(249, 115, 22, 0.35)"
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              ifOverflow="extendDomain"
+                              label={{
+                                value: '⚡',
+                                position: 'top',
+                                fill: 'rgb(249, 115, 22)',
+                                fontSize: 16,
+                              }}
+                            />
+                          );
+                        })}
+                        </ComposedChart>
+                      </ChartContainer>
+                    </>
                   ) : (
                     <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
                       Gold graph unavailable without timeline frames.
@@ -3136,6 +3196,9 @@ function MatchAnalysisComponent() {
                         <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
                         <XAxis
                           dataKey="minute"
+                          type="number"
+                          domain={["dataMin", "dataMax"]}
+                          allowDataOverflow
                           tickLine={false}
                           axisLine={false}
                           tick={{ fill: '#9ca3af', fontSize: 12 }}
@@ -3161,6 +3224,39 @@ function MatchAnalysisComponent() {
                           }}
                           content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
+                            
+                            // Check if hovering near a key moment
+                            const nearbyMoment = insightsData?.keyMoments?.find(
+                              (moment) => {
+                                const momentMinute = moment.ts / 60000;
+                                return Math.abs(momentMinute - (label as number)) < 0.5;
+                              }
+                            );
+                            
+                            if (nearbyMoment) {
+                              return (
+                                <div className="max-w-xs rounded-lg border border-orange-500/40 bg-neutral-900/95 p-3 text-xs text-neutral-200">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">⚡</span>
+                                    <div className="font-semibold text-orange-400">
+                                      {formatClock(nearbyMoment.ts)}
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 font-semibold text-neutral-100">
+                                    {nearbyMoment.title}
+                                  </div>
+                                  <div className="mt-1 text-neutral-300">
+                                    {nearbyMoment.insight}
+                                  </div>
+                                  {nearbyMoment.suggestion && (
+                                    <div className="mt-2 rounded border border-neutral-700/60 bg-neutral-800/60 p-2 text-neutral-400">
+                                      💡 {nearbyMoment.suggestion}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            
                             const datum = payload[0]?.payload as
                               | { winProb: number; impactRaw: number }
                               | undefined;
@@ -3212,6 +3308,27 @@ function MatchAnalysisComponent() {
                           stroke="rgba(148,163,184,0.4)"
                           strokeDasharray="6 6"
                         />
+                        {/* Key moment markers */}
+                        {insightsData?.keyMoments?.map((moment, idx) => {
+                          const minuteValue = moment.ts / 60000;
+                          console.log('Win prob chart moment marker:', { minuteValue, ts: moment.ts, title: moment.title });
+                          return (
+                            <ReferenceLine
+                              key={`winprob-moment-${moment.ts}-${idx}`}
+                              x={minuteValue}
+                              stroke="rgba(249, 115, 22, 0.35)"
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              ifOverflow="extendDomain"
+                              label={{
+                                value: '⚡',
+                                position: 'top',
+                                fill: 'rgb(249, 115, 22)',
+                                fontSize: 16,
+                              }}
+                            />
+                          );
+                        })}
                       </ComposedChart>
                     </ChartContainer>
                   ) : (
