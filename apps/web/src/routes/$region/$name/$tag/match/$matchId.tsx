@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { useDataDragon } from '@/providers/data-dragon-provider';
 import {
   type ItemSuggestion,
+  type MatchProgressEntry,
   getAllMatchDataQueryOptions,
   getChampionRoleDetailQueryOptions,
 } from '@/queries/get-match-insights';
@@ -37,7 +38,7 @@ import {
   Target,
   Zap,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
   Area,
@@ -315,6 +316,72 @@ const preciseNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 1,
 });
 
+const percentFormatter = new Intl.NumberFormat('en-US', {
+  style: 'percent',
+  maximumFractionDigits: 0,
+});
+
+type ProgressMetricKey =
+  | 'csPerMin'
+  | 'damagePerMin'
+  | 'goldPerMin'
+  | 'visionPerMin'
+  | 'killParticipation';
+
+type ProgressMetricDefinition = {
+  key: ProgressMetricKey;
+  label: string;
+  description: string;
+  color: string;
+  format: (value: number | null | undefined) => string;
+  transform?: (value: number | null | undefined) => number | null;
+};
+
+const PROGRESS_METRICS: Record<ProgressMetricKey, ProgressMetricDefinition> = {
+  csPerMin: {
+    key: 'csPerMin',
+    label: 'CS / min',
+    description: 'Last-hit pace including lane and jungle CS per minute.',
+    color: '#facc15',
+    format: (value) =>
+      typeof value === 'number' ? preciseNumberFormatter.format(value) : '—',
+  },
+  damagePerMin: {
+    key: 'damagePerMin',
+    label: 'Damage / min',
+    description: 'Champion damage per minute across the match.',
+    color: '#f97316',
+    format: (value) =>
+      typeof value === 'number' ? numberFormatter.format(value) : '—',
+  },
+  goldPerMin: {
+    key: 'goldPerMin',
+    label: 'Gold / min',
+    description: 'Gold generation tempo from farming, objectives and fights.',
+    color: '#f59e0b',
+    format: (value) =>
+      typeof value === 'number' ? numberFormatter.format(value) : '—',
+  },
+  visionPerMin: {
+    key: 'visionPerMin',
+    label: 'Vision / min',
+    description: 'Vision score per minute measuring wards and denials.',
+    color: '#22d3ee',
+    format: (value) =>
+      typeof value === 'number' ? preciseNumberFormatter.format(value) : '—',
+  },
+  killParticipation: {
+    key: 'killParticipation',
+    label: 'Kill Participation',
+    description: 'Share of team kills you contributed to with kills or assists.',
+    color: '#a855f7',
+    format: (value) =>
+      typeof value === 'number' ? percentFormatter.format(value) : '—',
+    transform: (value) =>
+      typeof value === 'number' ? Math.round(value * 1000) / 10 : null,
+  },
+};
+
 // Queue label mapping for common Riot queue IDs
 const QUEUE_LABELS: Record<number, string> = {
   420: 'Ranked Solo/Duo',
@@ -343,6 +410,9 @@ function MatchAnalysisComponent() {
   );
   const { data: buildsData, isLoading: isBuildsLoading } = useQuery(
     queryOptions.builds,
+  );
+  const { data: progressData, isLoading: isProgressLoading } = useQuery(
+    queryOptions.progress,
   );
 
   // Summoner Spells mapping (id -> spell key, e.g., 4 -> 'SummonerFlash')
@@ -397,6 +467,210 @@ function MatchAnalysisComponent() {
   const [comparisonMode, setComparisonMode] = useState<'cohort' | 'self'>(
     'cohort',
   );
+  const [selectedProgressMetric, setSelectedProgressMetric] =
+    useState<ProgressMetricKey>('csPerMin');
+
+  const metricAvailability = useMemo(() => {
+    const matches = progressData?.matches ?? [];
+    const availability: Record<ProgressMetricKey, boolean> = {
+      csPerMin: false,
+      damagePerMin: false,
+      goldPerMin: false,
+      visionPerMin: false,
+      killParticipation: false,
+    };
+    for (const match of matches) {
+      (Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]).forEach(
+        (metricKey) => {
+          const rawValue = match[metricKey];
+          if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+            availability[metricKey] = true;
+          }
+        },
+      );
+    }
+    return availability;
+  }, [progressData]);
+
+  useEffect(() => {
+    if (!metricAvailability[selectedProgressMetric]) {
+      const fallback = (Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]).find(
+        (metricKey) => metricAvailability[metricKey],
+      );
+      if (fallback && fallback !== selectedProgressMetric) {
+        setSelectedProgressMetric(fallback);
+      }
+    }
+  }, [metricAvailability, selectedProgressMetric]);
+
+  const progressMetricDefinition = PROGRESS_METRICS[selectedProgressMetric];
+
+  type ProgressChartDatum = {
+    matchId: string;
+    order: number;
+    label: string;
+    rawValue: number | null;
+    value: number | null;
+    isCurrent: boolean;
+    gameCreation: number;
+    win: boolean;
+  };
+
+  const progressMatches = useMemo<MatchProgressEntry[]>(() => {
+    const matches = progressData?.matches ?? [];
+    if (!matches.length) return [];
+    return [...matches].sort(
+      (a, b) => Number(a.gameCreation ?? 0) - Number(b.gameCreation ?? 0),
+    );
+  }, [progressData]);
+
+  const progressChartData = useMemo<ProgressChartDatum[]>(() => {
+    const metric = PROGRESS_METRICS[selectedProgressMetric];
+    if (!progressMatches.length) return [];
+    return progressMatches.map((entry, index) => {
+      const rawValue = entry[selectedProgressMetric];
+      const transformed = metric.transform
+        ? metric.transform(rawValue)
+        : rawValue;
+      return {
+        matchId: entry.matchId,
+        order: index + 1,
+        label: new Date(entry.gameCreation).toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+        }),
+        rawValue: typeof rawValue === 'number' ? rawValue : null,
+        value:
+          typeof transformed === 'number' && Number.isFinite(transformed)
+            ? transformed
+            : null,
+        isCurrent: entry.matchId === matchId,
+        gameCreation: entry.gameCreation,
+        win: Boolean(entry.win),
+      };
+    });
+  }, [progressMatches, selectedProgressMetric, matchId]);
+
+  const filteredProgressChartData = useMemo(
+    () => progressChartData.filter((datum) => datum.value !== null),
+    [progressChartData],
+  );
+
+  const progressSummary = useMemo(() => {
+    const metric = PROGRESS_METRICS[selectedProgressMetric];
+    const valid = progressChartData.filter(
+      (datum) => typeof datum.rawValue === 'number',
+    );
+    if (!valid.length) return null;
+
+    const current =
+      valid.find((datum) => datum.isCurrent) ?? valid[valid.length - 1];
+    const previous = valid.filter((datum) => datum.matchId !== current.matchId);
+
+    const average =
+      previous.length > 0
+        ? previous.reduce((sum, datum) => sum + (datum.rawValue ?? 0), 0) /
+          previous.length
+        : null;
+
+    const trailing = valid.slice(-5);
+    const trailingAverage =
+      trailing.length > 0
+        ? trailing.reduce((sum, datum) => sum + (datum.rawValue ?? 0), 0) /
+          trailing.length
+        : null;
+
+    const earlierWindow = valid.slice(
+      Math.max(valid.length - 10, 0),
+      Math.max(valid.length - 5, 0),
+    );
+    const earlierAverage =
+      earlierWindow.length > 0
+        ? earlierWindow.reduce(
+            (sum, datum) => sum + (datum.rawValue ?? 0),
+            0,
+          ) /
+          earlierWindow.length
+        : null;
+
+    const best = valid.reduce<ProgressChartDatum | null>((acc, datum) => {
+      if (datum.rawValue === null) return acc;
+      if (!acc || (datum.rawValue ?? -Infinity) > (acc.rawValue ?? -Infinity)) {
+        return datum;
+      }
+      return acc;
+    }, null);
+
+    const worst = valid.reduce<ProgressChartDatum | null>((acc, datum) => {
+      if (datum.rawValue === null) return acc;
+      if (!acc || (datum.rawValue ?? Infinity) < (acc.rawValue ?? Infinity)) {
+        return datum;
+      }
+      return acc;
+    }, null);
+
+    return {
+      metric,
+      current,
+      average,
+      trailingAverage,
+      earlierAverage,
+      best,
+      worst,
+    };
+  }, [progressChartData, selectedProgressMetric]);
+
+  const progressRangeLabel = useMemo(() => {
+    if (!progressMatches.length) return null;
+    const first = progressMatches[0];
+    const last = progressMatches[progressMatches.length - 1];
+    const firstDate = new Date(first.gameCreation).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    const lastDate = new Date(last.gameCreation).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    return firstDate === lastDate ? firstDate : `${firstDate} – ${lastDate}`;
+  }, [progressMatches]);
+
+  const progressChartConfig = useMemo<ChartConfig>(
+    () => ({
+      trend: {
+        label: progressMetricDefinition.label,
+        color: progressMetricDefinition.color,
+      },
+    }),
+    [progressMetricDefinition],
+  );
+
+  const subjectChampionName =
+    subjectParticipant?.championName ??
+    progressData?.championName ??
+    'Champion';
+
+  const normalizedRoleLabel = (progressData?.role ?? normalizedRole ?? 'UNKNOWN')
+    .toLowerCase();
+  const friendlyRoleLabel =
+    normalizedRoleLabel === 'utility'
+      ? 'support'
+      : normalizedRoleLabel === 'unknown'
+        ? 'role'
+        : normalizedRoleLabel;
+
+  const formatProgressValue = (value: number | null | undefined) =>
+    progressMetricDefinition.format(value ?? null);
+
+  const formatProgressDifference = (value: number | null) => {
+    if (value === null) return '—';
+    const formatted = progressMetricDefinition.format(Math.abs(value));
+    if (value > 0) return `+${formatted}`;
+    if (value < 0) return `-${formatted}`;
+    return formatted;
+  };
 
   const participantById = useMemo(() => {
     if (!matchData)
@@ -1912,6 +2186,267 @@ function MatchAnalysisComponent() {
 
           {/* Insights tab: previously Performance */}
           <TabsContent value="insights" className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="bg-neutral-900/90 backdrop-blur-sm border border-neutral-700/60">
+                <CardBody className="p-6 space-y-6">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-accent-yellow-400">
+                        <Clock className="h-4 w-4" />
+                        <span>Rewind</span>
+                      </div>
+                      <h2 className="text-2xl font-bold text-neutral-50">
+                        {subjectChampionName} progress
+                      </h2>
+                      <p className="text-sm text-neutral-400">
+                        Track how your {subjectChampionName} {friendlyRoleLabel}{' '}
+                        games have trended across the last {progressMatches.length}{' '}
+                        matches{progressRangeLabel ? ` (${progressRangeLabel})` : ''}.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(Object.keys(PROGRESS_METRICS) as ProgressMetricKey[]).map(
+                        (metricKey) => {
+                          const metric = PROGRESS_METRICS[metricKey];
+                          const isSelected = metricKey === selectedProgressMetric;
+                          const isAvailable = metricAvailability[metricKey];
+                          return (
+                            <Button
+                              key={metricKey}
+                              variant={isSelected ? 'secondary' : 'outline'}
+                              size="sm"
+                              disabled={!isAvailable}
+                              onClick={() => setSelectedProgressMetric(metricKey)}
+                            >
+                              {metric.label}
+                            </Button>
+                          );
+                        },
+                      )}
+                    </div>
+                  </div>
+
+                  {isProgressLoading ? (
+                    <div className="space-y-4">
+                      <div className="h-64 w-full animate-pulse rounded-lg bg-neutral-800/40" />
+                      <div className="grid gap-4 md:grid-cols-3">
+                        {[0, 1, 2].map((item) => (
+                          <div
+                            key={`progress-skeleton-${item}`}
+                            className="rounded-lg border border-neutral-800/60 bg-neutral-800/40 p-4"
+                          >
+                            <div className="h-4 w-1/2 rounded bg-neutral-700/50" />
+                            <div className="mt-3 h-6 w-1/3 rounded bg-neutral-700/50" />
+                            <div className="mt-2 h-3 w-2/3 rounded bg-neutral-700/40" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : filteredProgressChartData.length ? (
+                    <div className="space-y-6">
+                      <div className="grid gap-4 lg:grid-cols-[2fr,1fr]">
+                        <ChartContainer
+                          config={progressChartConfig}
+                          className="h-[320px] w-full"
+                        >
+                          <ComposedChart data={filteredProgressChartData}>
+                            <defs>
+                              <linearGradient
+                                id="progressGradient"
+                                x1="0"
+                                x2="0"
+                                y1="0"
+                                y2="1"
+                              >
+                                <stop
+                                  offset="5%"
+                                  stopColor={progressMetricDefinition.color}
+                                  stopOpacity={0.35}
+                                />
+                                <stop
+                                  offset="95%"
+                                  stopColor={progressMetricDefinition.color}
+                                  stopOpacity={0}
+                                />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="4 4" opacity={0.2} />
+                            <XAxis
+                              dataKey="label"
+                              tickLine={false}
+                              axisLine={false}
+                              tick={{ fill: '#9ca3af', fontSize: 12 }}
+                              minTickGap={16}
+                            />
+                            <YAxis
+                              tick={{ fill: '#9ca3af', fontSize: 12 }}
+                              axisLine={false}
+                              tickLine={false}
+                            />
+                            <RechartsTooltip
+                              cursor={{
+                                stroke: 'rgba(148, 163, 184, 0.4)',
+                                strokeWidth: 1,
+                              }}
+                              content={({ active, payload }) => {
+                                if (!active || !payload?.length) return null;
+                                const datum = payload[0]?.payload as
+                                  | ProgressChartDatum
+                                  | undefined;
+                                if (!datum) return null;
+                                return (
+                                  <div className="rounded-lg border border-neutral-700/60 bg-neutral-900/90 p-3 text-xs text-neutral-200">
+                                    <div className="flex items-center justify-between gap-4 text-neutral-100">
+                                      <span className="font-semibold">
+                                        {datum.isCurrent ? 'Current match' : `Match ${datum.order}`}
+                                      </span>
+                                      <span className={cn('text-[11px]', datum.win ? 'text-emerald-400' : 'text-red-400')}>
+                                        {datum.win ? 'Win' : 'Loss'}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-neutral-400">
+                                      {new Date(datum.gameCreation).toLocaleDateString()}
+                                    </div>
+                                    <div className="mt-3 text-sm font-semibold text-neutral-50">
+                                      {formatProgressValue(datum.rawValue)}
+                                    </div>
+                                  </div>
+                                );
+                              }}
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="value"
+                              stroke="none"
+                              fill="url(#progressGradient)"
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="value"
+                              stroke="var(--color-trend)"
+                              strokeWidth={2}
+                              dot={({ cx, cy, payload }) => {
+                                const datum = payload as ProgressChartDatum;
+                                const radius = datum.isCurrent ? 5 : 3;
+                                return (
+                                  <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={radius}
+                                    stroke="var(--color-trend)"
+                                    strokeWidth={datum.isCurrent ? 2 : 1}
+                                    fill={datum.isCurrent ? 'rgba(250, 204, 21, 0.9)' : '#0f172a'}
+                                  />
+                                );
+                              }}
+                              activeDot={{
+                                r: 6,
+                                strokeWidth: 2,
+                                stroke: 'var(--color-trend)',
+                                fill: 'rgba(250, 204, 21, 0.9)',
+                              }}
+                            />
+                            {progressSummary && progressSummary.average !== null && (
+                              <ReferenceLine
+                                y={
+                                  progressMetricDefinition.transform
+                                    ? progressMetricDefinition.transform(
+                                        progressSummary.average,
+                                      ) ?? undefined
+                                    : progressSummary.average
+                                }
+                                stroke="rgba(250, 204, 21, 0.45)"
+                                strokeDasharray="4 4"
+                              />
+                            )}
+                          </ComposedChart>
+                        </ChartContainer>
+                        <div className="space-y-4">
+                          <div className="rounded-lg border border-neutral-800/60 bg-neutral-800/40 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">
+                              Current match
+                            </p>
+                            <div className="mt-2 flex items-baseline justify-between">
+                              <span className="text-3xl font-semibold text-neutral-100">
+                                {formatProgressValue(progressSummary?.current?.rawValue ?? null)}
+                              </span>
+                              <span className="text-xs text-neutral-400">
+                                vs avg
+                                {' '}
+                                {formatProgressDifference(
+                                  typeof progressSummary?.current?.rawValue ===
+                                    'number' &&
+                                    typeof progressSummary?.average === 'number'
+                                    ? progressSummary.current.rawValue -
+                                      progressSummary.average
+                                    : null,
+                                )}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm text-neutral-400">
+                              {progressMetricDefinition.description}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-neutral-800/60 bg-neutral-800/40 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">
+                              Last 5 vs prior 5
+                            </p>
+                            <div className="mt-2 flex items-baseline justify-between">
+                              <span className="text-lg font-semibold text-neutral-100">
+                                {formatProgressValue(progressSummary?.trailingAverage ?? null)}
+                              </span>
+                              <span className="text-xs text-neutral-400">
+                                {formatProgressDifference(
+                                  typeof progressSummary?.trailingAverage ===
+                                    'number' &&
+                                    typeof progressSummary?.earlierAverage ===
+                                      'number'
+                                    ? progressSummary.trailingAverage -
+                                      progressSummary.earlierAverage
+                                    : null,
+                                )}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm text-neutral-400">
+                              Rolling momentum across your latest streak.
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-neutral-800/60 bg-neutral-800/40 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">
+                              Best &amp; worst
+                            </p>
+                            <div className="mt-2 space-y-1 text-sm text-neutral-300">
+                              <div className="flex items-center justify-between">
+                                <span className="text-neutral-400">Peak</span>
+                                <span className="font-semibold text-neutral-100">
+                                  {formatProgressValue(progressSummary?.best?.rawValue ?? null)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-neutral-400">Low</span>
+                                <span className="font-semibold text-neutral-100">
+                                  {formatProgressValue(progressSummary?.worst?.rawValue ?? null)}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="mt-1 text-xs text-neutral-500">
+                              Use these outliers to review what went right or wrong.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 p-4 text-sm text-neutral-400">
+                      Not enough recent games on this champion-role to chart your progress yet.
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </motion.div>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

@@ -55,6 +55,33 @@ export interface MatchBuildSuggestionsResponse {
   overallAnalysis: string;
 }
 
+export interface MatchProgressEntry {
+  matchId: string;
+  gameCreation: number;
+  gameEndTimestamp?: number;
+  gameDuration: number;
+  queueId: number;
+  championName: string;
+  role: string;
+  win: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  csPerMin: number | null;
+  damagePerMin: number | null;
+  goldPerMin: number | null;
+  visionPerMin: number | null;
+  killParticipation: number | null;
+  kda: number | null;
+}
+
+export interface MatchProgressResponse {
+  championName: string;
+  role: string;
+  matches: MatchProgressEntry[];
+  limit: number;
+}
+
 // Query options for match data
 export const getMatchDataQueryOptions = (
   region: string,
@@ -131,6 +158,23 @@ export const getMatchBuildSuggestionsQueryOptions = (
     staleTime: 1000 * 60 * 10,
   });
 
+export const getMatchProgressQueryOptions = (
+  region: string,
+  name: string,
+  tag: string,
+  matchId: string,
+) =>
+  queryOptions({
+    queryKey: ['match-progress', region, name, tag, matchId],
+    queryFn: () =>
+      http
+        .get<MatchProgressResponse>(
+          `/v1/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}/match/${matchId}/progress`,
+        )
+        .then((res) => res.data),
+    staleTime: 1000 * 60 * 10,
+  });
+
 // Combined query options for all match data
 export const getAllMatchDataQueryOptions = (
   region: string,
@@ -142,6 +186,7 @@ export const getAllMatchDataQueryOptions = (
   timeline: getTimelineDataQueryOptions(region, name, tag, matchId),
   insights: getMatchInsightsQueryOptions(region, name, tag, matchId),
   builds: getMatchBuildSuggestionsQueryOptions(region, name, tag, matchId),
+  progress: getMatchProgressQueryOptions(region, name, tag, matchId),
 });
 
 // Champion-role detail (player vs cohort) used for match-level comparisons

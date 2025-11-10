@@ -28,6 +28,7 @@ import { championMastery } from '../../aggregations/championMastery.js';
 import { enemyStatsByRolePUUID } from '../../aggregations/enemyStatsByRolePUUID.js';
 import { getMatchBuilds } from '../../aggregations/matchBuilds.js';
 import { playerChampRoleStatsAggregation } from '../../aggregations/playerChampRoleStats.js';
+import { playerChampionProgressAggregation } from '../../aggregations/playerChampionProgress.js';
 import { playerChampsByRole } from '../../aggregations/playerChampsByRole.js';
 import { playerHeatmap } from '../../aggregations/playerHeatmap.js';
 import { playerOverviewWithOpponents } from '../../aggregations/playerOverviewWithOpponents.js';
@@ -64,6 +65,16 @@ import { deriveSynergy } from '../../utils/synergy.js';
 const UUID_NAMESPACE = '76ac778b-c771-4136-8637-44c5faa11286';
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+const normalizeRoleValue = (role: string | null | undefined): string => {
+  const value = (role ?? '').toUpperCase();
+  if (value === 'TOP') return 'TOP';
+  if (value === 'JUNGLE') return 'JUNGLE';
+  if (value === 'MIDDLE' || value === 'MID') return 'MIDDLE';
+  if (value === 'BOTTOM' || value === 'ADC' || value === 'BOT') return 'BOTTOM';
+  if (value === 'UTILITY' || value === 'SUPPORT' || value === 'SUP') return 'UTILITY';
+  return 'UNKNOWN';
+};
 
 const accountMiddleware = createMiddleware<{
   Variables: {
@@ -1956,6 +1967,103 @@ app.get(
   },
 );
 
+app.get(
+  '/:region/:tagName/:tagLine/match/:matchId/progress',
+  accountMiddleware,
+  async (c) => {
+    const { matchId } = c.req.param();
+    const puuid = c.var.account.puuid;
+    const limitParam = Number.parseInt(c.req.query('limit') ?? '', 10);
+    const requestedLimit = Number.isFinite(limitParam) ? limitParam : 20;
+    const limit = Math.max(1, Math.min(requestedLimit, 50));
+
+    type Participant = {
+      puuid?: string;
+      championName?: string;
+      teamPosition?: string;
+      individualPosition?: string;
+    } & Record<string, unknown>;
+
+    type MatchDoc = {
+      info?: {
+        gameCreation?: number;
+        gameEndTimestamp?: number;
+        participants?: Participant[];
+      };
+    };
+
+    const match = await collections.matches.findOne<MatchDoc>(
+      {
+        'metadata.matchId': matchId,
+      },
+      {
+        projection: {
+          'info.gameCreation': 1,
+          'info.gameEndTimestamp': 1,
+          'info.participants': 1,
+        },
+      },
+    );
+
+    if (!match) {
+      throw new HTTPException(404, { message: 'Match not found' });
+    }
+
+    const participants = Array.isArray(match.info?.participants)
+      ? (match.info?.participants as Participant[])
+      : [];
+
+    const subject = participants.find((p) => p?.puuid === puuid) ?? null;
+
+    if (!subject) {
+      throw new HTTPException(404, {
+        message: 'Player not found in match',
+      });
+    }
+
+    const championName =
+      typeof subject.championName === 'string' ? subject.championName : null;
+
+    if (!championName) {
+      throw new HTTPException(400, {
+        message: 'Champion information missing for player in match',
+      });
+    }
+
+    const normalizedRole = normalizeRoleValue(
+      subject.teamPosition ?? subject.individualPosition ?? 'UNKNOWN',
+    );
+
+    const before =
+      typeof match.info?.gameCreation === 'number'
+        ? match.info.gameCreation
+        : typeof match.info?.gameEndTimestamp === 'number'
+          ? match.info.gameEndTimestamp
+          : undefined;
+
+    const since =
+      typeof before === 'number' ? before - ONE_YEAR_MS : undefined;
+
+    const pipeline = playerChampionProgressAggregation(
+      puuid,
+      championName,
+      normalizedRole,
+      { limit, before, since },
+    );
+
+    const matches = await collections.matches
+      .aggregate<MatchProgressEntry>(pipeline, { allowDiskUse: false })
+      .toArray();
+
+    return c.json({
+      championName,
+      role: normalizedRole,
+      matches,
+      limit,
+    });
+  },
+);
+
 interface Player {
   isActive: boolean;
   championName: string;
@@ -1998,6 +2106,26 @@ interface Player {
     damageSelfMitigated: number;
   };
 }
+
+type MatchProgressEntry = {
+  matchId: string;
+  gameCreation: number;
+  gameEndTimestamp?: number;
+  gameDuration: number;
+  queueId: number;
+  championName: string;
+  role: string;
+  win: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  csPerMin: number | null;
+  damagePerMin: number | null;
+  goldPerMin: number | null;
+  visionPerMin: number | null;
+  killParticipation: number | null;
+  kda: number | null;
+};
 
 type MatchBuilds = {
   gameVersion: string;
